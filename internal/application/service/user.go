@@ -24,6 +24,7 @@ import (
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/dingtalk"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -104,6 +105,10 @@ type userService struct {
 	memberService    interfaces.TenantMemberService
 	config           *config.Config
 	systemSettingSvc interfaces.SystemSettingService
+	// 钉钉扫码登录依赖（二开 fork 新增）。仅当 dingtalk_auth.enable 时由
+	// container 通过 SetDingTalkDeps 注入；为 nil 时 LoginWithDingTalk 报错。
+	dingtalkLogin *dingtalk.LoginService
+	dingtalkRepo  *dingtalk.Repository
 }
 
 // NewUserService creates a new user service instance
@@ -127,6 +132,14 @@ func NewUserService(
 
 func (s *userService) complexPasswordEnabled(ctx context.Context) bool {
 	return ResolveComplexPasswordEnabled(ctx, s.config, s.systemSettingSvc)
+}
+
+// SetDingTalkDeps 注入钉钉扫码登录依赖（二开 fork 新增）。container 在
+// NewUserService 之后按 dingtalk_auth.enable 条件调用，避免改动
+// NewUserService 签名影响既有调用点与测试 fixture。
+func (s *userService) SetDingTalkDeps(login *dingtalk.LoginService, repo *dingtalk.Repository) {
+	s.dingtalkLogin = login
+	s.dingtalkRepo = repo
 }
 
 // Register creates a new user account
@@ -560,6 +573,213 @@ func (s *userService) LoginWithOIDC(
 		RefreshToken: refreshToken,
 		IsNewUser:    isNewUser,
 	}, nil
+}
+
+// LoginWithDingTalk 钉钉扫码登录（二开 fork 新增）：用 authCode 换钉钉侧用户
+// 资料，按「绑定表 → 邮箱 → 自动注册」的顺序合并账号，最后签发本地 JWT。
+// provisioning 仅对新建的本地账号生效（由调用方从 auth.default_tenant_mode
+// 解析），结构与 LoginWithOIDC 保持一致。
+func (s *userService) LoginWithDingTalk(
+	ctx context.Context,
+	authCode string,
+	provisioning types.TenantProvisioningMode,
+) (*types.OIDCCallbackResponse, error) {
+	if strings.TrimSpace(authCode) == "" {
+		return nil, errors.New("authCode is required")
+	}
+	if s.dingtalkLogin == nil || s.dingtalkRepo == nil {
+		return nil, errors.New("DingTalk login is disabled")
+	}
+
+	profile, err := s.dingtalkLogin.LoginWithAuthCode(ctx, authCode)
+	if err != nil {
+		return nil, err
+	}
+
+	// 钉钉侧未配置邮箱时用占位邮箱兜底，保证 users.email 非空且按 unionId 唯一。
+	email := strings.TrimSpace(profile.Email)
+	if email == "" {
+		email = profile.UnionID + "@dingtalk.local"
+	}
+
+	user, isNewUser, err := s.mergeDingTalkUser(ctx, profile, email, provisioning)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsActive {
+		return &types.OIDCCallbackResponse{Success: false, Message: "Account is disabled"}, nil
+	}
+
+	// Resolve target tenant once so the JWT claim and the tenant we
+	// return below stay in sync; see Login for the rationale.
+	resolvedTenantID := s.resolveLoginTenantID(ctx, user)
+	accessToken, refreshToken, err := s.generateTokensForTenant(ctx, user, resolvedTenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate local tokens: %w", err)
+	}
+
+	// 与 OIDC 登录一致：拉取 tenant + memberships，前端无须再走一次 /auth/me。
+	var tenant *types.Tenant
+	if resolvedTenantID > 0 {
+		if t, terr := s.tenantService.GetTenantByID(ctx, resolvedTenantID); terr == nil {
+			tenant = t
+		} else {
+			logger.Warnf(ctx, "DingTalk login: failed to load tenant %d for user %s: %v",
+				resolvedTenantID, user.ID, terr)
+		}
+	}
+	memberships := s.buildMembershipsForUser(ctx, user, tenant)
+
+	// 登录成功，刷新绑定表的最近登录时间（best-effort，不阻断登录）。
+	if terr := s.dingtalkRepo.TouchLogin(ctx, profile.CorpID, dingTalkIdentityKey(profile)); terr != nil {
+		logger.Warnf(ctx, "DingTalk login: failed to touch last_login_at (unionId=%s): %v",
+			profile.UnionID, terr)
+	}
+
+	return &types.OIDCCallbackResponse{
+		Success:      true,
+		Message:      "登录成功",
+		User:         user,
+		Tenant:       tenant,
+		Memberships:  memberships,
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+		IsNewUser:    isNewUser,
+	}, nil
+}
+
+// mergeDingTalkUser 钉钉账号合并规则：
+//  1. 绑定表按 unionId 命中 → 取绑定的本地账号；
+//  2. 未命中则按邮箱找既有账号 → 命中则建立绑定（账号合并）；
+//  3. 都未命中 → 自动注册新账号并建立绑定。
+//
+// 返回值为 (本地用户, 是否新建, 错误)。
+func (s *userService) mergeDingTalkUser(
+	ctx context.Context,
+	profile *dingtalk.DingTalkUserProfile,
+	email string,
+	provisioning types.TenantProvisioningMode,
+) (*types.User, bool, error) {
+	identity, err := s.dingtalkRepo.GetByUnionID(ctx, profile.CorpID, profile.UnionID)
+	switch {
+	case err == nil && identity != nil:
+		user, uerr := s.userRepo.GetUserByID(ctx, identity.UserID)
+		if uerr != nil {
+			return nil, false, fmt.Errorf("failed to load dingtalk-bound user: %w", uerr)
+		}
+		return user, false, nil
+	case err != nil && !errors.Is(err, dingtalk.ErrIdentityNotFound):
+		return nil, false, fmt.Errorf("failed to query dingtalk identity: %w", err)
+	}
+
+	user, err := s.userRepo.GetUserByEmail(ctx, email)
+	if err != nil && !isUserLookupNotFound(err) {
+		return nil, false, fmt.Errorf("failed to query user by email: %w", err)
+	}
+	if err == nil && user != nil {
+		if berr := s.dingtalkRepo.BindToUser(ctx, profile.CorpID, dingTalkIdentityKey(profile),
+			profile.UnionID, user.ID, profile.Nick, profile.Mobile, email); berr != nil {
+			return nil, false, fmt.Errorf("failed to bind dingtalk identity: %w", berr)
+		}
+		return user, false, nil
+	}
+
+	user, err = s.provisionDingTalkUser(ctx, profile, email, provisioning)
+	if err != nil {
+		return nil, false, err
+	}
+	return user, true, nil
+}
+
+// provisionDingTalkUser 为首次钉钉登录自动创建本地账号（结构照抄
+// provisionOIDCUser）。注册后额外建立钉钉身份绑定；若配置了
+// dingtalk_auth.default_tenant_id，再把新账号加为该空间的 viewer（best-effort，
+// 失败仅记日志，成员关系可由管理员后续补齐）。
+func (s *userService) provisionDingTalkUser(
+	ctx context.Context,
+	profile *dingtalk.DingTalkUserProfile,
+	email string,
+	provisioning types.TenantProvisioningMode,
+) (*types.User, error) {
+	username := s.generateDingTalkUsername(ctx, profile)
+	randomPassword, err := generateRandomString(32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate password for DingTalk user: %w", err)
+	}
+
+	user, err := s.Register(ctx, &types.RegisterRequest{
+		Username:           username,
+		Email:              email,
+		Password:           randomPassword,
+		TenantProvisioning: provisioning,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to auto-provision DingTalk user: %w", err)
+	}
+
+	// 与 OIDC 自动注册同理：随机密码用户从未见过，标记后前端隐藏自助改密入口。
+	oidcOnly := true
+	user.Preferences.OidcOnlyLogin = &oidcOnly
+	user.UpdatedAt = time.Now()
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		return nil, fmt.Errorf("failed to mark OIDC-only login preference: %w", err)
+	}
+
+	if err := s.dingtalkRepo.BindToUser(ctx, profile.CorpID, dingTalkIdentityKey(profile),
+		profile.UnionID, user.ID, profile.Nick, profile.Mobile, email); err != nil {
+		return nil, fmt.Errorf("failed to bind dingtalk identity: %w", err)
+	}
+
+	if s.config != nil && s.config.DingTalkAuth != nil &&
+		s.config.DingTalkAuth.DefaultTenantID > 0 && s.memberService != nil {
+		tenantID := s.config.DingTalkAuth.DefaultTenantID
+		if _, err := s.memberService.AddMember(ctx, user.ID, tenantID, types.TenantRoleViewer, nil); err != nil {
+			logger.Warnf(ctx, "DingTalk login: failed to add user %s to default tenant %d as viewer: %v",
+				user.ID, tenantID, err)
+		}
+	}
+	return user, nil
+}
+
+// dingTalkIdentityKey 返回绑定表 (ding_user_id, corp_id) 唯一键里的 ding_user_id。
+// 企业权限不足拿不到企业内部 userid 时（LoginWithAuthCode 留空），用
+// "union:" 前缀 + unionId 占位，避免多个用户的空 ding_user_id 在唯一索引上
+// 互相冲突；后续通讯录同步可按 unionId 对账补齐真实 userid。
+func dingTalkIdentityKey(profile *dingtalk.DingTalkUserProfile) string {
+	if profile.DingUserID != "" {
+		return profile.DingUserID
+	}
+	return "union:" + profile.UnionID
+}
+
+// generateDingTalkUsername 参考 generateOIDCUsername：基于昵称生成 "dt-" 前缀
+// 的用户名，重名时追加序号，兜底带时间戳。
+func (s *userService) generateDingTalkUsername(ctx context.Context, profile *dingtalk.DingTalkUserProfile) string {
+	base := sanitizeUsernameCandidate(profile.Nick)
+	if base == "" {
+		base = sanitizeUsernameCandidate(profile.UnionID)
+	}
+	if base == "" {
+		base = "user"
+	}
+	base = "dt-" + base
+	if len(base) > 50 {
+		base = strings.Trim(base[:50], "-._")
+	}
+
+	candidate := base
+	for i := 0; i < 20; i++ {
+		existing, err := s.userRepo.GetUserByUsername(ctx, candidate)
+		if isUserLookupNotFound(err) || (err == nil && existing == nil) {
+			return candidate
+		}
+		if err != nil && !isUserLookupNotFound(err) {
+			logger.Warnf(ctx, "Failed to check existing DingTalk username %q: %v", candidate, err)
+		}
+		candidate = fmt.Sprintf("%s-%d", base, i+1)
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().Unix())
 }
 
 // GetUserByID gets a user by ID

@@ -69,6 +69,7 @@ import (
 	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
 	rssConnector "github.com/Tencent/WeKnora/internal/datasource/connector/rss"
 	yuqueConnector "github.com/Tencent/WeKnora/internal/datasource/connector/yuque"
+	dingtalkauth "github.com/Tencent/WeKnora/internal/dingtalk"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
@@ -247,6 +248,10 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
+	// 钉钉扫码登录依赖注入（二开 fork 新增）：不改 NewUserService 签名，
+	// 仅在 dingtalk_auth.enable 时通过 setter 接线，未启用时
+	// LoginWithDingTalk 返回 "DingTalk login is disabled"。
+	must(container.Invoke(wireDingTalkLogin))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewModelCatalogService))
 	must(container.Provide(func(
@@ -2012,4 +2017,28 @@ func startAuditLogRetention(
 		runner.StopWithin(cleanupStepTimeout)
 		return nil
 	})
+}
+
+// wireDingTalkLogin 在 dingtalk_auth.enable 时把钉钉 client / 绑定表 repo /
+// 登录编排 service 注入 userService（二开 fork 新增）。未启用时直接返回，
+// userService 的钉钉依赖保持 nil，LoginWithDingTalk 报错。
+func wireDingTalkLogin(cfg *config.Config, db *gorm.DB, us interfaces.UserService) {
+	if cfg == nil || cfg.DingTalkAuth == nil || !cfg.DingTalkAuth.Enable {
+		return
+	}
+	repo := dingtalkauth.NewRepository(db)
+	client := dingtalkauth.NewClient(
+		cfg.DingTalkAuth.AppKey, cfg.DingTalkAuth.AppSecret, cfg.DingTalkAuth.CorpID)
+	loginService := dingtalkauth.NewLoginService(client, repo)
+
+	aware, ok := us.(interface {
+		SetDingTalkDeps(*dingtalkauth.LoginService, *dingtalkauth.Repository)
+	})
+	if !ok {
+		logger.Errorf(context.Background(),
+			"[Container] UserService does not support SetDingTalkDeps; DingTalk login will stay disabled")
+		return
+	}
+	aware.SetDingTalkDeps(loginService, repo)
+	logger.Infof(context.Background(), "[Container] DingTalk auth wired (corp_id=%s)", cfg.DingTalkAuth.CorpID)
 }
