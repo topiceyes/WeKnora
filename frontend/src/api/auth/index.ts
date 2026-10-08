@@ -70,19 +70,15 @@ export interface OIDCConfigResponse {
 
 export interface DingTalkConfigResponse {
   success: boolean
-  data?: {
-    enable: boolean
-    client_id?: string
-    provider_display_name?: string
-  }
+  enabled?: boolean
+  client_id?: string
+  provider_display_name?: string
   message?: string
 }
 
 export interface DingTalkAuthURLResponse {
   success: boolean
-  data?: {
-    url: string
-  }
+  authorization_url?: string
   message?: string
 }
 

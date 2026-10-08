@@ -629,8 +629,8 @@ const getBackendDingTalkRedirectURI = () => `${window.location.origin}/api/v1/au
 const loadDingTalkConfig = async () => {
   try {
     const response = await getDingTalkConfig()
-    dingtalkEnabled.value = !!response.success && !!response.data?.enable
-    dingtalkProviderName.value = response.data?.provider_display_name || ''
+    dingtalkEnabled.value = !!response.success && !!response.enabled
+    dingtalkProviderName.value = response.provider_display_name || ''
   } catch {
     dingtalkEnabled.value = false
     dingtalkProviderName.value = ''
@@ -677,7 +677,7 @@ const handleDingTalkLogin = async () => {
   try {
     dingtalkLoading.value = true
     const response = await getDingTalkAuthUrl(getBackendDingTalkRedirectURI())
-    const authorizationURL = response.data?.url
+    const authorizationURL = response.authorization_url
 
     if (!response.success || !authorizationURL) {
       MessagePlugin.error(response.message || t('auth.dingtalkLoginFailed'))
