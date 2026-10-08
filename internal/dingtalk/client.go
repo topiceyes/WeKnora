@@ -143,13 +143,14 @@ func (c *Client) GetUserMe(ctx context.Context, userToken string) (*ContactUserM
 	return &resp, nil
 }
 
-// GetUserIDByUnionID 用 unionId 换企业内部 userid（POST /topapi/v2/user/getbyunionid，需企业 token）。
+// GetUserIDByUnionID 用 unionId 换企业内部 userid（POST /topapi/user/getbyunionid，需企业 token）。
+// 注意：该接口没有 /v2/ 变体，v2 路径会返回 errcode=22「不合法ApiName」。
 func (c *Client) GetUserIDByUnionID(ctx context.Context, unionID string) (string, error) {
 	token, err := c.GetCorpAccessToken(ctx)
 	if err != nil {
 		return "", err
 	}
-	u := fmt.Sprintf("%s/topapi/v2/user/getbyunionid?access_token=%s", corpAPIBase, token)
+	u := fmt.Sprintf("%s/topapi/user/getbyunionid?access_token=%s", corpAPIBase, token)
 	var resp struct {
 		ErrCode int    `json:"errcode"`
 		ErrMsg  string `json:"errmsg"`
@@ -188,8 +189,8 @@ func (c *Client) ListDepartmentIDs(ctx context.Context) ([]int64, error) {
 		var resp struct {
 			ErrCode int    `json:"errcode"`
 			ErrMsg  string `json:"errmsg"`
-			Result  []struct {
-				DeptID int64 `json:"dept_id"`
+			Result  struct {
+				DeptIDList []int64 `json:"dept_id_list"`
 			} `json:"result"`
 		}
 		if err := c.do(ctx, http.MethodPost, u, map[string]int64{"dept_id": deptID}, "", &resp); err != nil {
@@ -198,19 +199,21 @@ func (c *Client) ListDepartmentIDs(ctx context.Context) ([]int64, error) {
 		if resp.ErrCode != 0 {
 			return nil, fmt.Errorf("listsubid(dept=%d) failed: errcode=%d errmsg=%s", deptID, resp.ErrCode, redact(resp.ErrMsg, c.appSecret))
 		}
-		for _, r := range resp.Result {
-			if !seen[r.DeptID] {
-				seen[r.DeptID] = true
-				queue = append(queue, r.DeptID)
+		for _, id := range resp.Result.DeptIDList {
+			if !seen[id] {
+				seen[id] = true
+				queue = append(queue, id)
 			}
 		}
 	}
 	return all, nil
 }
 
-// DeptUserDetail 部门成员详情（对账用）。
+// DeptUserDetail 部门成员详情（对账用）。UnionID 用于把登录时创建的
+// "union:" 占位绑定升级成真实企业 userid。
 type DeptUserDetail struct {
 	UserID     string  `json:"userid"`
+	UnionID    string  `json:"unionid"`
 	Name       string  `json:"name"`
 	Mobile     string  `json:"mobile"`
 	Email      string  `json:"email"`

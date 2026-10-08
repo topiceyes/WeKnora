@@ -160,8 +160,9 @@ func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUse
 	return remote, nil
 }
 
-// upsertRemoteUsers 第一遍对账：更新已有绑定的资料快照；无绑定但 email
-// 匹配本地账号时补绑定（不主动为陌生人建账号）。
+// upsertRemoteUsers 第一遍对账：更新已有绑定的资料快照；无 userid 绑定
+// 但 unionid 能对上占位记录 → 升级成真实 userid；否则 email 匹配本地
+// 账号时补绑定（不主动为陌生人建账号）。
 func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*DeptUserDetail) (created, updated int) {
 	now := time.Now()
 	for dingUserID, du := range remote {
@@ -181,6 +182,12 @@ func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*
 			}
 			updated++
 		case errors.Is(err, ErrIdentityNotFound):
+			// user/list 的返回带 unionid：登录时因权限缺失只留下 "union:"
+			// 占位记录的，这里直接升级成真实 userid，无需等本人再扫码。
+			if s.repairPlaceholder(ctx, du, now) {
+				updated++
+				continue
+			}
 			if s.bindByEmail(ctx, du) {
 				created++
 			}
@@ -191,7 +198,37 @@ func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*
 	return created, updated
 }
 
+// repairPlaceholder 按 unionid 找到 "union:" 占位绑定并升级成真实 userid。
+// 走主键 Update 而非 Upsert：占位 ding_user_id 被替换后 Upsert 的匹配键
+// 会 miss，变成插新行 + 孤儿占位记录。
+func (s *SyncService) repairPlaceholder(ctx context.Context, du *DeptUserDetail, now time.Time) bool {
+	unionID := strings.TrimSpace(du.UnionID)
+	if unionID == "" {
+		return false
+	}
+	identity, err := s.repo.GetByUnionID(ctx, s.corpID, unionID)
+	if err != nil {
+		return false
+	}
+	identity.DingUserID = du.UserID
+	identity.Nick = du.Name
+	identity.Mobile = du.Mobile
+	identity.Email = du.Email
+	identity.Title = du.Title
+	identity.JobNumber = du.JobNumber
+	identity.DeptIDList = Int64List(du.DeptIDList)
+	identity.LastSyncedAt = &now
+	if err := s.repo.Update(ctx, identity); err != nil {
+		logger.Warnf(ctx, "DingTalk sync: repair placeholder for union %s failed: %v", unionID, err)
+		return false
+	}
+	logger.Infof(ctx, "DingTalk sync: upgraded placeholder binding (union %s) to userid %s", unionID, du.UserID)
+	return true
+}
+
 // bindByEmail 按 email 匹配本地账号补绑定。匹配不到 / 查询失败均跳过（下个周期再试）。
+// 本地账号已有绑定（如占位记录 unionid 与远端不一致）时改为原行覆盖，
+// 避免触碰 user_id 唯一索引。
 func (s *SyncService) bindByEmail(ctx context.Context, du *DeptUserDetail) bool {
 	email := strings.TrimSpace(du.Email)
 	if email == "" || s.userRepo == nil {
@@ -201,7 +238,24 @@ func (s *SyncService) bindByEmail(ctx context.Context, du *DeptUserDetail) bool 
 	if err != nil || user == nil {
 		return false
 	}
-	if err := s.repo.BindToUser(ctx, s.corpID, du.UserID, "", user.ID, du.Name, du.Mobile, email); err != nil {
+	// 本地账号已有绑定行（unionid 与远端不一致的占位记录等）时覆盖原行，
+	// 避免插入第二行触碰 user_id 唯一索引。
+	if existing, gerr := s.repo.GetByUserID(ctx, user.ID); gerr == nil && existing != nil {
+		now := time.Now()
+		existing.UnionID = du.UnionID
+		existing.DingUserID = du.UserID
+		existing.Nick = du.Name
+		existing.Mobile = du.Mobile
+		existing.Email = email
+		existing.LastSyncedAt = &now
+		if err := s.repo.Update(ctx, existing); err != nil {
+			logger.Warnf(ctx, "DingTalk sync: rebind user %s failed: %v", user.ID, err)
+			return false
+		}
+		logger.Infof(ctx, "DingTalk sync: rebound local user %s to ding user %s", user.ID, du.UserID)
+		return true
+	}
+	if err := s.repo.BindToUser(ctx, s.corpID, du.UserID, du.UnionID, user.ID, du.Name, du.Mobile, email); err != nil {
 		logger.Warnf(ctx, "DingTalk sync: bind %s to user %s failed: %v", du.UserID, user.ID, err)
 		return false
 	}

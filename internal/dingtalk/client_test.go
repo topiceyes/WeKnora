@@ -146,7 +146,7 @@ func TestGetUserIDByUnionID(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"errcode": 0, "access_token": "corp-token", "expire_in": 7200,
 			})
-		case "/topapi/v2/user/getbyunionid":
+		case "/topapi/user/getbyunionid":
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"errcode": 0,
 				"result":  map[string]string{"userid": "ding-user-9"},

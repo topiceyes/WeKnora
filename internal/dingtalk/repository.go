@@ -87,6 +87,13 @@ func (r *Repository) Upsert(ctx context.Context, id *Identity) error {
 	return r.db.WithContext(ctx).Save(id).Error
 }
 
+// Update 按主键保存整行。用于升级 "union:" 占位记录：占位 ding_user_id
+// 即将被替换成真实 userid，Upsert 的 (ding_user_id, corp_id) 匹配键会
+// miss 并误插新行，所以这里必须走主键。
+func (r *Repository) Update(ctx context.Context, id *Identity) error {
+	return r.db.WithContext(ctx).Save(id).Error
+}
+
 // BindToUser 把 ding_user_id 绑定到指定本地账号（幂等，同时更新 profile 快照）。
 func (r *Repository) BindToUser(ctx context.Context, corpID, dingUserID, unionID, localUserID, nick, mobile, email string) error {
 	now := time.Now()
