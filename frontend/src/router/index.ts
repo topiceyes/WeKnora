@@ -217,6 +217,12 @@ const router = createRouter({
           redirect: { path: "/platform/settings", query: { section: "runtime-queues" } },
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
+        {
+          path: "system/users",
+          name: "systemUsers",
+          redirect: { path: "/platform/settings", query: { section: "platform-users" } },
+          meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
+        },
       ],
     },
     // Dev-only markdown rendering test page

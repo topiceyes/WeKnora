@@ -24,6 +24,110 @@ export async function deletePlatformAPIKey(keyId: number): Promise<{ success: bo
   return await del(`/api/v1/system/admin/api-keys/${keyId}`) as unknown as { success: boolean }
 }
 
+// ---------------------------------------------------------------------------
+// 平台用户与钉钉组织架构（二开 fork 新增，SystemAdmin 门控）
+// ---------------------------------------------------------------------------
+
+export interface PlatformUserRow {
+  id: string
+  username: string
+  email: string
+  avatar: string
+  is_active: boolean
+  is_system_admin: boolean
+  created_at: string
+}
+
+export interface PlatformUsersResponse {
+  success: boolean
+  data?: {
+    list: PlatformUserRow[]
+    total: number
+    page: number
+    page_size: number
+  }
+  error?: string
+}
+
+export async function listPlatformUsers(page = 1, pageSize = 50): Promise<PlatformUsersResponse> {
+  return await get(`/api/v1/system/users?page=${page}&page_size=${pageSize}`) as unknown as PlatformUsersResponse
+}
+
+export interface DingTalkIdentityRow {
+  id: number
+  user_id: string
+  union_id: string
+  ding_user_id: string
+  corp_id: string
+  nick: string
+  mobile: string
+  email: string
+  dept_id_list: number[]
+  job_number: string
+  title: string
+  last_login_at?: string
+  last_synced_at?: string
+  username: string
+  user_email: string
+  is_active: boolean
+}
+
+export async function listDingTalkIdentities(
+  page = 1,
+  pageSize = 50,
+  keyword = '',
+): Promise<{ success: boolean; data?: { identities: DingTalkIdentityRow[]; total: number; page: number; page_size: number } }> {
+  const kw = keyword ? `&keyword=${encodeURIComponent(keyword)}` : ''
+  return await get(`/api/v1/system/dingtalk/identities?page=${page}&page_size=${pageSize}${kw}`) as unknown as {
+    success: boolean
+    data?: { identities: DingTalkIdentityRow[]; total: number; page: number; page_size: number }
+  }
+}
+
+export interface DingTalkDepartment {
+  dept_id: number
+  name: string
+  parent_id: number
+}
+
+export async function listDingTalkDepartments(): Promise<{ success: boolean; data?: { departments: DingTalkDepartment[] } }> {
+  return await get('/api/v1/system/dingtalk/departments') as unknown as {
+    success: boolean
+    data?: { departments: DingTalkDepartment[] }
+  }
+}
+
+export interface DingTalkSyncRun {
+  id: number
+  trigger_type: string
+  status: string
+  started_at: string
+  finished_at?: string
+  total_remote: number
+  created_count: number
+  updated_count: number
+  deactivated_count: number
+  error_message: string
+}
+
+export async function listDingTalkSyncRuns(
+  page = 1,
+  pageSize = 20,
+): Promise<{ success: boolean; data?: { runs: DingTalkSyncRun[]; total: number; page: number; page_size: number } }> {
+  return await get(`/api/v1/system/dingtalk/sync/runs?page=${page}&page_size=${pageSize}`) as unknown as {
+    success: boolean
+    data?: { runs: DingTalkSyncRun[]; total: number; page: number; page_size: number }
+  }
+}
+
+export async function triggerDingTalkSync(): Promise<{ success: boolean; data?: DingTalkSyncRun; error?: unknown }> {
+  return await post('/api/v1/system/dingtalk/sync', { trigger_type: 'manual' }) as unknown as {
+    success: boolean
+    data?: DingTalkSyncRun
+    error?: unknown
+  }
+}
+
 export interface SystemInfo {
   version: string
   edition?: string

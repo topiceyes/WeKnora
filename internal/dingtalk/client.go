@@ -209,6 +209,68 @@ func (c *Client) ListDepartmentIDs(ctx context.Context) ([]int64, error) {
 	return all, nil
 }
 
+// SubDepartment 子部门信息（组织架构展示用）。
+type SubDepartment struct {
+	DeptID   int64  `json:"dept_id"`
+	Name     string `json:"name"`
+	ParentID int64  `json:"parent_id"`
+}
+
+// ListSubDepartments 拉取某部门的直接子部门（POST /topapi/v2/department/listsub，
+// 需企业 token）。size 单页上限 100，这里循环 offset 直到取短页。
+func (c *Client) ListSubDepartments(ctx context.Context, parentID int64) ([]SubDepartment, error) {
+	token, err := c.GetCorpAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("%s/topapi/v2/department/listsub?access_token=%s", corpAPIBase, token)
+	const pageSize = 100
+	var all []SubDepartment
+	for offset := 0; ; offset += pageSize {
+		var resp struct {
+			ErrCode int             `json:"errcode"`
+			ErrMsg  string          `json:"errmsg"`
+			Result  []SubDepartment `json:"result"`
+		}
+		body := map[string]int64{"dept_id": parentID, "size": pageSize, "offset": int64(offset)}
+		if err := c.do(ctx, http.MethodPost, u, body, "", &resp); err != nil {
+			return nil, err
+		}
+		if resp.ErrCode != 0 {
+			return nil, fmt.Errorf("listsub(dept=%d) failed: errcode=%d errmsg=%s", parentID, resp.ErrCode, redact(resp.ErrMsg, c.appSecret))
+		}
+		all = append(all, resp.Result...)
+		if len(resp.Result) < pageSize {
+			return all, nil
+		}
+	}
+}
+
+// ListDepartmentTree 从根部门递归拉取全量部门（带名称，供组织架构展示）。
+// 返回扁平列表（不含根部门本身），前端按 parent_id 组树。
+func (c *Client) ListDepartmentTree(ctx context.Context) ([]SubDepartment, error) {
+	var all []SubDepartment
+	queue := []int64{1}
+	seen := map[int64]bool{1: true}
+	for len(queue) > 0 {
+		deptID := queue[0]
+		queue = queue[1:]
+		subs, err := c.ListSubDepartments(ctx, deptID)
+		if err != nil {
+			return nil, fmt.Errorf("list sub departments (dept=%d): %w", deptID, err)
+		}
+		for _, d := range subs {
+			if seen[d.DeptID] {
+				continue
+			}
+			seen[d.DeptID] = true
+			all = append(all, d)
+			queue = append(queue, d.DeptID)
+		}
+	}
+	return all, nil
+}
+
 // DeptUserDetail 部门成员详情（对账用）。UnionID 用于把登录时创建的
 // "union:" 占位绑定升级成真实企业 userid。
 type DeptUserDetail struct {

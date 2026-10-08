@@ -285,6 +285,7 @@ func RegisterDingTalkAdminRoutes(r *gin.RouterGroup, h *handler.DingTalkAdminHan
 		dingtalkRoutes.POST("/sync", h.TriggerDingTalkSync)
 		dingtalkRoutes.GET("/sync/runs", h.ListDingTalkSyncRuns)
 		dingtalkRoutes.GET("/identities", h.ListDingTalkIdentities)
+		dingtalkRoutes.GET("/departments", h.ListDingTalkDepartments)
 	}
 }
 

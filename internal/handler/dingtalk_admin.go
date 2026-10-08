@@ -16,14 +16,15 @@ import (
 // 路由层统一挂 SystemAdmin 门控（见 router.RegisterDingTalkAdminRoutes），
 // handler 内不再重复鉴权。
 type DingTalkAdminHandler struct {
-	sync *dingtalkauth.SyncService
-	repo *dingtalkauth.Repository
+	sync   *dingtalkauth.SyncService
+	repo   *dingtalkauth.Repository
+	client *dingtalkauth.Client
 }
 
-// NewDingTalkAdminHandler 构造 handler。sync/repo 由 container 在
-// dingtalk_auth.enable 时注入。
-func NewDingTalkAdminHandler(sync *dingtalkauth.SyncService, repo *dingtalkauth.Repository) *DingTalkAdminHandler {
-	return &DingTalkAdminHandler{sync: sync, repo: repo}
+// NewDingTalkAdminHandler 构造 handler。sync/repo/client 由 container 在
+// dingtalk_auth.enable 时注入；client 供组织架构等实时查询端点使用。
+func NewDingTalkAdminHandler(sync *dingtalkauth.SyncService, repo *dingtalkauth.Repository, client *dingtalkauth.Client) *DingTalkAdminHandler {
+	return &DingTalkAdminHandler{sync: sync, repo: repo, client: client}
 }
 
 // TriggerDingTalkSync godoc
@@ -118,6 +119,32 @@ func (h *DingTalkAdminHandler) ListDingTalkIdentities(c *gin.Context) {
 			"total":      total,
 			"page":       page,
 			"page_size":  pageSize,
+		},
+	})
+}
+
+// ListDingTalkDepartments godoc
+// @Summary      钉钉组织架构（部门树）
+// @Description  实时拉取企业通讯录部门列表（带名称），返回扁平列表，前端按 parent_id 组树。
+// @Description  数据不落库：以钉钉侧为准，展示时即时查询。
+// @Tags         系统管理-钉钉
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}  "{success:true, data:{departments:[{dept_id,name,parent_id}]}}"
+// @Security     Bearer
+// @Router       /system/dingtalk/departments [get]
+func (h *DingTalkAdminHandler) ListDingTalkDepartments(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	departments, err := h.client.ListDepartmentTree(ctx)
+	if err != nil {
+		logger.Errorf(ctx, "ListDingTalkDepartments failed: %v", err)
+		c.Error(apperrors.NewInternalServerError("failed to list dingtalk departments").WithDetails(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"departments": departments,
 		},
 	})
 }
