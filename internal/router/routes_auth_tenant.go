@@ -301,6 +301,7 @@ func RegisterUserAdminRoutes(r *gin.RouterGroup, h *handler.UserAdminHandler, g 
 	}
 	userAdminRoutes := r.Group("/system/users", g.SystemAdmin())
 	{
+		userAdminRoutes.GET("", h.ListUsers)
 		userAdminRoutes.PUT("/:id/status", h.UpdateUserStatus)
 	}
 }

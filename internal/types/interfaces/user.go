@@ -134,6 +134,8 @@ type UserRepository interface {
 	DeleteUser(ctx context.Context, id string) error
 	// ListUsers lists users with pagination
 	ListUsers(ctx context.Context, offset, limit int) ([]*types.User, error)
+	// CountUsers returns the total user count for pagination metadata.
+	CountUsers(ctx context.Context) (int64, error)
 	// ListSystemAdmins lists users where is_system_admin = true.
 	// Walks the partial-friendly idx_users_is_system_admin index. Returns
 	// the slice plus the total count for pagination metadata. Used by

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,13 +17,80 @@ import (
 // handler 内不再重复鉴权。
 type UserAdminHandler struct {
 	userSvc   interfaces.UserService
+	userRepo  interfaces.UserRepository
 	tokenRepo interfaces.AuthTokenRepository
 }
 
 // NewUserAdminHandler 构造 handler。userSvc 负责用户读写与系统管理员
-// 计数，tokenRepo 负责禁用后的会话吊销。
-func NewUserAdminHandler(userSvc interfaces.UserService, tokenRepo interfaces.AuthTokenRepository) *UserAdminHandler {
-	return &UserAdminHandler{userSvc: userSvc, tokenRepo: tokenRepo}
+// 计数，userRepo 负责用户列表分页，tokenRepo 负责禁用后的会话吊销。
+func NewUserAdminHandler(userSvc interfaces.UserService, userRepo interfaces.UserRepository, tokenRepo interfaces.AuthTokenRepository) *UserAdminHandler {
+	return &UserAdminHandler{userSvc: userSvc, userRepo: userRepo, tokenRepo: tokenRepo}
+}
+
+// ListUsers godoc
+// @Summary      列出全部用户
+// @Description  分页返回平台所有用户（SystemAdmin 仅 JWT 会话可用）。
+// @Description  供管理界面展示账号、邮箱、激活状态、是否系统管理员。
+// @Tags         系统管理-用户
+// @Accept       json
+// @Produce      json
+// @Param        page       query  int  false  "页码，从 1 开始"  default(1)
+// @Param        page_size  query  int  false  "每页条数"          default(20)
+// @Success      200  {object}  map[string]interface{}  "{success:true, data:{list, total, page, page_size}}"
+// @Failure      403  {object}  map[string]interface{}  "非系统管理员"
+// @Security     Bearer
+// @Router       /system/users [get]
+func (h *UserAdminHandler) ListUsers(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	offset := (page - 1) * pageSize
+
+	users, err := h.userRepo.ListUsers(ctx, offset, pageSize)
+	if err != nil {
+		logger.Errorf(ctx, "ListUsers: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list users"})
+		return
+	}
+	total, err := h.userRepo.CountUsers(ctx)
+	if err != nil {
+		logger.Errorf(ctx, "CountUsers: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count users"})
+		return
+	}
+
+	list := make([]gin.H, 0, len(users))
+	for _, u := range users {
+		list = append(list, gin.H{
+			"id":             u.ID,
+			"username":       u.Username,
+			"email":          u.Email,
+			"avatar":         u.Avatar,
+			"is_active":      u.IsActive,
+			"is_system_admin": u.IsSystemAdmin,
+			"created_at":     u.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"list":      list,
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
 }
 
 // UpdateUserStatusRequest 是 PUT /system/users/:id/status 的请求体。
