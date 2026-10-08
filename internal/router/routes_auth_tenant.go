@@ -288,6 +288,23 @@ func RegisterDingTalkAdminRoutes(r *gin.RouterGroup, h *handler.DingTalkAdminHan
 	}
 }
 
+// RegisterUserAdminRoutes 注册平台级用户管理路由（二开 fork 新增）。
+//
+// 与 /system/admin 同样挂 SystemAdmin() 组级门控，但独立成 /system/users
+// 前缀：用户状态（禁用/启用）是平台级身份操作，与 per-tenant 角色无关。
+// API key 默认拒绝（未走 apiKeyRoute 声明），只允许 JWT 会话的系统管理员。
+//
+// h 为 nil 时跳过注册，与 dingtalk/audit 的 nil-skip 惯例一致。
+func RegisterUserAdminRoutes(r *gin.RouterGroup, h *handler.UserAdminHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	userAdminRoutes := r.Group("/system/users", g.SystemAdmin())
+	{
+		userAdminRoutes.PUT("/:id/status", h.UpdateUserStatus)
+	}
+}
+
 // RegisterSystemAdminRoutes registers system administration routes.
 //
 // All endpoints under this group are gated to SystemAdmin users (i.e.
