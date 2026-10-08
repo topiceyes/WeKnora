@@ -480,9 +480,11 @@ start_app() {
         fi
     else
         export DB_HOST=127.0.0.1
-        export DOCREADER_ADDR=127.0.0.1:50051
+        # 尊重 .env.local 的预设值（宿主机标准端口被本机服务占用时，
+        # 可在 .env.local 里覆盖 DB_PORT / REDIS_ADDR / DOCREADER_ADDR）。
+        export DOCREADER_ADDR="${DOCREADER_ADDR:-127.0.0.1:50051}"
         export MINIO_ENDPOINT=127.0.0.1:9000
-        export REDIS_ADDR=127.0.0.1:6379
+        export REDIS_ADDR="${REDIS_ADDR:-127.0.0.1:6379}"
         export MILVUS_ADDRESS=127.0.0.1:19530
         export NEO4J_URI=bolt://127.0.0.1:7687
         export QDRANT_HOST=127.0.0.1
