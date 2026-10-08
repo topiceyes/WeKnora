@@ -2659,6 +2659,8 @@ export default {
     redirectingToOIDC: 'Redirecting to identity provider...',
     orContinueWith: 'Or continue with',
     oidcLoginFailed: 'OIDC login failed',
+    dingtalkLogin: 'Sign in with DingTalk',
+    dingtalkLoginFailed: 'DingTalk login failed',
     username: 'Username',
     email: 'Email',
     password: 'Password',

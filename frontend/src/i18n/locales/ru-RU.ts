@@ -5338,6 +5338,8 @@ export default {
     redirectingToOIDC: 'Перенаправление к поставщику удостоверений...',
     orContinueWith: 'Или продолжить с помощью',
     oidcLoginFailed: 'Ошибка входа через OIDC',
+    dingtalkLogin: 'Войти через DingTalk',
+    dingtalkLoginFailed: 'Ошибка входа через DingTalk',
     username: 'Имя пользователя',
     email: 'Почта Email',
     password: 'Пароль',

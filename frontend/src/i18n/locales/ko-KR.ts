@@ -5338,6 +5338,8 @@ export default {
     redirectingToOIDC: 'ID 공급자로 이동하는 중...',
     orContinueWith: '또는 다음 방법으로 계속',
     oidcLoginFailed: 'OIDC 로그인 실패',
+    dingtalkLogin: 'DingTalk로 로그인',
+    dingtalkLoginFailed: 'DingTalk 로그인 실패',
     username: '사용자명',
     email: '이메일',
     password: '비밀번호',

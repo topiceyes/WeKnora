@@ -5340,6 +5340,8 @@ export default {
     redirectingToOIDC: '正在跳转到身份提供商...',
     orContinueWith: '或使用以下方式继续',
     oidcLoginFailed: 'OIDC 登录失败',
+    dingtalkLogin: '钉钉登录',
+    dingtalkLoginFailed: '钉钉登录失败',
     username: '用户名',
     email: '邮箱',
     password: '密码',
