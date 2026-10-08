@@ -248,10 +248,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
-	// 钉钉扫码登录依赖注入（二开 fork 新增）：不改 NewUserService 签名，
-	// 仅在 dingtalk_auth.enable 时通过 setter 接线，未启用时
-	// LoginWithDingTalk 返回 "DingTalk login is disabled"。
-	must(container.Invoke(wireDingTalkLogin))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewModelCatalogService))
 	must(container.Provide(func(
@@ -608,6 +604,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Router configuration
 	logger.Debugf(ctx, "[Container] Registering router and starting task server...")
+	// 钉钉扫码登录依赖注入（二开 fork 新增）：不改 NewUserService 签名，
+	// 仅在 dingtalk_auth.enable 时通过 setter 接线，未启用时
+	// LoginWithDingTalk 返回 "DingTalk login is disabled"。
+	// 注意 dig.Invoke 会立即构建 UserService 及其整条依赖链，必须排在
+	// 所有 repository / service Provide 之后（路由构建之前）。
+	must(container.Invoke(wireDingTalkLogin))
+	// 钉钉通讯录同步 + 系统管理端点（二开 fork 新增）：dingtalk_auth.enable
+	// 时构建 SyncService 并提供管理 handler（未启用时返回 nil，路由层
+	// nil-skip）；sync_enable 时额外启动每日 cron 调度器。
+	must(container.Provide(wireDingTalkSync))
 	must(container.Provide(router.NewRouter))
 	if redisAvailable {
 		must(container.Invoke(router.RunAsynqServer))
@@ -2041,4 +2047,39 @@ func wireDingTalkLogin(cfg *config.Config, db *gorm.DB, us interfaces.UserServic
 	}
 	aware.SetDingTalkDeps(loginService, repo)
 	logger.Infof(context.Background(), "[Container] DingTalk auth wired (corp_id=%s)", cfg.DingTalkAuth.CorpID)
+}
+
+// wireDingTalkSync 构建钉钉通讯录同步服务与系统管理 handler（二开 fork 新增）。
+// 未启用 dingtalk_auth 时返回 nil，路由层 RegisterDingTalkAdminRoutes 会 nil-skip。
+// sync_enable 时额外启动每日 cron 调度器并注册优雅停机清理；启动失败仅记日志，
+// 不阻断容器（手动同步端点仍可用）。
+func wireDingTalkSync(
+	cfg *config.Config,
+	db *gorm.DB,
+	userRepo interfaces.UserRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	cleaner interfaces.ResourceCleaner,
+) *handler.DingTalkAdminHandler {
+	if cfg == nil || cfg.DingTalkAuth == nil || !cfg.DingTalkAuth.Enable {
+		return nil
+	}
+	repo := dingtalkauth.NewRepository(db)
+	client := dingtalkauth.NewClient(
+		cfg.DingTalkAuth.AppKey, cfg.DingTalkAuth.AppSecret, cfg.DingTalkAuth.CorpID)
+	syncService := dingtalkauth.NewSyncService(client, repo, userRepo, tokenRepo, cfg.DingTalkAuth.CorpID)
+
+	if cfg.DingTalkAuth.SyncEnable {
+		scheduler := dingtalkauth.NewScheduler(syncService, cfg.DingTalkAuth.SyncCron)
+		if err := scheduler.Start(); err != nil {
+			logger.Errorf(context.Background(), "[Container] DingTalk sync scheduler start failed: %v", err)
+		} else {
+			cleaner.RegisterWithName("DingTalkSyncScheduler", func() error {
+				scheduler.Stop()
+				return nil
+			})
+			logger.Infof(context.Background(),
+				"[Container] DingTalk contact sync scheduler started (cron=%s)", cfg.DingTalkAuth.SyncCron)
+		}
+	}
+	return handler.NewDingTalkAdminHandler(syncService, repo)
 }

@@ -268,6 +268,26 @@ func RegisterSystemRoutes(
 	}
 }
 
+// RegisterDingTalkAdminRoutes 注册钉钉通讯录同步的系统管理路由（二开 fork 新增）。
+//
+// 与 /system/admin 同样挂 SystemAdmin() 组级门控，但独立成 /system/dingtalk
+// 前缀：这些是平台级身份源操作，与 per-tenant 角色无关。API key 默认拒绝
+// （未走 apiKeyRoute 声明），只允许 JWT 会话的系统管理员触发。
+//
+// h 为 nil（未启用 dingtalk_auth）时跳过注册，与 invitation/audit 的
+// nil-skip 惯例一致。
+func RegisterDingTalkAdminRoutes(r *gin.RouterGroup, h *handler.DingTalkAdminHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	dingtalkRoutes := r.Group("/system/dingtalk", g.SystemAdmin())
+	{
+		dingtalkRoutes.POST("/sync", h.TriggerDingTalkSync)
+		dingtalkRoutes.GET("/sync/runs", h.ListDingTalkSyncRuns)
+		dingtalkRoutes.GET("/identities", h.ListDingTalkIdentities)
+	}
+}
+
 // RegisterSystemAdminRoutes registers system administration routes.
 //
 // All endpoints under this group are gated to SystemAdmin users (i.e.
