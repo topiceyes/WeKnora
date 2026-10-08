@@ -286,6 +286,8 @@ export default {
     },
     loading: '正在加载…',
     retry: '重试',
+    lastSyncAt: '最近同步',
+    neverSynced: '组织架构尚未同步，点击下方按钮从钉钉拉取',
     companyRoot: '全公司',
     members: '部门成员',
     noMembers: '该部门暂无已绑定成员',

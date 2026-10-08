@@ -2082,5 +2082,5 @@ func wireDingTalkSync(
 				"[Container] DingTalk contact sync scheduler started (cron=%s)", cfg.DingTalkAuth.SyncCron)
 		}
 	}
-	return handler.NewDingTalkAdminHandler(syncService, repo, client)
+	return handler.NewDingTalkAdminHandler(syncService, repo)
 }

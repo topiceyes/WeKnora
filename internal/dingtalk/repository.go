@@ -139,6 +139,53 @@ func (r *Repository) ListActiveBindings(ctx context.Context) ([]*ActiveBinding, 
 }
 
 // ---------------------------------------------------------------------------
+// Department 部门表
+// ---------------------------------------------------------------------------
+
+// ReplaceDepartments 全量替换某企业的部门树（事务内 delete + insert）。
+// 部门量级很小（几十到几百行），整批替换最简单也最正确：钉钉侧删除/改名
+// 的部门在下一次同步后自然消失或更新，无需 diff。落库时间戳统一为本次
+// 同步时间，供前端展示「最近同步」。
+func (r *Repository) ReplaceDepartments(ctx context.Context, corpID string, depts []SubDepartment) error {
+	if len(depts) == 0 {
+		// 空树也执行清空：钉钉侧确实可能只剩根部门。但为防接口异常返回
+		// 空集导致误清，调用方（sync）负责在拉取成功后才调到这里。
+		return r.db.WithContext(ctx).
+			Where("corp_id = ?", corpID).
+			Delete(&Department{}).Error
+	}
+	now := time.Now()
+	rows := make([]Department, 0, len(depts))
+	for _, d := range depts {
+		rows = append(rows, Department{
+			DeptID:       d.DeptID,
+			CorpID:       corpID,
+			Name:         d.Name,
+			ParentID:     d.ParentID,
+			LastSyncedAt: now,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		})
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("corp_id = ?", corpID).Delete(&Department{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&rows).Error
+	})
+}
+
+// ListDepartments 平铺返回部门列表（含各自 last_synced_at）。
+// 不过滤 corp_id：单企业部署，同步写入的企业即全部数据。
+func (r *Repository) ListDepartments(ctx context.Context) ([]Department, error) {
+	var out []Department
+	err := r.db.WithContext(ctx).
+		Order("parent_id ASC, dept_id ASC").
+		Find(&out).Error
+	return out, err
+}
+
+// ---------------------------------------------------------------------------
 // SyncRun 同步记录
 // ---------------------------------------------------------------------------
 
@@ -171,13 +218,32 @@ func (r *Repository) FinishSyncRun(ctx context.Context, runID uint64, status str
 		}).Error
 }
 
+// syncRunStaleTimeout running 状态超过该时长视为僵尸（进程重启中断）。
+// 全量同步 326 人实测约 1 分钟，1 小时余量充足。
+const syncRunStaleTimeout = time.Hour
+
 // HasRunningSync 是否有进行中的同步（防 cron 与手动并发）。
+// 僵尸 running（进程在同步中途被杀，run 永远停在 running）不算，
+// 否则一次进程重启就会永久阻塞后续同步。
 func (r *Repository) HasRunningSync(ctx context.Context) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Model(&SyncRun{}).
-		Where("status = ?", SyncStatusRunning).
+		Where("status = ? AND started_at > ?", SyncStatusRunning, time.Now().Add(-syncRunStaleTimeout)).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// FailStaleRuns 把僵尸 running 记录标记为 failed（带中断说明），
+// 让同步历史里不会永远挂着一条 running。幂等，可随新同步顺手调用。
+func (r *Repository) FailStaleRuns(ctx context.Context) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).Model(&SyncRun{}).
+		Where("status = ? AND started_at <= ?", SyncStatusRunning, now.Add(-syncRunStaleTimeout)).
+		Updates(map[string]interface{}{
+			"status":        SyncStatusFailed,
+			"finished_at":   now,
+			"error_message": "interrupted: process restarted mid-sync",
+		}).Error
 }
 
 // ListSyncRuns 分页返回同步历史（按开始时间倒序）。

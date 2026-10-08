@@ -90,10 +90,10 @@ export interface DingTalkDepartment {
   parent_id: number
 }
 
-export async function listDingTalkDepartments(): Promise<{ success: boolean; data?: { departments: DingTalkDepartment[] } }> {
+export async function listDingTalkDepartments(): Promise<{ success: boolean; data?: { departments: DingTalkDepartment[]; synced_at?: string } }> {
   return await get('/api/v1/system/dingtalk/departments') as unknown as {
     success: boolean
-    data?: { departments: DingTalkDepartment[] }
+    data?: { departments: DingTalkDepartment[]; synced_at?: string }
   }
 }
 

@@ -20,7 +20,20 @@
               </template>
             </t-alert>
           </div>
-          <div v-else class="platform-users__org-layout">
+          <template v-else>
+            <div v-if="orgSyncedAt" class="platform-users__org-syncbar">
+              <span class="platform-users__muted">{{ t('platformUsers.lastSyncAt') }}: {{ formatDateTime(orgSyncedAt) }}</span>
+            </div>
+            <div v-if="departments.length === 0" class="platform-users__state">
+              <t-empty :description="t('platformUsers.neverSynced')">
+                <template #action>
+                  <t-button theme="primary" size="small" :loading="syncTriggering" @click="syncFromOrgTab">
+                    {{ t('platformUsers.syncNow') }}
+                  </t-button>
+                </template>
+              </t-empty>
+            </div>
+            <div v-else class="platform-users__org-layout">
             <div class="data-table-shell narrow-scrollbar platform-users__tree">
               <div
                 v-for="node in orgTree"
@@ -48,7 +61,8 @@
               />
               <t-empty v-else :description="t('platformUsers.noMembers')" />
             </div>
-          </div>
+            </div>
+          </template>
         </div>
       </t-tab-panel>
 
@@ -199,6 +213,20 @@ const activeTab = ref('org')
 // ---------------------------------------------------------------------------
 // 通用
 // ---------------------------------------------------------------------------
+// utils/request 的 reject 是普通对象（{message, $httpStatus, ...}）而不是
+// Error 实例，String(e) 会显示成 "[object Object]"——统一从 message 取，
+// 再逐层兜底。
+const errText = (e: unknown): string => {
+  const err = e as { message?: unknown; error?: { message?: unknown } | string }
+  if (typeof err?.message === 'string' && err.message) return err.message
+  const nested = typeof err?.error === 'object' ? err.error?.message : err?.error
+  if (typeof nested === 'string' && nested) return nested
+  try {
+    return JSON.stringify(e)
+  } catch {
+    return String(e)
+  }
+}
 const formatDate = (v?: string) => (v ? new Date(v).toLocaleDateString() : '—')
 const formatDateTime = (v?: string) => (v ? new Date(v).toLocaleString() : '—')
 
@@ -214,6 +242,7 @@ interface DeptNode {
 
 const orgLoading = ref(false)
 const orgError = ref('')
+const orgSyncedAt = ref('')
 const departments = ref<{ dept_id: number; name: string; parent_id: number }[]>([])
 const identities = ref<DingTalkIdentityRow[]>([])
 const identitiesLoading = ref(false)
@@ -264,17 +293,37 @@ const loadOrg = async () => {
   orgLoading.value = true
   orgError.value = ''
   try {
-    // 部门树来自钉钉实时接口；成员清单取本地绑定（含职位/工号快照）。
+    // 部门树读本地表（每日同步全量替换，不再实时调钉钉）；
+    // 成员清单取本地绑定（含职位/工号快照）。
     const [deptResp, identResp] = await Promise.all([
       listDingTalkDepartments(),
       listDingTalkIdentities(1, 200),
     ])
     departments.value = deptResp.data?.departments ?? []
+    orgSyncedAt.value = deptResp.data?.synced_at ?? ''
     identities.value = identResp.data?.identities ?? []
   } catch (e: unknown) {
-    orgError.value = e instanceof Error ? e.message : String(e)
+    orgError.value = errText(e)
   } finally {
     orgLoading.value = false
+  }
+}
+
+// 组织架构空态（从未同步过）里的「立即同步」：跑完手动同步后重载本 tab。
+const syncFromOrgTab = async () => {
+  syncTriggering.value = true
+  try {
+    const resp = await triggerDingTalkSync()
+    if (resp.success) {
+      MessagePlugin.success(t('platformUsers.syncDone', { total: resp.data?.total_remote ?? 0, updated: resp.data?.updated_count ?? 0 }))
+      await loadOrg()
+    } else {
+      MessagePlugin.error(t('platformUsers.syncFailed'))
+    }
+  } catch (e: unknown) {
+    MessagePlugin.error(errText(e))
+  } finally {
+    syncTriggering.value = false
   }
 }
 
@@ -299,7 +348,7 @@ const loadUsers = async () => {
     const resp = await listPlatformUsers(1, 200)
     users.value = resp.data?.list ?? []
   } catch (e: unknown) {
-    MessagePlugin.error(e instanceof Error ? e.message : String(e))
+    MessagePlugin.error(errText(e))
   } finally {
     usersLoading.value = false
   }
@@ -318,7 +367,7 @@ const toggleUserStatus = async (row: PlatformUserRow) => {
     row.is_active = !row.is_active
     MessagePlugin.success(row.is_active ? t('platformUsers.enabled') : t('platformUsers.disabledMsg'))
   } catch (e: unknown) {
-    MessagePlugin.error(e instanceof Error ? e.message : String(e))
+    MessagePlugin.error(errText(e))
   }
 }
 
@@ -331,7 +380,7 @@ const loadIdentities = async () => {
     const resp = await listDingTalkIdentities(1, 200, identityKeyword.value.trim())
     identities.value = resp.data?.identities ?? []
   } catch (e: unknown) {
-    MessagePlugin.error(e instanceof Error ? e.message : String(e))
+    MessagePlugin.error(errText(e))
   } finally {
     identitiesLoading.value = false
   }
@@ -372,7 +421,7 @@ const loadRuns = async () => {
     const resp = await listDingTalkSyncRuns(1, 20)
     runs.value = resp.data?.runs ?? []
   } catch (e: unknown) {
-    MessagePlugin.error(e instanceof Error ? e.message : String(e))
+    MessagePlugin.error(errText(e))
   } finally {
     runsLoading.value = false
   }
@@ -389,7 +438,7 @@ const triggerSync = async () => {
     }
     await loadRuns()
   } catch (e: unknown) {
-    MessagePlugin.error(e instanceof Error ? e.message : String(e))
+    MessagePlugin.error(errText(e))
   } finally {
     syncTriggering.value = false
   }
@@ -438,6 +487,12 @@ onMounted(loadOrg)
   gap: 8px;
   padding: 32px 0;
   color: var(--td-text-color-placeholder);
+}
+
+.platform-users__org-syncbar {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12px;
 }
 
 .platform-users__org-layout {

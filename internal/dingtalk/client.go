@@ -171,43 +171,7 @@ func (c *Client) GetUserIDByUnionID(ctx context.Context, unionID string) (string
 // 通讯录同步：部门列表 + 部门成员分页
 // ---------------------------------------------------------------------------
 
-// ListDepartmentIDs 递归获取全部部门 id（从根部门 1 开始）。
-func (c *Client) ListDepartmentIDs(ctx context.Context) ([]int64, error) {
-	token, err := c.GetCorpAccessToken(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var all []int64
-	queue := []int64{1}
-	seen := map[int64]bool{1: true}
-	for len(queue) > 0 {
-		deptID := queue[0]
-		queue = queue[1:]
-		all = append(all, deptID)
-
-		u := fmt.Sprintf("%s/topapi/v2/department/listsubid?access_token=%s", corpAPIBase, token)
-		var resp struct {
-			ErrCode int    `json:"errcode"`
-			ErrMsg  string `json:"errmsg"`
-			Result  struct {
-				DeptIDList []int64 `json:"dept_id_list"`
-			} `json:"result"`
-		}
-		if err := c.do(ctx, http.MethodPost, u, map[string]int64{"dept_id": deptID}, "", &resp); err != nil {
-			return nil, err
-		}
-		if resp.ErrCode != 0 {
-			return nil, fmt.Errorf("listsubid(dept=%d) failed: errcode=%d errmsg=%s", deptID, resp.ErrCode, redact(resp.ErrMsg, c.appSecret))
-		}
-		for _, id := range resp.Result.DeptIDList {
-			if !seen[id] {
-				seen[id] = true
-				queue = append(queue, id)
-			}
-		}
-	}
-	return all, nil
-}
+// ListSubDepartments 拉取某部门的直接子部门（POST /topapi/v2/department/listsub，
 
 // SubDepartment 子部门信息（组织架构展示用）。
 type SubDepartment struct {
@@ -390,6 +354,18 @@ func (c *Client) do(ctx context.Context, method, url string, body interface{}, u
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return fmt.Errorf("dingtalk api %s: status=%d body=%s", url, resp.StatusCode, redact(string(raw), c.appSecret))
+		}
+		// 钉钉旧版 oapi 接口的限流是 HTTP 200 + body errcode=88
+		// （subcode 90002，全平台 QPS 限流，整点前后高发），响应里直接
+		// 给出限流窗口（通常几秒）。默认的 200ms 档退避等不出窗口，
+		// 这里单独用 3s 起步的退避重试。
+		var flowProbe struct {
+			ErrCode int `json:"errcode"`
+		}
+		if json.Unmarshal(raw, &flowProbe) == nil && flowProbe.ErrCode == 88 {
+			lastErr = fmt.Errorf("dingtalk api %s: flow limited: %s", url, redact(string(raw), c.appSecret))
+			delay = 3 * time.Second
+			continue
 		}
 		if result != nil {
 			if err := json.Unmarshal(raw, result); err != nil {

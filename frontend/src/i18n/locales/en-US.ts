@@ -7733,6 +7733,8 @@ export default {
     },
     loading: 'Loading…',
     retry: 'Retry',
+    lastSyncAt: 'Last sync',
+    neverSynced: 'Organization not synced yet. Pull from DingTalk with the button below.',
     companyRoot: 'Company',
     members: 'Members',
     noMembers: 'No bound members in this department',

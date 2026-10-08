@@ -40,7 +40,7 @@ type TokenRevoker interface {
 // 便于单测注入 mock。
 type contactClient interface {
 	GetCorpAccessToken(ctx context.Context) (string, error)
-	ListDepartmentIDs(ctx context.Context) ([]int64, error)
+	ListDepartmentTree(ctx context.Context) ([]SubDepartment, error)
 	ListDeptUsers(ctx context.Context, deptID, cursor, size int64) (*DeptUserPage, error)
 }
 
@@ -87,18 +87,28 @@ func (s *SyncService) RunFullSync(ctx context.Context, triggerType string) (*Syn
 	if running {
 		return nil, ErrSyncAlreadyRunning
 	}
+	// 僵尸 running（进程重启中断的旧 run）顺手标记 failed，同步历史不留悬案。
+	if err := s.repo.FailStaleRuns(ctx); err != nil {
+		logger.Warnf(ctx, "DingTalk sync: fail stale runs: %v", err)
+	}
 	run, err := s.repo.CreateSyncRun(ctx, triggerType)
 	if err != nil {
 		return nil, fmt.Errorf("create sync run: %w", err)
 	}
 
-	remote, err := s.fetchRemoteUsers(ctx)
+	remote, deptTree, err := s.fetchRemoteUsers(ctx)
 	if err != nil {
 		// 拉取失败：整轮 failed，不做任何禁用。
 		s.finishRun(ctx, run.ID, SyncStatusFailed, 0, 0, 0, 0, err.Error())
 		run.Status = SyncStatusFailed
 		run.ErrorMessage = err.Error()
 		return run, err
+	}
+
+	// 部门树落库（组织架构本地化）。失败仅告警不 fail 整轮：
+	// 对账禁用是关键路径，部门展示数据可等下一次同步补上。
+	if err := s.repo.ReplaceDepartments(ctx, s.corpID, deptTree); err != nil {
+		logger.Warnf(ctx, "DingTalk sync: persist departments failed: %v", err)
 	}
 
 	created, updated := s.upsertRemoteUsers(ctx, remote)
@@ -123,15 +133,23 @@ func (s *SyncService) RunFullSync(ctx context.Context, triggerType string) (*Syn
 	return run, nil
 }
 
-// fetchRemoteUsers 拉取企业全员：token → 递归部门 → 逐部门分页成员，
-// 按 dingUserID 去重聚合。任何一步失败都返回 error（调用方整轮 failed）。
-func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUserDetail, error) {
+// fetchRemoteUsers 拉取企业全员 + 部门树：token → 递归部门（带名称）→
+// 逐部门分页成员，按 dingUserID 去重聚合。任何一步失败都返回 error
+// （调用方整轮 failed）。部门树随返回值交给调用方落库。
+func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUserDetail, []SubDepartment, error) {
 	if _, err := s.client.GetCorpAccessToken(ctx); err != nil {
-		return nil, fmt.Errorf("get corp access token: %w", err)
+		return nil, nil, fmt.Errorf("get corp access token: %w", err)
 	}
-	deptIDs, err := s.client.ListDepartmentIDs(ctx)
+	deptTree, err := s.client.ListDepartmentTree(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list department ids: %w", err)
+		return nil, nil, fmt.Errorf("list department tree: %w", err)
+	}
+	// 根部门（1）不在树里（ListDepartmentTree 只返回子部门），但根部门
+	// 直挂成员（未加入任何子部门的人）必须参与对账，与旧行为一致。
+	deptIDs := make([]int64, 0, len(deptTree)+1)
+	deptIDs = append(deptIDs, 1)
+	for _, d := range deptTree {
+		deptIDs = append(deptIDs, d.DeptID)
 	}
 
 	remote := make(map[string]*DeptUserDetail)
@@ -140,7 +158,15 @@ func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUse
 		for {
 			page, err := s.client.ListDeptUsers(ctx, deptID, cursor, deptUserPageSize)
 			if err != nil {
-				return nil, fmt.Errorf("list dept users (dept=%d): %w", deptID, err)
+				return nil, nil, fmt.Errorf("list dept users (dept=%d): %w", deptID, err)
+			}
+			// 请求间隔：钉钉 user/list 在整点前后有全平台 QPS 限流
+			// （subcode 90002），连续翻页容易触发。150ms 对 14 个部门
+			// 只多花 ~2s，却能把突发压到限额内。
+			select {
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
+			case <-time.After(150 * time.Millisecond):
 			}
 			for i := range page.List {
 				u := page.List[i]
@@ -157,7 +183,7 @@ func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUse
 			cursor = page.NextCursor
 		}
 	}
-	return remote, nil
+	return remote, deptTree, nil
 }
 
 // upsertRemoteUsers 第一遍对账：更新已有绑定的资料快照；无 userid 绑定

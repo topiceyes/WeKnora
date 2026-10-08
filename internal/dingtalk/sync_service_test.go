@@ -15,7 +15,7 @@ import (
 // mockContactClient 实现 contactClient，按部门返回固定成员页（单页，无分页）。
 type mockContactClient struct {
 	tokenErr error
-	deptIDs  []int64
+	deptTree []SubDepartment
 	deptErr  error
 	users    map[int64][]DeptUserDetail
 	listErr  error
@@ -28,11 +28,11 @@ func (m *mockContactClient) GetCorpAccessToken(context.Context) (string, error) 
 	return "corp-token", nil
 }
 
-func (m *mockContactClient) ListDepartmentIDs(context.Context) ([]int64, error) {
+func (m *mockContactClient) ListDepartmentTree(context.Context) ([]SubDepartment, error) {
 	if m.deptErr != nil {
 		return nil, m.deptErr
 	}
-	return m.deptIDs, nil
+	return m.deptTree, nil
 }
 
 func (m *mockContactClient) ListDeptUsers(_ context.Context, deptID, cursor, size int64) (*DeptUserPage, error) {
@@ -148,7 +148,7 @@ func lastRun(t *testing.T, r *Repository) *SyncRun {
 func TestSyncDeactivatesDepartedUser(t *testing.T) {
 	ctx := context.Background()
 	client := &mockContactClient{
-		deptIDs: []int64{1},
+		deptTree: []SubDepartment{},
 		users: map[int64][]DeptUserDetail{
 			1: {{UserID: "ding-stay", Name: "留任"}},
 		},
@@ -193,7 +193,7 @@ func TestSyncDeactivatesDepartedUser(t *testing.T) {
 // TestSyncHalfVolumeProtection 远端人数低于活跃绑定一半 → 整批跳过禁用。
 func TestSyncHalfVolumeProtection(t *testing.T) {
 	client := &mockContactClient{
-		deptIDs: []int64{1},
+		deptTree: []SubDepartment{},
 		users: map[int64][]DeptUserDetail{
 			1: {{UserID: "ding-1", Name: "甲"}},
 		},
@@ -230,7 +230,7 @@ func TestSyncHalfVolumeProtection(t *testing.T) {
 func TestSyncSkipsPrivilegedUsers(t *testing.T) {
 	ctx := context.Background()
 	client := &mockContactClient{
-		deptIDs: []int64{1},
+		deptTree: []SubDepartment{},
 		users: map[int64][]DeptUserDetail{
 			1: {{UserID: "ding-normal-1", Name: "甲"}, {UserID: "ding-normal-2", Name: "乙"}},
 		},
@@ -270,7 +270,7 @@ func TestSyncSkipsPrivilegedUsers(t *testing.T) {
 // TestSyncSkipsUnionPlaceholder unionId 占位绑定不参与对账禁用。
 func TestSyncSkipsUnionPlaceholder(t *testing.T) {
 	client := &mockContactClient{
-		deptIDs: []int64{1},
+		deptTree: []SubDepartment{},
 		users: map[int64][]DeptUserDetail{
 			1: {{UserID: "ding-real", Name: "真实"}},
 		},
@@ -301,7 +301,7 @@ func TestSyncSkipsUnionPlaceholder(t *testing.T) {
 func TestSyncBindsNewHireByEmail(t *testing.T) {
 	ctx := context.Background()
 	client := &mockContactClient{
-		deptIDs: []int64{1},
+		deptTree: []SubDepartment{},
 		users: map[int64][]DeptUserDetail{
 			1: {{UserID: "ding-new", Name: "新人", Email: "new@c.com", Title: "工程师"}},
 		},
@@ -360,7 +360,7 @@ func TestSyncFailureDisablesNobody(t *testing.T) {
 
 // TestSyncRejectsConcurrentRun 已有 running 同步时拒绝并发触发。
 func TestSyncRejectsConcurrentRun(t *testing.T) {
-	client := &mockContactClient{deptIDs: []int64{1}}
+	client := &mockContactClient{deptTree: []SubDepartment{}}
 	svc, repo, _, _ := setupSync(t, client)
 	if _, err := repo.CreateSyncRun(context.Background(), SyncTriggerCron); err != nil {
 		t.Fatalf("CreateSyncRun: %v", err)

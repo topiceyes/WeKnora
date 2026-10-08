@@ -53,6 +53,22 @@ type SyncRun struct {
 // TableName 同步记录表名。
 func (SyncRun) TableName() string { return "dingtalk_sync_runs" }
 
+// Department 钉钉部门表（dingtalk_departments）的 GORM model。
+// 每日通讯录同步时全量替换；查询端点只读本地，不实时调钉钉。
+// 根部门（dept_id=1）不落库，由前端虚拟「全公司」根节点表示。
+type Department struct {
+	DeptID       int64     `gorm:"primaryKey"                     json:"dept_id"`
+	CorpID       string    `gorm:"column:corp_id;size:128"        json:"corp_id"`
+	Name         string    `gorm:"column:name;size:255"           json:"name"`
+	ParentID     int64     `gorm:"column:parent_id"               json:"parent_id"`
+	LastSyncedAt time.Time `gorm:"column:last_synced_at"          json:"last_synced_at"`
+	CreatedAt    time.Time `gorm:"column:created_at"              json:"created_at"`
+	UpdatedAt    time.Time `gorm:"column:updated_at"              json:"updated_at"`
+}
+
+// TableName 部门表名。
+func (Department) TableName() string { return "dingtalk_departments" }
+
 // SyncRun 状态常量。
 const (
 	SyncTriggerCron   = "cron"

@@ -1,6 +1,7 @@
 package dingtalk
 
 import (
+	"time"
 	"context"
 	"testing"
 
@@ -33,6 +34,9 @@ func setupRepo(t *testing.T) *Repository {
 	}
 	if err := db.AutoMigrate(&SyncRun{}); err != nil {
 		t.Fatalf("migrate sync_runs: %v", err)
+	}
+	if err := db.AutoMigrate(&Department{}); err != nil {
+		t.Fatalf("migrate departments: %v", err)
 	}
 	return NewRepository(db)
 }
@@ -139,5 +143,101 @@ func TestSyncRunLifecycle(t *testing.T) {
 	}
 	if total != 1 || len(runs) != 1 || runs[0].DeactivatedCount != 1 {
 		t.Fatalf("runs=%+v total=%d", runs, total)
+	}
+}
+
+// TestReplaceAndListDepartments 全量替换语义：二次替换后旧部门消失、
+// 新部门带同步时间戳；空切片清空不报错。
+func TestReplaceAndListDepartments(t *testing.T) {
+	ctx := context.Background()
+	r := setupRepo(t)
+
+	first := []SubDepartment{
+		{DeptID: 10, Name: "研发部", ParentID: 1},
+		{DeptID: 11, Name: "测试部", ParentID: 10},
+	}
+	if err := r.ReplaceDepartments(ctx, "corp-1", first); err != nil {
+		t.Fatalf("ReplaceDepartments: %v", err)
+	}
+	rows, err := r.ListDepartments(ctx)
+	if err != nil {
+		t.Fatalf("ListDepartments: %v", err)
+	}
+	if len(rows) != 2 || rows[0].DeptID != 10 || rows[1].ParentID != 10 {
+		t.Fatalf("rows=%+v", rows)
+	}
+	if rows[0].Name != "研发部" || rows[0].LastSyncedAt.IsZero() {
+		t.Fatalf("row content wrong: %+v", rows[0])
+	}
+
+	// 二次替换：11 消失、20 出现
+	second := []SubDepartment{{DeptID: 10, Name: "研发中心", ParentID: 1}, {DeptID: 20, Name: "运营部", ParentID: 1}}
+	if err := r.ReplaceDepartments(ctx, "corp-1", second); err != nil {
+		t.Fatalf("ReplaceDepartments(2nd): %v", err)
+	}
+	rows, err = r.ListDepartments(ctx)
+	if err != nil {
+		t.Fatalf("ListDepartments(2nd): %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("stale department not replaced, rows=%+v", rows)
+	}
+	byID := map[int64]Department{}
+	for _, d := range rows {
+		byID[d.DeptID] = d
+	}
+	if _, ok := byID[11]; ok {
+		t.Fatal("dept 11 should be gone after replace")
+	}
+	if byID[10].Name != "研发中心" {
+		t.Fatalf("rename not applied: %+v", byID[10])
+	}
+
+	// 空树 → 清空
+	if err := r.ReplaceDepartments(ctx, "corp-1", nil); err != nil {
+		t.Fatalf("ReplaceDepartments(empty): %v", err)
+	}
+	rows, err = r.ListDepartments(ctx)
+	if err != nil {
+		t.Fatalf("ListDepartments(empty): %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected empty after nil replace, rows=%+v", rows)
+	}
+}
+
+// TestStaleRunningRunNotBlocking 超时的 running 记录不阻塞新同步，
+// 且会被 FailStaleRuns 标记为 failed。
+func TestStaleRunningRunNotBlocking(t *testing.T) {
+	ctx := context.Background()
+	r := setupRepo(t)
+
+	run, err := r.CreateSyncRun(ctx, SyncTriggerManual)
+	if err != nil {
+		t.Fatalf("CreateSyncRun: %v", err)
+	}
+	// 把 started_at 拨回 2 小时前，模拟进程中断遗留的僵尸记录
+	if err := r.db.Exec("UPDATE dingtalk_sync_runs SET started_at = ? WHERE id = ?",
+		time.Now().Add(-2*time.Hour), run.ID).Error; err != nil {
+		t.Fatalf("backdate run: %v", err)
+	}
+
+	running, err := r.HasRunningSync(ctx)
+	if err != nil {
+		t.Fatalf("HasRunningSync: %v", err)
+	}
+	if running {
+		t.Fatal("stale running run must not block new syncs")
+	}
+
+	if err := r.FailStaleRuns(ctx); err != nil {
+		t.Fatalf("FailStaleRuns: %v", err)
+	}
+	runs, _, err := r.ListSyncRuns(ctx, 0, 10)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("ListSyncRuns: %v n=%d", err, len(runs))
+	}
+	if runs[0].Status != SyncStatusFailed || runs[0].FinishedAt == nil || runs[0].ErrorMessage == "" {
+		t.Fatalf("stale run not failed-out: %+v", runs[0])
 	}
 }
