@@ -27,6 +27,7 @@ const deptUserPageSize = 100
 type UserRepo interface {
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*types.User, error)
+	GetUserByUsername(ctx context.Context, username string) (*types.User, error)
 	UpdateUser(ctx context.Context, user *types.User) error
 }
 
@@ -206,6 +207,7 @@ func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*
 				logger.Warnf(ctx, "DingTalk sync: update identity %s failed: %v", dingUserID, err)
 				continue
 			}
+			s.maybeRenameLegacyUsername(ctx, identity, du)
 			updated++
 		case errors.Is(err, ErrIdentityNotFound):
 			// user/list 的返回带 unionid：登录时因权限缺失只留下 "union:"
@@ -222,6 +224,57 @@ func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*
 		}
 	}
 	return created, updated
+}
+
+// maybeRenameLegacyUsername 存量旧格式用户名（dt-昵称 / dt-unionId，首登
+// 早期按昵称清洗生成的）在同步拿到工号后顺手改成新格式 dt-<工号><4位随机>
+// （格式见 username.go，与首登建号共用）。
+//
+// 改名规则：
+//   - 用户名不以 "dt-" 开头（管理员手建后补绑的账号）→ 永不动；
+//   - 已是 "dt-<本人当前工号>" 前缀 → 新格式，不动。工号变更后前缀不再
+//     匹配会再次改名——用户名跟随工号，属预期；
+//   - 远端无工号 → 没有目标格式，不动。
+//
+// 改名失败仅 warn，不影响同步主流程（identity 快照已更新成功）。
+func (s *SyncService) maybeRenameLegacyUsername(ctx context.Context, identity *Identity, du *DeptUserDetail) {
+	prefix := UsernamePrefix(du.JobNumber)
+	if prefix == "" || identity.UserID == "" || s.userRepo == nil {
+		return
+	}
+	user, err := s.userRepo.GetUserByID(ctx, identity.UserID)
+	if err != nil || user == nil || user.Username == "" {
+		return
+	}
+	if !strings.HasPrefix(user.Username, usernamePrefix) || strings.HasPrefix(user.Username, prefix) {
+		return
+	}
+
+	// 生成新名并查重（随机段撞名概率可忽略，仍防御到底）。repo 查不到
+	// 返回 ErrUserNotFound 或 (nil, nil)，两种约定都视为「可用」。
+	newName := ""
+	for i := 0; i < 6 && newName == ""; i++ {
+		candidate := GenerateUsername(du.JobNumber)
+		if candidate == usernamePrefix {
+			continue // crypto/rand 失败的极端情况，重试
+		}
+		if existing, gerr := s.userRepo.GetUserByUsername(ctx, candidate); gerr != nil || existing == nil {
+			newName = candidate
+		}
+	}
+	if newName == "" {
+		// 持续撞名（理论不可能）：时间戳兜底保证唯一。
+		newName = fmt.Sprintf("%s%d", prefix, time.Now().UnixNano())
+	}
+
+	oldName := user.Username
+	user.Username = newName
+	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+		logger.Warnf(ctx, "DingTalk sync: rename user %s to %q failed: %v", user.ID, newName, err)
+		return
+	}
+	logger.Infof(ctx, "DingTalk sync: renamed user %s username %q -> %q (job number %s)",
+		user.ID, oldName, newName, du.JobNumber)
 }
 
 // repairPlaceholder 按 unionid 找到 "union:" 占位绑定并升级成真实 userid。

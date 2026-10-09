@@ -26,10 +26,12 @@ func NewLoginService(client *Client, repo *Repository) *LoginService {
 //
 //  1. GetUserAccessToken 换个人 userToken；
 //  2. GetUserMe 拿 unionId/nick/email/mobile；
-//  3. GetUserIDByUnionID 换企业内部 userid。
+//  3. GetUserIDByUnionID 换企业内部 userid；
+//  4. 有 userid 时 user/get 补查工号（首登建号用户名用 dt-工号 格式）。
 //
 // 第 3 步失败（企业权限不足等）不阻断登录：记 warn，DingUserID 留空，
-// 先用 unionId 登录，等通讯录同步时补 userid。
+// 先用 unionId 登录，等通讯录同步时补 userid。第 4 步同理——工号拿不到
+// 时首登用户名走随机兜底格式，绝不让登录失败。
 func (s *LoginService) LoginWithAuthCode(ctx context.Context, authCode string) (*DingTalkUserProfile, error) {
 	authCode = strings.TrimSpace(authCode)
 	if authCode == "" {
@@ -62,8 +64,16 @@ func (s *LoginService) LoginWithAuthCode(ctx context.Context, authCode string) (
 		logger.Warnf(ctx,
 			"DingTalk login: getbyunionid failed (unionId=%s), continue without ding userid: %v",
 			profile.UnionID, err)
+		return profile, nil
+	}
+	profile.DingUserID = strings.TrimSpace(dingUserID)
+
+	if detail, derr := s.client.GetUserDetailByUserID(ctx, profile.DingUserID); derr != nil {
+		logger.Warnf(ctx,
+			"DingTalk login: user/get failed (userid=%s), continue without job number: %v",
+			profile.DingUserID, derr)
 	} else {
-		profile.DingUserID = strings.TrimSpace(dingUserID)
+		profile.JobNumber = strings.TrimSpace(detail.JobNumber)
 	}
 	return profile, nil
 }

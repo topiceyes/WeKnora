@@ -753,22 +753,15 @@ func dingTalkIdentityKey(profile *dingtalk.DingTalkUserProfile) string {
 	return "union:" + profile.UnionID
 }
 
-// generateDingTalkUsername 参考 generateOIDCUsername：基于昵称生成 "dt-" 前缀
-// 的用户名，重名时追加序号，兜底带时间戳。
+// generateDingTalkUsername 生成钉钉首登账号的用户名：有工号
+// dt-<工号><4位随机>，无工号 dt-<8位随机>（格式见 dingtalk.GenerateUsername，
+// 与通讯录同步的存量改名共用）。重名时重新生成随机段，兜底带时间戳。
 func (s *userService) generateDingTalkUsername(ctx context.Context, profile *dingtalk.DingTalkUserProfile) string {
-	base := sanitizeUsernameCandidate(profile.Nick)
-	if base == "" {
-		base = sanitizeUsernameCandidate(profile.UnionID)
+	candidate := dingtalk.GenerateUsername(profile.JobNumber)
+	if candidate == "dt-" {
+		// crypto/rand 失败的极端情况，退化到时间戳保证非空可注册。
+		return fmt.Sprintf("dt-%d", time.Now().UnixNano())
 	}
-	if base == "" {
-		base = "user"
-	}
-	base = "dt-" + base
-	if len(base) > 50 {
-		base = strings.Trim(base[:50], "-._")
-	}
-
-	candidate := base
 	for i := 0; i < 20; i++ {
 		existing, err := s.userRepo.GetUserByUsername(ctx, candidate)
 		if isUserLookupNotFound(err) || (err == nil && existing == nil) {
@@ -777,9 +770,12 @@ func (s *userService) generateDingTalkUsername(ctx context.Context, profile *din
 		if err != nil && !isUserLookupNotFound(err) {
 			logger.Warnf(ctx, "Failed to check existing DingTalk username %q: %v", candidate, err)
 		}
-		candidate = fmt.Sprintf("%s-%d", base, i+1)
+		// 随机段本来就是为唯一性服务的：撞名直接换一段新的随机，
+		// 而不是追加序号（dt-8823x7k2 比 dt-8823x7k2-1 更符合格式约定）。
+		candidate = dingtalk.GenerateUsername(profile.JobNumber)
 	}
-	return fmt.Sprintf("%s-%d", base, time.Now().Unix())
+	// 20 次都撞（或查重接口持续报错）：时间戳兜底，保证可用且基本唯一。
+	return fmt.Sprintf("dt-%d", time.Now().UnixNano())
 }
 
 // GetUserByID gets a user by ID

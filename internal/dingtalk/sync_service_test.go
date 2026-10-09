@@ -3,6 +3,7 @@ package dingtalk
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -46,6 +47,8 @@ func (m *mockContactClient) ListDeptUsers(_ context.Context, deptID, cursor, siz
 // 所以测试需要同时 seed sqlite 与这里的 map（保持 is_active 初始一致）。
 type mockUserRepo struct {
 	users map[string]*types.User
+	// usernameTaken 非空时优先调用，模拟「任意用户名都已被占用」等查重场景。
+	usernameTaken func(username string) bool
 }
 
 func newMockUserRepo() *mockUserRepo { return &mockUserRepo{users: map[string]*types.User{}} }
@@ -58,6 +61,18 @@ func (m *mockUserRepo) GetUserByID(_ context.Context, id string) (*types.User, e
 		return nil, errors.New("user not found")
 	}
 	return u, nil
+}
+
+func (m *mockUserRepo) GetUserByUsername(_ context.Context, username string) (*types.User, error) {
+	if m.usernameTaken != nil && m.usernameTaken(username) {
+		return &types.User{ID: "taken", Username: username}, nil
+	}
+	for _, u := range m.users {
+		if u.Username == username {
+			return u, nil
+		}
+	}
+	return nil, errors.New("user not found")
 }
 
 func (m *mockUserRepo) GetUserByEmail(_ context.Context, email string) (*types.User, error) {
@@ -187,6 +202,74 @@ func TestSyncDeactivatesDepartedUser(t *testing.T) {
 	persisted := lastRun(t, repo)
 	if persisted.Status != SyncStatusSuccess || persisted.TotalRemote != 1 || persisted.DeactivatedCount != 1 {
 		t.Fatalf("persisted run wrong: %+v", persisted)
+	}
+}
+
+// TestSyncRenamesLegacyDingTalkUsernames 存量旧格式 dt- 用户名在同步拿到
+// 工号后改成新格式 dt-<工号><4随机>；已是新格式 / 非 dt- 前缀 / 远端无工号
+// 的账号不动。
+func TestSyncRenamesLegacyDingTalkUsernames(t *testing.T) {
+	ctx := context.Background()
+	client := &mockContactClient{
+		deptTree: []SubDepartment{},
+		users: map[int64][]DeptUserDetail{
+			1: {
+				{UserID: "ding-legacy", Name: "张三", JobNumber: "8823"},
+				{UserID: "ding-newfmt", Name: "李四", JobNumber: "1024"},
+				{UserID: "ding-manual", Name: "王五", JobNumber: "2048"},
+				{UserID: "ding-nojob", Name: "赵六"},
+			},
+		},
+	}
+	svc, repo, userRepo, _ := setupSync(t, client)
+	seedSyncUser(t, repo, userRepo, "u-legacy", "dt-zhangsan", "legacy@c.com") // 旧昵称格式
+	seedSyncUser(t, repo, userRepo, "u-newfmt", "dt-1024x7k2", "newfmt@c.com") // 已是新格式
+	seedSyncUser(t, repo, userRepo, "u-manual", "wangwu", "manual@c.com")      // 管理员手建（非 dt-）
+	seedSyncUser(t, repo, userRepo, "u-nojob", "dt-ozXy123456", "nojob@c.com") // 旧格式但远端无工号
+	bind(t, repo, "ding-legacy", "u-legacy", "张三")
+	bind(t, repo, "ding-newfmt", "u-newfmt", "李四")
+	bind(t, repo, "ding-manual", "u-manual", "王五")
+	bind(t, repo, "ding-nojob", "u-nojob", "赵六")
+
+	if _, err := svc.RunFullSync(ctx, SyncTriggerCron); err != nil {
+		t.Fatalf("RunFullSync: %v", err)
+	}
+
+	renamed := userRepo.users["u-legacy"].Username
+	if !regexp.MustCompile(`^dt-8823[a-z0-9]{4}$`).MatchString(renamed) {
+		t.Fatalf("legacy dt-<nick> username should become dt-<job><4 random>, got %q", renamed)
+	}
+	if got := userRepo.users["u-newfmt"].Username; got != "dt-1024x7k2" {
+		t.Fatalf("new-format username must stay, got %q", got)
+	}
+	if got := userRepo.users["u-manual"].Username; got != "wangwu" {
+		t.Fatalf("non dt- username must stay, got %q", got)
+	}
+	if got := userRepo.users["u-nojob"].Username; got != "dt-ozXy123456" {
+		t.Fatalf("no-job-number username must stay, got %q", got)
+	}
+}
+
+// TestSyncRenameCollisionFallsBackToTimestamp 查重永远命中（随机段持续
+// 撞名）→ 时间戳兜底，改名仍要完成。
+func TestSyncRenameCollisionFallsBackToTimestamp(t *testing.T) {
+	ctx := context.Background()
+	client := &mockContactClient{
+		deptTree: []SubDepartment{},
+		users: map[int64][]DeptUserDetail{
+			1: {{UserID: "ding-legacy", Name: "张三", JobNumber: "8823"}},
+		},
+	}
+	svc, repo, userRepo, _ := setupSync(t, client)
+	userRepo.usernameTaken = func(string) bool { return true }
+	seedSyncUser(t, repo, userRepo, "u-legacy", "dt-zhangsan", "legacy@c.com")
+	bind(t, repo, "ding-legacy", "u-legacy", "张三")
+
+	if _, err := svc.RunFullSync(ctx, SyncTriggerCron); err != nil {
+		t.Fatalf("RunFullSync: %v", err)
+	}
+	if got := userRepo.users["u-legacy"].Username; !regexp.MustCompile(`^dt-8823[0-9]+$`).MatchString(got) {
+		t.Fatalf("persistent collision should fall back to dt-<job><timestamp>, got %q", got)
 	}
 }
 

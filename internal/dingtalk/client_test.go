@@ -164,6 +164,41 @@ func TestGetUserIDByUnionID(t *testing.T) {
 	}
 }
 
+func TestGetUserDetailByUserID(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/gettoken":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"errcode": 0, "access_token": "corp-token", "expire_in": 7200,
+			})
+		case "/topapi/v2/user/get":
+			var body map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			if body["userid"] != "ding-user-9" {
+				t.Fatalf("bad body %+v", body)
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"errcode": 0,
+				"result": map[string]interface{}{
+					"userid":     "ding-user-9",
+					"job_number": "8823",
+					"name":       "张三",
+					"email":      "zhangsan@corp.com",
+				},
+			})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	detail, err := c.GetUserDetailByUserID(context.Background(), "ding-user-9")
+	if err != nil {
+		t.Fatalf("GetUserDetailByUserID: %v", err)
+	}
+	if detail.JobNumber != "8823" || detail.Name != "张三" {
+		t.Fatalf("got %+v", detail)
+	}
+}
+
 func TestListDeptUsersPagination(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

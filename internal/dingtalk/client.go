@@ -167,6 +167,29 @@ func (c *Client) GetUserIDByUnionID(ctx context.Context, unionID string) (string
 	return resp.Result.UserID, nil
 }
 
+// GetUserDetailByUserID 拉取单个成员详情（POST /topapi/v2/user/get，需企业 token）。
+// 登录链路用：首登建号需要工号，而 users/me / getbyunionid 都不返回。
+// 响应字段与 user/list 同形，复用 DeptUserDetail。
+func (c *Client) GetUserDetailByUserID(ctx context.Context, userID string) (*DeptUserDetail, error) {
+	token, err := c.GetCorpAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("%s/topapi/v2/user/get?access_token=%s", corpAPIBase, token)
+	var resp struct {
+		ErrCode int            `json:"errcode"`
+		ErrMsg  string         `json:"errmsg"`
+		Result  DeptUserDetail `json:"result"`
+	}
+	if err := c.do(ctx, http.MethodPost, u, map[string]string{"userid": userID}, "", &resp); err != nil {
+		return nil, err
+	}
+	if resp.ErrCode != 0 {
+		return nil, fmt.Errorf("user/get(%s) failed: errcode=%d errmsg=%s", userID, resp.ErrCode, redact(resp.ErrMsg, c.appSecret))
+	}
+	return &resp.Result, nil
+}
+
 // ---------------------------------------------------------------------------
 // 通讯录同步：部门列表 + 部门成员分页
 // ---------------------------------------------------------------------------

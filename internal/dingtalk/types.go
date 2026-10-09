@@ -124,4 +124,5 @@ type DingTalkUserProfile struct {
 	Nick       string
 	Mobile     string
 	Email      string
+	JobNumber  string // 工号（user/get 补查；可能为空，建号时走随机兜底格式）
 }
