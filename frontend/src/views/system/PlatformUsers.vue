@@ -297,7 +297,7 @@ const loadOrg = async () => {
     // 成员清单取本地绑定（含职位/工号快照）。
     const [deptResp, identResp] = await Promise.all([
       listDingTalkDepartments(),
-      listDingTalkIdentities(1, 200),
+      listDingTalkIdentities(1, 100),
     ])
     departments.value = deptResp.data?.departments ?? []
     orgSyncedAt.value = deptResp.data?.synced_at ?? ''
@@ -345,7 +345,7 @@ const userColumns = computed(() => [
 const loadUsers = async () => {
   usersLoading.value = true
   try {
-    const resp = await listPlatformUsers(1, 200)
+    const resp = await listPlatformUsers(1, 100)
     users.value = resp.data?.list ?? []
   } catch (e: unknown) {
     MessagePlugin.error(errText(e))
@@ -377,7 +377,7 @@ const toggleUserStatus = async (row: PlatformUserRow) => {
 const loadIdentities = async () => {
   identitiesLoading.value = true
   try {
-    const resp = await listDingTalkIdentities(1, 200, identityKeyword.value.trim())
+    const resp = await listDingTalkIdentities(1, 100, identityKeyword.value.trim())
     identities.value = resp.data?.identities ?? []
   } catch (e: unknown) {
     MessagePlugin.error(errText(e))
