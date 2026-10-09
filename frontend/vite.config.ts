@@ -52,6 +52,11 @@ const DEV_PROXY_TARGET =
   process.env.FRONTEND_BACKEND_URL ||
   'http://localhost:8080'
 
+// dev server 端口可通过 VITE_DEV_PORT 覆盖（如 .env.local 里设 8081，
+// 与生产 compose 的 frontend 端口一致，浏览器书签与第三方回调
+// 地址都不用改）。
+const DEV_SERVER_PORT = Number(process.env.VITE_DEV_PORT) || 5173
+
 function resolveVueOfficePptxEntry(): string {
   try {
     const pkgDir = dirname(require.resolve('@vue-office/pptx/package.json'))
@@ -128,7 +133,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: DEV_SERVER_PORT,
     host: true,
     // 代理配置，用于开发环境
     proxy: {

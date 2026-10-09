@@ -24,6 +24,7 @@ type Config struct {
 	Auth            *AuthConfig            `yaml:"auth"             json:"auth"`
 	Audit           *AuditConfig           `yaml:"audit"            json:"audit"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
+	DingTalkAuth    *DingTalkAuthConfig    `yaml:"dingtalk_auth"    json:"dingtalk_auth"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
 	DocReader       *DocReaderConfig       `yaml:"docreader"        json:"docreader"`
@@ -313,6 +314,19 @@ type OIDCUserInfoMapping struct {
 	Email    string `yaml:"email"    json:"email"`
 }
 
+// DingTalkAuthConfig 钉钉扫码登录 + 通讯录同步配置（二开 fork 新增）。
+// 凭证只走 env，不落库不进 API 响应。
+type DingTalkAuthConfig struct {
+	Enable          bool   `yaml:"enable"        json:"enable"`
+	AppKey          string `yaml:"app_key"       json:"app_key"` // 企业内部应用 AppKey（扫码登录 client_id 同用）
+	AppSecret       string `yaml:"app_secret"    json:"-"`       // 不序列化
+	CorpID          string `yaml:"corp_id"       json:"corp_id"` // 企业 CorpId，identity 表多企业隔离键
+	RedirectURI     string `yaml:"redirect_uri"  json:"redirect_uri"`
+	DefaultTenantID uint64 `yaml:"default_tenant_id" json:"default_tenant_id"` // 钉钉用户默认空间（viewer），0=走平台默认策略
+	SyncEnable      bool   `yaml:"sync_enable"   json:"sync_enable"`           // 通讯录同步总开关
+	SyncCron        string `yaml:"sync_cron"     json:"sync_cron"`             // robfig/cron 5 段式，默认每日 03:00
+}
+
 type OIDCAuthConfig struct {
 	Enable                bool                 `yaml:"enable"                 json:"enable"`
 	IssuerURL             string               `yaml:"issuer_url"             json:"issuer_url"`
@@ -588,6 +602,7 @@ func LoadConfig() (*Config, error) {
 
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
+	applyDingTalkEnvOverrides(&cfg)
 	applyAgentEnvOverrides(&cfg)
 	applyKnowledgeBaseEnvOverrides(&cfg)
 	applyAuthAndTenantDefaults(&cfg)
@@ -633,6 +648,18 @@ func ValidateConfig(cfg *Config) error {
 		if strings.TrimSpace(cfg.OIDCAuth.DiscoveryURL) == "" &&
 			(strings.TrimSpace(cfg.OIDCAuth.AuthorizationEndpoint) == "" || strings.TrimSpace(cfg.OIDCAuth.TokenEndpoint) == "") {
 			errs = append(errs, "oidc_auth.discovery_url or both oidc_auth.authorization_endpoint and oidc_auth.token_endpoint are required when OIDC is enabled")
+		}
+	}
+
+	if cfg.DingTalkAuth != nil && cfg.DingTalkAuth.Enable {
+		if strings.TrimSpace(cfg.DingTalkAuth.AppKey) == "" {
+			errs = append(errs, "dingtalk_auth.app_key is required when DingTalk auth is enabled")
+		}
+		if strings.TrimSpace(cfg.DingTalkAuth.AppSecret) == "" {
+			errs = append(errs, "dingtalk_auth.app_secret is required when DingTalk auth is enabled")
+		}
+		if strings.TrimSpace(cfg.DingTalkAuth.CorpID) == "" {
+			errs = append(errs, "dingtalk_auth.corp_id is required when DingTalk auth is enabled")
 		}
 	}
 
@@ -758,6 +785,43 @@ func applyOIDCEnvOverrides(cfg *Config) {
 	}
 	if cfg.OIDCAuth.DiscoveryURL == "" && cfg.OIDCAuth.IssuerURL != "" {
 		cfg.OIDCAuth.DiscoveryURL = strings.TrimRight(cfg.OIDCAuth.IssuerURL, "/") + "/.well-known/openid-configuration"
+	}
+}
+
+// applyDingTalkEnvOverrides 钉钉扫码登录 + 通讯录同步的 env 覆盖（二开 fork 新增）。
+func applyDingTalkEnvOverrides(cfg *Config) {
+	if cfg.DingTalkAuth == nil {
+		cfg.DingTalkAuth = &DingTalkAuthConfig{}
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_ENABLE")); value != "" {
+		cfg.DingTalkAuth.Enable = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_APP_KEY")); value != "" {
+		cfg.DingTalkAuth.AppKey = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_APP_SECRET")); value != "" {
+		cfg.DingTalkAuth.AppSecret = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_CORP_ID")); value != "" {
+		cfg.DingTalkAuth.CorpID = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_AUTH_REDIRECT_URI")); value != "" {
+		cfg.DingTalkAuth.RedirectURI = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_DEFAULT_TENANT_ID")); value != "" {
+		if n, err := strconv.ParseUint(value, 10, 64); err == nil {
+			cfg.DingTalkAuth.DefaultTenantID = n
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_SYNC_ENABLE")); value != "" {
+		cfg.DingTalkAuth.SyncEnable = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("DINGTALK_SYNC_CRON")); value != "" {
+		cfg.DingTalkAuth.SyncCron = value
+	}
+	// 默认每日 03:00 全量对账
+	if cfg.DingTalkAuth.SyncCron == "" {
+		cfg.DingTalkAuth.SyncCron = "0 0 3 * * *"
 	}
 }
 

@@ -69,6 +69,7 @@ import (
 	notionConnector "github.com/Tencent/WeKnora/internal/datasource/connector/notion"
 	rssConnector "github.com/Tencent/WeKnora/internal/datasource/connector/rss"
 	yuqueConnector "github.com/Tencent/WeKnora/internal/datasource/connector/yuque"
+	dingtalkauth "github.com/Tencent/WeKnora/internal/dingtalk"
 	"github.com/Tencent/WeKnora/internal/event"
 	"github.com/Tencent/WeKnora/internal/handler"
 	"github.com/Tencent/WeKnora/internal/handler/session"
@@ -552,6 +553,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
 	must(container.Provide(handler.NewSystemHandler))
+	must(container.Provide(wireUserAdminHandler))
 	// Dig resolves exact types; adapt the registered service to the handler's
 	// narrower SharedAgentLookup interface at the composition boundary.
 	must(container.Provide(func(
@@ -603,6 +605,16 @@ func BuildContainer(container *dig.Container) *dig.Container {
 
 	// Router configuration
 	logger.Debugf(ctx, "[Container] Registering router and starting task server...")
+	// 钉钉扫码登录依赖注入（二开 fork 新增）：不改 NewUserService 签名，
+	// 仅在 dingtalk_auth.enable 时通过 setter 接线，未启用时
+	// LoginWithDingTalk 返回 "DingTalk login is disabled"。
+	// 注意 dig.Invoke 会立即构建 UserService 及其整条依赖链，必须排在
+	// 所有 repository / service Provide 之后（路由构建之前）。
+	must(container.Invoke(wireDingTalkLogin))
+	// 钉钉通讯录同步 + 系统管理端点（二开 fork 新增）：dingtalk_auth.enable
+	// 时构建 SyncService 并提供管理 handler（未启用时返回 nil，路由层
+	// nil-skip）；sync_enable 时额外启动每日 cron 调度器。
+	must(container.Provide(wireDingTalkSync))
 	must(container.Provide(router.NewRouter))
 	if redisAvailable {
 		must(container.Invoke(router.RunAsynqServer))
@@ -2012,4 +2024,80 @@ func startAuditLogRetention(
 		runner.StopWithin(cleanupStepTimeout)
 		return nil
 	})
+}
+
+// wireDingTalkLogin 在 dingtalk_auth.enable 时把钉钉 client / 绑定表 repo /
+// 登录编排 service 注入 userService（二开 fork 新增）。未启用时直接返回，
+// userService 的钉钉依赖保持 nil，LoginWithDingTalk 报错。
+// wireUserAdminHandler 构建平台用户管理 handler（二开 fork 新增）。
+// 启用 dingtalk_auth 时附带 dingtalk repo——用户清单的「姓名」列来自
+// 钉钉绑定表；未启用时传 nil，姓名列留空，其余列不受影响。
+func wireUserAdminHandler(
+	userSvc interfaces.UserService,
+	userRepo interfaces.UserRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	cfg *config.Config,
+	db *gorm.DB,
+) *handler.UserAdminHandler {
+	var dingRepo *dingtalkauth.Repository
+	if cfg != nil && cfg.DingTalkAuth != nil && cfg.DingTalkAuth.Enable {
+		dingRepo = dingtalkauth.NewRepository(db)
+	}
+	return handler.NewUserAdminHandler(userSvc, userRepo, tokenRepo, dingRepo)
+}
+
+func wireDingTalkLogin(cfg *config.Config, db *gorm.DB, us interfaces.UserService) {
+	if cfg == nil || cfg.DingTalkAuth == nil || !cfg.DingTalkAuth.Enable {
+		return
+	}
+	repo := dingtalkauth.NewRepository(db)
+	client := dingtalkauth.NewClient(
+		cfg.DingTalkAuth.AppKey, cfg.DingTalkAuth.AppSecret, cfg.DingTalkAuth.CorpID)
+	loginService := dingtalkauth.NewLoginService(client, repo)
+
+	aware, ok := us.(interface {
+		SetDingTalkDeps(*dingtalkauth.LoginService, *dingtalkauth.Repository)
+	})
+	if !ok {
+		logger.Errorf(context.Background(),
+			"[Container] UserService does not support SetDingTalkDeps; DingTalk login will stay disabled")
+		return
+	}
+	aware.SetDingTalkDeps(loginService, repo)
+	logger.Infof(context.Background(), "[Container] DingTalk auth wired (corp_id=%s)", cfg.DingTalkAuth.CorpID)
+}
+
+// wireDingTalkSync 构建钉钉通讯录同步服务与系统管理 handler（二开 fork 新增）。
+// 未启用 dingtalk_auth 时返回 nil，路由层 RegisterDingTalkAdminRoutes 会 nil-skip。
+// sync_enable 时额外启动每日 cron 调度器并注册优雅停机清理；启动失败仅记日志，
+// 不阻断容器（手动同步端点仍可用）。
+func wireDingTalkSync(
+	cfg *config.Config,
+	db *gorm.DB,
+	userRepo interfaces.UserRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	cleaner interfaces.ResourceCleaner,
+) *handler.DingTalkAdminHandler {
+	if cfg == nil || cfg.DingTalkAuth == nil || !cfg.DingTalkAuth.Enable {
+		return nil
+	}
+	repo := dingtalkauth.NewRepository(db)
+	client := dingtalkauth.NewClient(
+		cfg.DingTalkAuth.AppKey, cfg.DingTalkAuth.AppSecret, cfg.DingTalkAuth.CorpID)
+	syncService := dingtalkauth.NewSyncService(client, repo, userRepo, tokenRepo, cfg.DingTalkAuth.CorpID)
+
+	if cfg.DingTalkAuth.SyncEnable {
+		scheduler := dingtalkauth.NewScheduler(syncService, cfg.DingTalkAuth.SyncCron)
+		if err := scheduler.Start(); err != nil {
+			logger.Errorf(context.Background(), "[Container] DingTalk sync scheduler start failed: %v", err)
+		} else {
+			cleaner.RegisterWithName("DingTalkSyncScheduler", func() error {
+				scheduler.Stop()
+				return nil
+			})
+			logger.Infof(context.Background(),
+				"[Container] DingTalk contact sync scheduler started (cron=%s)", cfg.DingTalkAuth.SyncCron)
+		}
+	}
+	return handler.NewDingTalkAdminHandler(syncService, repo)
 }

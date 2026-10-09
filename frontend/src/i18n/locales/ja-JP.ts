@@ -2659,6 +2659,8 @@ export default {
     redirectingToOIDC: 'IDプロバイダにリダイレクトしています...',
     orContinueWith: 'または次の方法で続行',
     oidcLoginFailed: 'OIDCログインに失敗しました',
+    dingtalkLogin: 'DingTalkでログイン',
+    dingtalkLoginFailed: 'DingTalkログインに失敗しました',
     username: 'ユーザ名',
     email: 'メールアドレス',
     password: 'パスワード',

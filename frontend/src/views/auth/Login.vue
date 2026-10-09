@@ -225,13 +225,18 @@
                 </t-button>
               </div>
 
-              <div v-if="oidcEnabled" class="oidc-divider">
+              <div v-if="oidcEnabled || dingtalkEnabled" class="oidc-divider">
                 <span>{{ $t('auth.orContinueWith') }}</span>
               </div>
 
               <t-button v-if="oidcEnabled" theme="default" size="large" block :loading="oidcLoading" :disabled="loading"
                 class="oidc-button" @click="handleOIDCLogin">
                 {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
+              </t-button>
+
+              <t-button v-if="dingtalkEnabled" theme="default" size="large" block :loading="dingtalkLoading"
+                :disabled="loading" class="oidc-button dingtalk-button" @click="handleDingTalkLogin">
+                {{ dingtalkLoading ? $t('auth.redirectingToOIDC') : dingtalkLoginText }}
               </t-button>
             </t-form>
 
@@ -354,6 +359,8 @@ import {
   register,
   getOIDCAuthorizationURL,
   getOIDCConfig,
+  getDingTalkAuthUrl,
+  getDingTalkConfig,
   autoSetup,
   getAuthConfig,
   userInfoFromApi,
@@ -414,6 +421,9 @@ const isRegisterMode = ref(false)
 const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
+const dingtalkEnabled = ref(false)
+const dingtalkLoading = ref(false)
+const dingtalkProviderName = ref('')
 // Wait for configuration before showing a registration entry.
 const registrationMode = ref('')
 const registrationEnabled = computed(() => canRegister(registrationMode.value, !!inviteLookup.value))
@@ -444,6 +454,12 @@ const oidcLoginText = computed(() => {
     return t('auth.oidcLoginWithProvider', { provider: oidcProviderName.value })
   }
   return t('auth.oidcLogin')
+})
+const dingtalkLoginText = computed(() => {
+  if (dingtalkProviderName.value) {
+    return t('auth.oidcLoginWithProvider', { provider: dingtalkProviderName.value })
+  }
+  return t('auth.dingtalkLogin')
 })
 const currentLangOption = computed(() => languageOptions.find(l => l.value === currentLanguage.value))
 
@@ -608,6 +624,19 @@ const loadOIDCConfig = async () => {
   }
 }
 
+const getBackendDingTalkRedirectURI = () => `${window.location.origin}/api/v1/auth/dingtalk/callback`
+
+const loadDingTalkConfig = async () => {
+  try {
+    const response = await getDingTalkConfig()
+    dingtalkEnabled.value = !!response.success && !!response.enabled
+    dingtalkProviderName.value = response.provider_display_name || ''
+  } catch {
+    dingtalkEnabled.value = false
+    dingtalkProviderName.value = ''
+  }
+}
+
 // Registration stays hidden if configuration cannot be loaded.
 const loadAuthConfig = async () => {
   try {
@@ -641,6 +670,30 @@ const handleOIDCLogin = async () => {
     MessagePlugin.error(error.message || t('auth.oidcLoginFailed'))
   } finally {
     oidcLoading.value = false
+  }
+}
+
+const handleDingTalkLogin = async () => {
+  try {
+    dingtalkLoading.value = true
+    const response = await getDingTalkAuthUrl(getBackendDingTalkRedirectURI())
+    const authorizationURL = response.authorization_url
+
+    if (!response.success || !authorizationURL) {
+      MessagePlugin.error(response.message || t('auth.dingtalkLoginFailed'))
+      return
+    }
+
+    // 与 OIDC 相同：跳转钉钉会丢失 URL 中的 token，暂存到 sessionStorage，回调后由 App.vue 兑换。
+    if (inviteToken.value) {
+      sessionStorage.setItem('weknora_pending_invite_token', inviteToken.value)
+    }
+    window.location.href = authorizationURL
+  } catch (error: any) {
+    console.error('钉钉登录跳转失败:', error)
+    MessagePlugin.error(error.message || t('auth.dingtalkLoginFailed'))
+  } finally {
+    dingtalkLoading.value = false
   }
 }
 
@@ -777,6 +830,7 @@ onMounted(async () => {
       } else {
         inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
         loadOIDCConfig()
+        loadDingTalkConfig()
         loadAuthConfig()
         return
       }
@@ -799,6 +853,7 @@ onMounted(async () => {
     await loadAuthConfig()
     isRegisterMode.value = registrationEnabled.value
     loadOIDCConfig()
+    loadDingTalkConfig()
     return
   }
 
@@ -820,6 +875,7 @@ onMounted(async () => {
   }
 
   loadOIDCConfig()
+  loadDingTalkConfig()
   loadAuthConfig()
 })
 </script>
@@ -1559,6 +1615,10 @@ onMounted(async () => {
   border-radius: var(--app-radius-md);
   font-size: var(--app-text-lg);
   font-weight: 500;
+}
+
+.dingtalk-button {
+  margin-top: 10px;
 }
 
 .form-footer {

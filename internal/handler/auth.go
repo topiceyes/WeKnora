@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -506,6 +507,207 @@ func urlQueryEscape(value string) string {
 		"?", "%3F",
 	)
 	return replacer.Replace(value)
+}
+
+// ---------------------------------------------------------------------------
+// 钉钉扫码登录（二开 fork 新增）：复用 OIDC 的 state/nonce 防回放机制与
+// #oidc_result / #oidc_error 前端回调协议，前端无须为钉钉单独适配。
+// ---------------------------------------------------------------------------
+
+// dingTalkAuthorizeEndpoint 钉钉扫码授权页地址（固定，redirect_uri 须与
+// 钉钉开放平台后台登记的回调域名一致，故取服务端配置而非请求参数）。
+const dingTalkAuthorizeEndpoint = "https://login.dingtalk.com/oauth2/auth"
+
+// dingTalkAuthConfig 返回已启用的钉钉扫码登录配置；未启用或缺关键配置时
+// 返回 AppError，调用方直接 c.Error 透出。
+func (h *AuthHandler) dingTalkAuthConfig() (*config.DingTalkAuthConfig, error) {
+	if h.configInfo == nil || h.configInfo.DingTalkAuth == nil || !h.configInfo.DingTalkAuth.Enable {
+		return nil, errors.NewForbiddenError("DingTalk login is disabled")
+	}
+	cfg := h.configInfo.DingTalkAuth
+	if strings.TrimSpace(cfg.AppKey) == "" || strings.TrimSpace(cfg.RedirectURI) == "" {
+		return nil, errors.NewForbiddenError("DingTalk login is not configured")
+	}
+	return cfg, nil
+}
+
+// buildDingTalkAuthorizationURL 拼接钉钉授权地址，并写 nonce cookie 绑定当前
+// 浏览器（复用 setOIDCNonceCookie / secutils.SignOIDCState），回调时校验。
+func (h *AuthHandler) buildDingTalkAuthorizationURL(c *gin.Context, cfg *config.DingTalkAuthConfig) (string, error) {
+	nonce, err := generateDingTalkNonce()
+	if err != nil {
+		return "", err
+	}
+	state, err := secutils.SignOIDCState(&secutils.OIDCStatePayload{
+		Nonce:       nonce,
+		RedirectURI: strings.TrimSpace(cfg.RedirectURI),
+	})
+	if err != nil {
+		return "", err
+	}
+	setOIDCNonceCookie(c, nonce)
+
+	query := url.Values{}
+	query.Set("redirect_uri", strings.TrimSpace(cfg.RedirectURI))
+	query.Set("response_type", "code")
+	query.Set("client_id", strings.TrimSpace(cfg.AppKey))
+	query.Set("scope", "openid")
+	query.Set("state", state)
+	query.Set("prompt", "consent")
+	return dingTalkAuthorizeEndpoint + "?" + query.Encode(), nil
+}
+
+// generateDingTalkNonce 生成 state 绑定的随机 nonce（与 service 侧
+// generateRandomString 同义，handler 层自持一份避免跨层引用私有函数）。
+func generateDingTalkNonce() (string, error) {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// GetDingTalkConfig godoc
+// @Summary      获取钉钉扫码登录配置
+// @Description  返回钉钉登录是否启用以及 client_id（AppKey），供前端决定是否展示钉钉登录入口；不含 AppSecret
+// @Tags         认证
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  map[string]interface{}  "钉钉登录配置"
+// @Router       /auth/dingtalk/config [get]
+func (h *AuthHandler) GetDingTalkConfig(c *gin.Context) {
+	enabled := false
+	clientID := ""
+	if h.configInfo != nil && h.configInfo.DingTalkAuth != nil {
+		enabled = h.configInfo.DingTalkAuth.Enable
+		clientID = strings.TrimSpace(h.configInfo.DingTalkAuth.AppKey)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":               true,
+		"enabled":               enabled,
+		"client_id":             clientID,
+		"provider_display_name": "钉钉",
+	})
+}
+
+// GetDingTalkAuthorizationURL godoc
+// @Summary      获取钉钉扫码登录授权地址
+// @Description  根据后端钉钉配置生成扫码登录跳转地址（redirect_uri 取服务端配置）
+// @Tags         认证
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  types.OIDCAuthURLResponse
+// @Failure      403  {object}  errors.AppError  "钉钉登录未启用"
+// @Router       /auth/dingtalk/url [get]
+func (h *AuthHandler) GetDingTalkAuthorizationURL(c *gin.Context) {
+	ctx := c.Request.Context()
+	cfg, err := h.dingTalkAuthConfig()
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	authURL, err := h.buildDingTalkAuthorizationURL(c, cfg)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to generate DingTalk authorization URL: %v", err)
+		_ = c.Error(errors.NewInternalServerError("failed to generate DingTalk authorization URL"))
+		return
+	}
+
+	c.JSON(http.StatusOK, &types.OIDCAuthURLResponse{
+		Success:             true,
+		ProviderDisplayName: "钉钉",
+		AuthorizationURL:    authURL,
+	})
+}
+
+// DingTalkStart godoc
+// @Summary      发起钉钉扫码登录（直接 302）
+// @Description  与 /auth/dingtalk/url 不同，此端点直接 302 重定向到钉钉授权页，
+// @Description  无需前端 JS 介入，适用于外部平台直接给出一个链接触发登录的场景。
+// @Tags         认证
+// @Success      302
+// @Router       /auth/dingtalk/start [get]
+func (h *AuthHandler) DingTalkStart(c *gin.Context) {
+	ctx := c.Request.Context()
+	cfg, err := h.dingTalkAuthConfig()
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	authURL, err := h.buildDingTalkAuthorizationURL(c, cfg)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to generate DingTalk authorization URL: %v", err)
+		_ = c.Error(errors.NewInternalServerError("failed to generate DingTalk authorization URL"))
+		return
+	}
+	c.Redirect(http.StatusFound, authURL)
+}
+
+// DingTalkRedirectCallback godoc
+// @Summary      钉钉扫码登录回调
+// @Description  接收钉钉回调（authCode+state），后端完成换取用户资料与本地登录，随后 302 回前端登录页
+// @Tags         认证
+// @Accept       json
+// @Produce      json
+// @Param        authCode  query  string  false  "钉钉授权码"
+// @Param        state     query  string  false  "状态"
+// @Param        error     query  string  false  "错误码"
+// @Success      302
+// @Router       /auth/dingtalk/callback [get]
+func (h *AuthHandler) DingTalkRedirectCallback(c *gin.Context) {
+	ctx := c.Request.Context()
+	frontendRedirectURI := "/"
+
+	if providerError := strings.TrimSpace(c.Query("error")); providerError != "" {
+		redirectURL := frontendRedirectURI + "#oidc_error=" + urlQueryEscape(providerError)
+		if description := strings.TrimSpace(c.Query("error_description")); description != "" {
+			redirectURL += "&oidc_error_description=" + urlQueryEscape(description)
+		}
+		c.Redirect(http.StatusFound, redirectURL)
+		return
+	}
+
+	state := strings.TrimSpace(c.Query("state"))
+	if _, err := decodeOIDCState(state, c.Request); err != nil {
+		logger.Errorf(ctx, "Failed to decode DingTalk state: %v", err)
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("invalid_state"))
+		return
+	}
+	// One-time use: clear the binding cookie as soon as it is checked.
+	c.SetCookie(oidcNonceCookieName, "", -1, "/", "", false, true)
+
+	// 钉钉回调参数名为 authCode；兼容 code 以便手工调试。
+	authCode := strings.TrimSpace(c.Query("authCode"))
+	if authCode == "" {
+		authCode = strings.TrimSpace(c.Query("code"))
+	}
+	if authCode == "" {
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("missing_code"))
+		return
+	}
+
+	resp, err := h.userService.LoginWithDingTalk(ctx, authCode, h.resolveDefaultTenantMode(ctx))
+	if err != nil {
+		logger.Errorf(ctx, "Failed to complete DingTalk login via redirect callback: %v", err)
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("login_failed")+"&oidc_error_description="+urlQueryEscape(err.Error()))
+		return
+	}
+	if !resp.Success {
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("login_failed")+"&oidc_error_description="+urlQueryEscape(resp.Message))
+		return
+	}
+
+	payload, err := encodeOIDCCallbackPayload(resp)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to encode DingTalk callback payload: %v", err)
+		c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_error="+urlQueryEscape("payload_encode_failed"))
+		return
+	}
+
+	c.Redirect(http.StatusFound, frontendRedirectURI+"#oidc_result="+urlQueryEscape(payload))
 }
 
 // Logout godoc

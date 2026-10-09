@@ -68,6 +68,20 @@ export interface OIDCConfigResponse {
   message?: string
 }
 
+export interface DingTalkConfigResponse {
+  success: boolean
+  enabled?: boolean
+  client_id?: string
+  provider_display_name?: string
+  message?: string
+}
+
+export interface DingTalkAuthURLResponse {
+  success: boolean
+  authorization_url?: string
+  message?: string
+}
+
 // 用户注册接口
 export interface RegisterRequest {
   username: string
@@ -252,6 +266,36 @@ export async function getOIDCConfig(): Promise<OIDCConfigResponse> {
     return {
       success: false,
       enabled: false,
+      message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+/**
+ * 获取钉钉扫码登录跳转地址（返回的 url 已由后端拼好 redirect_uri，前端直接整页跳转）
+ */
+export async function getDingTalkAuthUrl(redirectUri: string): Promise<DingTalkAuthURLResponse> {
+  try {
+    const response = await get(`/api/v1/auth/dingtalk/url?redirect_uri=${encodeURIComponent(redirectUri)}`)
+    return response as unknown as DingTalkAuthURLResponse
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || t('error.auth.loginFailed')
+    }
+  }
+}
+
+/**
+ * 获取钉钉扫码登录配置（enable=false 时前端不展示钉钉登录入口）
+ */
+export async function getDingTalkConfig(): Promise<DingTalkConfigResponse> {
+  try {
+    const response = await get('/api/v1/auth/dingtalk/config')
+    return response as unknown as DingTalkConfigResponse
+  } catch (error: any) {
+    return {
+      success: false,
       message: error.message || t('error.auth.loginFailed')
     }
   }

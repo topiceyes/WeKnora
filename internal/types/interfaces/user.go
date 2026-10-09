@@ -18,6 +18,14 @@ type UserService interface {
 	// provisioning is the default tenant mode for a newly auto-created user
 	// (resolved by the caller from auth.default_tenant_mode).
 	LoginWithOIDC(ctx context.Context, code, redirectURI string, provisioning types.TenantProvisioningMode) (*types.OIDCCallbackResponse, error)
+	// LoginWithDingTalk completes the DingTalk QR-code login: exchanges the
+	// callback authCode for the DingTalk user profile, merges or provisions
+	// the local account (binding table first, then email, then auto-create),
+	// and issues local tokens. provisioning applies only when a brand-new
+	// user is auto-created (resolved by the caller from
+	// auth.default_tenant_mode). The response reuses OIDCCallbackResponse so
+	// the frontend callback handling is shared with the OIDC flow.
+	LoginWithDingTalk(ctx context.Context, authCode string, provisioning types.TenantProvisioningMode) (*types.OIDCCallbackResponse, error)
 	// GetUserByID gets a user by ID
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	// GetUsersByIDs batch-fetches users by id, returning a map keyed by
@@ -126,6 +134,8 @@ type UserRepository interface {
 	DeleteUser(ctx context.Context, id string) error
 	// ListUsers lists users with pagination
 	ListUsers(ctx context.Context, offset, limit int) ([]*types.User, error)
+	// CountUsers returns the total user count for pagination metadata.
+	CountUsers(ctx context.Context) (int64, error)
 	// ListSystemAdmins lists users where is_system_admin = true.
 	// Walks the partial-friendly idx_users_is_system_admin index. Returns
 	// the slice plus the total count for pagination metadata. Used by

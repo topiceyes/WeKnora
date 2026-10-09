@@ -51,6 +51,12 @@ var noAuthAPI = map[string][]string{
 	"/api/v1/auth/oidc/url":           {"GET"},
 	"/api/v1/auth/oidc/start":         {"GET"},
 	"/api/v1/auth/oidc/callback":      {"GET"},
+	// 钉钉扫码登录（二开）：与 OIDC 同为免登录公开端点。callback 由钉钉跳转
+	// 触发，请求本身无 WeKnora token，靠签名 state + nonce cookie 防伪。
+	"/api/v1/auth/dingtalk/config":   {"GET"},
+	"/api/v1/auth/dingtalk/url":      {"GET"},
+	"/api/v1/auth/dingtalk/start":    {"GET"},
+	"/api/v1/auth/dingtalk/callback": {"GET"},
 	// MCP OAuth provider redirect: the third-party authorization server
 	// redirects the browser here without a WeKnora bearer token. The request
 	// is authenticated by the opaque, single-use `state` parameter instead.

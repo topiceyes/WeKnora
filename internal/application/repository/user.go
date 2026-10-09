@@ -152,6 +152,16 @@ func (r *userRepository) ListUsers(ctx context.Context, offset, limit int) ([]*t
 	return users, nil
 }
 
+// CountUsers returns the total number of users (excludes soft-deleted rows).
+// Used alongside ListUsers to render pagination metadata on the admin UI.
+func (r *userRepository) CountUsers(ctx context.Context) (int64, error) {
+	var total int64
+	if err := r.db.WithContext(ctx).Model(&types.User{}).Count(&total).Error; err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 // ListSystemAdmins lists users where is_system_admin = true.
 //
 // Walks idx_users_is_system_admin (created in migration 000052), so the
