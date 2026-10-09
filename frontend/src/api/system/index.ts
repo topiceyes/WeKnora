@@ -31,6 +31,8 @@ export async function deletePlatformAPIKey(keyId: number): Promise<{ success: bo
 export interface PlatformUserRow {
   id: string
   username: string
+  /** 姓名（钉钉绑定表的 nick；未绑钉钉的账号为空） */
+  nick?: string
   email: string
   avatar: string
   is_active: boolean

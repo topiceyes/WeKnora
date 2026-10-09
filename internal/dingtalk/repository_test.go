@@ -113,6 +113,31 @@ func TestListActiveBindingsJoinsUserFlags(t *testing.T) {
 	}
 }
 
+func TestNicknamesByUserIDs(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	seedUser(t, r, "u-1", "dt-0001abcd", "zs@c.com", true)
+	seedUser(t, r, "u-2", "dt-0002efgh", "le@c.com", true)
+	if err := r.BindToUser(ctx, "corp-1", "ding-1", "union-1", "u-1", "张三", "", ""); err != nil {
+		t.Fatalf("BindToUser u-1: %v", err)
+	}
+
+	// 未绑定 id / 不存在的 id 混在入参里：只返回有绑定的
+	nicks, err := r.NicknamesByUserIDs(ctx, []string{"u-1", "u-2", "u-ghost"})
+	if err != nil {
+		t.Fatalf("NicknamesByUserIDs: %v", err)
+	}
+	if len(nicks) != 1 || nicks["u-1"] != "张三" {
+		t.Fatalf("want {u-1: 张三}, got %v", nicks)
+	}
+
+	// 空入参不发查询、返回空 map
+	empty, err := r.NicknamesByUserIDs(ctx, nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty input should return empty map, got %v err=%v", empty, err)
+	}
+}
+
 func TestSyncRunLifecycle(t *testing.T) {
 	r := setupRepo(t)
 	ctx := context.Background()

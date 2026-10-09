@@ -75,6 +75,11 @@
           </div>
           <div v-else class="data-table-shell">
             <t-table row-key="id" :data="users" :columns="userColumns">
+              <template #nick="{ row }">
+                <!-- 未绑钉钉的账号（手建管理员等）没有姓名，显示 — -->
+                <span v-if="row.nick">{{ row.nick }}</span>
+                <span v-else class="platform-users__muted">—</span>
+              </template>
               <template #status="{ row }">
                 <t-tag v-if="row.is_active" theme="success" variant="light">{{ t('platformUsers.active') }}</t-tag>
                 <t-tag v-else theme="danger" variant="light">{{ t('platformUsers.disabled') }}</t-tag>
@@ -379,6 +384,8 @@ const usersLoading = ref(false)
 const users = ref<PlatformUserRow[]>([])
 
 const userColumns = computed(() => [
+  // 姓名打头（同钉钉绑定 tab）：dt-xxxx 用户名不可读，姓名才是人的识别列
+  { colKey: 'nick', title: t('platformUsers.nick') },
   { colKey: 'username', title: t('platformUsers.username') },
   { colKey: 'email', title: t('platformUsers.email') },
   { colKey: 'status', title: t('platformUsers.status'), width: 100 },

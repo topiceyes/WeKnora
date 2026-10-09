@@ -291,3 +291,29 @@ func (r *Repository) ListIdentities(ctx context.Context, offset, limit int, keyw
 		Scan(&out).Error
 	return out, total, err
 }
+
+// NicknamesByUserIDs 批量取 user_id → 钉钉姓名（管理页用户清单的「姓名」列）。
+// 未绑定的 user_id 不出现在返回 map（调用方按缺省展示）；user_id 唯一索引，
+// 一人最多一行。空入参直接返回空 map，不发查询。
+func (r *Repository) NicknamesByUserIDs(ctx context.Context, userIDs []string) (map[string]string, error) {
+	out := make(map[string]string, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		UserID string `gorm:"column:user_id"`
+		Nick   string `gorm:"column:nick"`
+	}
+	err := r.db.WithContext(ctx).
+		Table("user_dingtalk_identities").
+		Select("user_id, nick").
+		Where("user_id IN ? AND deleted_at IS NULL", userIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.UserID] = row.Nick
+	}
+	return out, nil
+}

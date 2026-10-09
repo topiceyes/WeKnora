@@ -553,7 +553,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
 	must(container.Provide(handler.NewSystemHandler))
-	must(container.Provide(handler.NewUserAdminHandler))
+	must(container.Provide(wireUserAdminHandler))
 	// Dig resolves exact types; adapt the registered service to the handler's
 	// narrower SharedAgentLookup interface at the composition boundary.
 	must(container.Provide(func(
@@ -2029,6 +2029,23 @@ func startAuditLogRetention(
 // wireDingTalkLogin 在 dingtalk_auth.enable 时把钉钉 client / 绑定表 repo /
 // 登录编排 service 注入 userService（二开 fork 新增）。未启用时直接返回，
 // userService 的钉钉依赖保持 nil，LoginWithDingTalk 报错。
+// wireUserAdminHandler 构建平台用户管理 handler（二开 fork 新增）。
+// 启用 dingtalk_auth 时附带 dingtalk repo——用户清单的「姓名」列来自
+// 钉钉绑定表；未启用时传 nil，姓名列留空，其余列不受影响。
+func wireUserAdminHandler(
+	userSvc interfaces.UserService,
+	userRepo interfaces.UserRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	cfg *config.Config,
+	db *gorm.DB,
+) *handler.UserAdminHandler {
+	var dingRepo *dingtalkauth.Repository
+	if cfg != nil && cfg.DingTalkAuth != nil && cfg.DingTalkAuth.Enable {
+		dingRepo = dingtalkauth.NewRepository(db)
+	}
+	return handler.NewUserAdminHandler(userSvc, userRepo, tokenRepo, dingRepo)
+}
+
 func wireDingTalkLogin(cfg *config.Config, db *gorm.DB, us interfaces.UserService) {
 	if cfg == nil || cfg.DingTalkAuth == nil || !cfg.DingTalkAuth.Enable {
 		return

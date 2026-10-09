@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	dingtalkauth "github.com/Tencent/WeKnora/internal/dingtalk"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -16,15 +17,18 @@ import (
 // 路由层统一挂 SystemAdmin 门控（见 router.RegisterUserAdminRoutes），
 // handler 内不再重复鉴权。
 type UserAdminHandler struct {
-	userSvc   interfaces.UserService
-	userRepo  interfaces.UserRepository
-	tokenRepo interfaces.AuthTokenRepository
+	userSvc      interfaces.UserService
+	userRepo     interfaces.UserRepository
+	tokenRepo    interfaces.AuthTokenRepository
+	dingtalkRepo *dingtalkauth.Repository
 }
 
 // NewUserAdminHandler 构造 handler。userSvc 负责用户读写与系统管理员
 // 计数，userRepo 负责用户列表分页，tokenRepo 负责禁用后的会话吊销。
-func NewUserAdminHandler(userSvc interfaces.UserService, userRepo interfaces.UserRepository, tokenRepo interfaces.AuthTokenRepository) *UserAdminHandler {
-	return &UserAdminHandler{userSvc: userSvc, userRepo: userRepo, tokenRepo: tokenRepo}
+// dingtalkRepo 可为 nil（未启用钉钉登录）：用户清单的「姓名」列来自钉钉
+// 绑定表，nil 时姓名留空、其余列不受影响。
+func NewUserAdminHandler(userSvc interfaces.UserService, userRepo interfaces.UserRepository, tokenRepo interfaces.AuthTokenRepository, dingtalkRepo *dingtalkauth.Repository) *UserAdminHandler {
+	return &UserAdminHandler{userSvc: userSvc, userRepo: userRepo, tokenRepo: tokenRepo, dingtalkRepo: dingtalkRepo}
 }
 
 // ListUsers godoc
@@ -69,11 +73,26 @@ func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
+	// 「姓名」列来自钉钉绑定表（users 表没有姓名字段），一次批量查询补充。
+	// 未启用钉钉（repo nil）/ 查询失败 / 未绑定时姓名留空——增强列不阻断列表。
+	nicks := map[string]string{}
+	if h.dingtalkRepo != nil && len(users) > 0 {
+		ids := make([]string, 0, len(users))
+		for _, u := range users {
+			ids = append(ids, u.ID)
+		}
+		if nicks, err = h.dingtalkRepo.NicknamesByUserIDs(ctx, ids); err != nil {
+			logger.Warnf(ctx, "ListUsers: load dingtalk nicknames failed: %v", err)
+			nicks = map[string]string{}
+		}
+	}
+
 	list := make([]gin.H, 0, len(users))
 	for _, u := range users {
 		list = append(list, gin.H{
 			"id":              u.ID,
 			"username":        u.Username,
+			"nick":            nicks[u.ID],
 			"email":           u.Email,
 			"avatar":          u.Avatar,
 			"is_active":       u.IsActive,
