@@ -99,10 +99,10 @@ func (c *Client) GetCorpAccessToken(ctx context.Context) (string, error) {
 
 // UserTokenResp 个人访问令牌响应。
 type UserTokenResp struct {
-	AccessToken string `json:"accessToken"`
+	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
-	ExpireIn    int64  `json:"expireIn"` // 秒
-	CorpID      string `json:"corpId"`
+	ExpireIn     int64  `json:"expireIn"` // 秒
+	CorpID       string `json:"corpId"`
 }
 
 // GetUserAccessToken 用授权码换个人 userToken（POST /v1.0/oauth2/userAccessToken）。
@@ -125,13 +125,13 @@ func (c *Client) GetUserAccessToken(ctx context.Context, authCode string) (*User
 
 // ContactUserMe 当前登录用户信息（/v1.0/contact/users/me）。
 type ContactUserMe struct {
-	UnionID      string `json:"unionId"`
-	Nick         string `json:"nick"`
-	AvatarURL    string `json:"avatarUrl"`
-	Mobile       string `json:"mobile"`
-	Email        string `json:"email"`
-	OpenID       string `json:"openId"`
-	StateCode    string `json:"stateCode"` // 手机号国家码
+	UnionID   string `json:"unionId"`
+	Nick      string `json:"nick"`
+	AvatarURL string `json:"avatarUrl"`
+	Mobile    string `json:"mobile"`
+	Email     string `json:"email"`
+	OpenID    string `json:"openId"`
+	StateCode string `json:"stateCode"` // 手机号国家码
 }
 
 // GetUserMe 用个人 userToken 获取当前用户信息。
@@ -171,8 +171,6 @@ func (c *Client) GetUserIDByUnionID(ctx context.Context, unionID string) (string
 // 通讯录同步：部门列表 + 部门成员分页
 // ---------------------------------------------------------------------------
 
-// ListSubDepartments 拉取某部门的直接子部门（POST /topapi/v2/department/listsub，
-
 // SubDepartment 子部门信息（组织架构展示用）。
 type SubDepartment struct {
 	DeptID   int64  `json:"dept_id"`
@@ -181,7 +179,10 @@ type SubDepartment struct {
 }
 
 // ListSubDepartments 拉取某部门的直接子部门（POST /topapi/v2/department/listsub，
-// 需企业 token）。size 单页上限 100，这里循环 offset 直到取短页。
+// 需企业 token）。size 单页上限 100；终止条件除短页外，还包括「本页没有
+// 带来新部门」——listsub 的 offset 分页行为没有明确文档保证，若接口
+// 忽略 offset 且某部门直属子部门 ≥100，每次都会返回同一份全量，
+// 只靠短页判断会死循环。
 func (c *Client) ListSubDepartments(ctx context.Context, parentID int64) ([]SubDepartment, error) {
 	token, err := c.GetCorpAccessToken(ctx)
 	if err != nil {
@@ -190,6 +191,7 @@ func (c *Client) ListSubDepartments(ctx context.Context, parentID int64) ([]SubD
 	u := fmt.Sprintf("%s/topapi/v2/department/listsub?access_token=%s", corpAPIBase, token)
 	const pageSize = 100
 	var all []SubDepartment
+	seen := map[int64]bool{}
 	for offset := 0; ; offset += pageSize {
 		var resp struct {
 			ErrCode int             `json:"errcode"`
@@ -203,8 +205,15 @@ func (c *Client) ListSubDepartments(ctx context.Context, parentID int64) ([]SubD
 		if resp.ErrCode != 0 {
 			return nil, fmt.Errorf("listsub(dept=%d) failed: errcode=%d errmsg=%s", parentID, resp.ErrCode, redact(resp.ErrMsg, c.appSecret))
 		}
-		all = append(all, resp.Result...)
-		if len(resp.Result) < pageSize {
+		added := 0
+		for _, d := range resp.Result {
+			if !seen[d.DeptID] {
+				seen[d.DeptID] = true
+				all = append(all, d)
+				added++
+			}
+		}
+		if len(resp.Result) < pageSize || added == 0 {
 			return all, nil
 		}
 	}
@@ -250,9 +259,9 @@ type DeptUserDetail struct {
 
 // DeptUserPage 部门成员分页结果。
 type DeptUserPage struct {
-	List      []DeptUserDetail
+	List       []DeptUserDetail
 	NextCursor int64
-	HasMore   bool
+	HasMore    bool
 }
 
 // ListDeptUsers 分页拉取部门成员（POST /topapi/v2/user/list，需企业 token）。

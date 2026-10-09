@@ -317,14 +317,14 @@ type OIDCUserInfoMapping struct {
 // DingTalkAuthConfig 钉钉扫码登录 + 通讯录同步配置（二开 fork 新增）。
 // 凭证只走 env，不落库不进 API 响应。
 type DingTalkAuthConfig struct {
-	Enable       bool   `yaml:"enable"        json:"enable"`
-	AppKey       string `yaml:"app_key"       json:"app_key"`     // 企业内部应用 AppKey（扫码登录 client_id 同用）
-	AppSecret    string `yaml:"app_secret"    json:"-"`           // 不序列化
-	CorpID       string `yaml:"corp_id"       json:"corp_id"`     // 企业 CorpId，identity 表多企业隔离键
-	RedirectURI  string `yaml:"redirect_uri"  json:"redirect_uri"`
+	Enable          bool   `yaml:"enable"        json:"enable"`
+	AppKey          string `yaml:"app_key"       json:"app_key"` // 企业内部应用 AppKey（扫码登录 client_id 同用）
+	AppSecret       string `yaml:"app_secret"    json:"-"`       // 不序列化
+	CorpID          string `yaml:"corp_id"       json:"corp_id"` // 企业 CorpId，identity 表多企业隔离键
+	RedirectURI     string `yaml:"redirect_uri"  json:"redirect_uri"`
 	DefaultTenantID uint64 `yaml:"default_tenant_id" json:"default_tenant_id"` // 钉钉用户默认空间（viewer），0=走平台默认策略
-	SyncEnable   bool   `yaml:"sync_enable"   json:"sync_enable"` // 通讯录同步总开关
-	SyncCron     string `yaml:"sync_cron"     json:"sync_cron"`   // robfig/cron 5 段式，默认每日 03:00
+	SyncEnable      bool   `yaml:"sync_enable"   json:"sync_enable"`           // 通讯录同步总开关
+	SyncCron        string `yaml:"sync_cron"     json:"sync_cron"`             // robfig/cron 5 段式，默认每日 03:00
 }
 
 type OIDCAuthConfig struct {

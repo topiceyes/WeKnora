@@ -121,9 +121,9 @@ func (r *Repository) TouchLogin(ctx context.Context, corpID, dingUserID string) 
 // ActiveBinding 对账用的本地钉钉来源用户投影（绑定 + 本地账号激活态）。
 type ActiveBinding struct {
 	Identity
-	UserIsActive       bool `gorm:"column:user_is_active"`
-	UserIsSystemAdmin  bool `gorm:"column:user_is_system_admin"`
-	UserAccessAll      bool `gorm:"column:user_can_access_all_tenants"`
+	UserIsActive      bool `gorm:"column:user_is_active"`
+	UserIsSystemAdmin bool `gorm:"column:user_is_system_admin"`
+	UserAccessAll     bool `gorm:"column:user_can_access_all_tenants"`
 }
 
 // ListActiveBindings 返回所有已绑定且本地账号仍激活的记录（join users）。
@@ -263,9 +263,9 @@ func (r *Repository) ListSyncRuns(ctx context.Context, offset, limit int) ([]*Sy
 // ListIdentities 分页返回绑定关系（join users 取用户名/邮箱/激活态）。
 type IdentityWithUser struct {
 	Identity
-	Username string `gorm:"column:username" json:"username"`
+	Username  string `gorm:"column:username" json:"username"`
 	UserEmail string `gorm:"column:user_email" json:"user_email"`
-	IsActive bool   `gorm:"column:is_active" json:"is_active"`
+	IsActive  bool   `gorm:"column:is_active" json:"is_active"`
 }
 
 // ListIdentities 绑定关系分页列表，keyword 匹配 nick/mobile/email/username。

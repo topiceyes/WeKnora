@@ -112,6 +112,7 @@ func (s *stubUserRepoForAuth) DeleteUser(context.Context, string) error { return
 func (s *stubUserRepoForAuth) ListUsers(context.Context, int, int) ([]*types.User, error) {
 	return nil, nil
 }
+func (s *stubUserRepoForAuth) CountUsers(context.Context) (int64, error) { return 0, nil }
 func (s *stubUserRepoForAuth) ListSystemAdmins(context.Context, int, int) ([]*types.User, int64, error) {
 	return nil, 0, nil
 }

@@ -230,6 +230,33 @@ const errText = (e: unknown): string => {
 const formatDate = (v?: string) => (v ? new Date(v).toLocaleDateString() : '—')
 const formatDateTime = (v?: string) => (v ? new Date(v).toLocaleString() : '—')
 
+// 后端单页硬上限 100（parseListPagination），而本页三处清单都要完整数据：
+// 组织架构的部门人数/成员表是按 identity 全量汇总的，只拉第一页会把
+// 300+ 人企业的统计算错。循环翻页拉全量，短页即止；页数上限防御
+// total/短页信号异常时的死循环。
+const PAGE_SIZE = 100
+const MAX_PAGES = 50
+const fetchAllIdentities = async (keyword?: string): Promise<DingTalkIdentityRow[]> => {
+  const out: DingTalkIdentityRow[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const resp = await listDingTalkIdentities(page, PAGE_SIZE, keyword)
+    const rows = resp.data?.identities ?? []
+    out.push(...rows)
+    if (rows.length < PAGE_SIZE) break
+  }
+  return out
+}
+const fetchAllUsers = async (): Promise<PlatformUserRow[]> => {
+  const out: PlatformUserRow[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const resp = await listPlatformUsers(page, PAGE_SIZE)
+    const rows = resp.data?.list ?? []
+    out.push(...rows)
+    if (rows.length < PAGE_SIZE) break
+  }
+  return out
+}
+
 // ---------------------------------------------------------------------------
 // 组织架构
 // ---------------------------------------------------------------------------
@@ -259,13 +286,22 @@ const orgTree = computed<DeptNode[]>(() => {
   }
   const names = new Map(departments.value.map((d) => [d.dept_id, d.name]))
   const out: DeptNode[] = [{ dept_id: 1, name: t('platformUsers.companyRoot'), parent_id: 0, depth: 0 }]
+  const placed = new Set([1])
   const walk = (parent: number, depth: number) => {
     for (const id of byParent.get(parent) ?? []) {
       out.push({ dept_id: id, name: names.get(id) || `#${id}`, parent_id: parent, depth })
+      placed.add(id)
       walk(id, depth + 1)
     }
   }
   walk(1, 1)
+  // 孤儿部门（parent 不在可见列表内，如应用通讯录权限被范围限定）直接
+  // 挂到根下，避免整棵子树不可见。
+  for (const d of departments.value) {
+    if (!placed.has(d.dept_id)) {
+      out.push({ dept_id: d.dept_id, name: d.name, parent_id: 1, depth: 1 })
+    }
+  }
   return out
 })
 
@@ -289,19 +325,27 @@ const memberColumns = computed(() => [
   { colKey: 'username', title: t('platformUsers.localAccount') },
 ])
 
+// ensureDepartments 拉取部门表（幂等，已加载则跳过）。绑定 tab 也要用
+// 部门名渲染 dept_id_list，先于组织 tab 打开时不能显示成 #1234。
+const ensureDepartments = async () => {
+  if (departments.value.length > 0) return
+  try {
+    const resp = await listDingTalkDepartments()
+    departments.value = resp.data?.departments ?? []
+    orgSyncedAt.value = resp.data?.synced_at ?? ''
+  } catch {
+    // 部门名只是增强显示，失败不阻断调用方
+  }
+}
+
 const loadOrg = async () => {
   orgLoading.value = true
   orgError.value = ''
   try {
     // 部门树读本地表（每日同步全量替换，不再实时调钉钉）；
-    // 成员清单取本地绑定（含职位/工号快照）。
-    const [deptResp, identResp] = await Promise.all([
-      listDingTalkDepartments(),
-      listDingTalkIdentities(1, 100),
-    ])
-    departments.value = deptResp.data?.departments ?? []
-    orgSyncedAt.value = deptResp.data?.synced_at ?? ''
-    identities.value = identResp.data?.identities ?? []
+    // 成员清单取本地绑定全量（含职位/工号快照），人数统计才准。
+    const [, allIdentities] = await Promise.all([ensureDepartments(), fetchAllIdentities()])
+    identities.value = allIdentities
   } catch (e: unknown) {
     orgError.value = errText(e)
   } finally {
@@ -316,6 +360,7 @@ const syncFromOrgTab = async () => {
     const resp = await triggerDingTalkSync()
     if (resp.success) {
       MessagePlugin.success(t('platformUsers.syncDone', { total: resp.data?.total_remote ?? 0, updated: resp.data?.updated_count ?? 0 }))
+      departments.value = [] // 同步后部门树已更新，强制下次重新拉取
       await loadOrg()
     } else {
       MessagePlugin.error(t('platformUsers.syncFailed'))
@@ -345,8 +390,7 @@ const userColumns = computed(() => [
 const loadUsers = async () => {
   usersLoading.value = true
   try {
-    const resp = await listPlatformUsers(1, 100)
-    users.value = resp.data?.list ?? []
+    users.value = await fetchAllUsers()
   } catch (e: unknown) {
     MessagePlugin.error(errText(e))
   } finally {
@@ -377,8 +421,10 @@ const toggleUserStatus = async (row: PlatformUserRow) => {
 const loadIdentities = async () => {
   identitiesLoading.value = true
   try {
-    const resp = await listDingTalkIdentities(1, 100, identityKeyword.value.trim())
-    identities.value = resp.data?.identities ?? []
+    // 部门名用于把 dept_id_list 渲染成可读名称；先于组织 tab 打开时
+    // 也要加载（幂等）。绑定本身拉全量分页，清单不截断。
+    await ensureDepartments()
+    identities.value = await fetchAllIdentities(identityKeyword.value.trim())
   } catch (e: unknown) {
     MessagePlugin.error(errText(e))
   } finally {
@@ -433,6 +479,7 @@ const triggerSync = async () => {
     const resp = await triggerDingTalkSync()
     if (resp.success && resp.data) {
       MessagePlugin.success(t('platformUsers.syncDone', { total: resp.data.total_remote, updated: resp.data.updated_count }))
+      departments.value = [] // 同步后部门树已更新，组织 tab 下次进入重新拉取
     } else {
       MessagePlugin.error(t('platformUsers.syncFailed'))
     }

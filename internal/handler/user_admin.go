@@ -72,13 +72,13 @@ func (h *UserAdminHandler) ListUsers(c *gin.Context) {
 	list := make([]gin.H, 0, len(users))
 	for _, u := range users {
 		list = append(list, gin.H{
-			"id":             u.ID,
-			"username":       u.Username,
-			"email":          u.Email,
-			"avatar":         u.Avatar,
-			"is_active":      u.IsActive,
+			"id":              u.ID,
+			"username":        u.Username,
+			"email":           u.Email,
+			"avatar":          u.Avatar,
+			"is_active":       u.IsActive,
 			"is_system_admin": u.IsSystemAdmin,
-			"created_at":     u.CreatedAt,
+			"created_at":      u.CreatedAt,
 		})
 	}
 
