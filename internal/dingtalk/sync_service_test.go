@@ -205,9 +205,9 @@ func TestSyncDeactivatesDepartedUser(t *testing.T) {
 	}
 }
 
-// TestSyncRenamesLegacyDingTalkUsernames 存量旧格式 dt- 用户名在同步拿到
-// 工号后改成新格式 dt-<工号><4随机>；已是新格式 / 非 dt- 前缀 / 远端无工号
-// 的账号不动。
+// TestSyncRenamesLegacyDingTalkUsernames 存量 dt- 旧格式用户名（两代：
+// dt-<unionId>/dt-昵称、dt-<工号><随机>）在同步拿到姓名+工号后改成规范
+// 格式 <姓名>-<工号>；已规范 / 非 dt- 前缀（手建）/ 无工号的账号不动。
 func TestSyncRenamesLegacyDingTalkUsernames(t *testing.T) {
 	ctx := context.Background()
 	client := &mockContactClient{
@@ -215,44 +215,49 @@ func TestSyncRenamesLegacyDingTalkUsernames(t *testing.T) {
 		users: map[int64][]DeptUserDetail{
 			1: {
 				{UserID: "ding-legacy", Name: "张三", JobNumber: "8823"},
-				{UserID: "ding-newfmt", Name: "李四", JobNumber: "1024"},
-				{UserID: "ding-manual", Name: "王五", JobNumber: "2048"},
-				{UserID: "ding-nojob", Name: "赵六"},
+				{UserID: "ding-v12", Name: "李四", JobNumber: "1024"},
+				{UserID: "ding-current", Name: "王五", JobNumber: "2048"},
+				{UserID: "ding-manual", Name: "赵七", JobNumber: "4096"},
+				{UserID: "ding-nojob", Name: "钱八"},
 			},
 		},
 	}
 	svc, repo, userRepo, _ := setupSync(t, client)
-	seedSyncUser(t, repo, userRepo, "u-legacy", "dt-zhangsan", "legacy@c.com") // 旧昵称格式
-	seedSyncUser(t, repo, userRepo, "u-newfmt", "dt-1024x7k2", "newfmt@c.com") // 已是新格式
-	seedSyncUser(t, repo, userRepo, "u-manual", "wangwu", "manual@c.com")      // 管理员手建（非 dt-）
-	seedSyncUser(t, repo, userRepo, "u-nojob", "dt-ozXy123456", "nojob@c.com") // 旧格式但远端无工号
+	seedSyncUser(t, repo, userRepo, "u-legacy", "dt-ozXy123456", "legacy@c.com") // v1 旧格式（unionId 风格）
+	seedSyncUser(t, repo, userRepo, "u-v12", "dt-1024x7k2", "v12@c.com")         // v1.2.0 格式，同属旧格式
+	seedSyncUser(t, repo, userRepo, "u-current", "王五-2048", "current@c.com")     // 已是规范格式
+	seedSyncUser(t, repo, userRepo, "u-manual", "zhaoqi", "manual@c.com")        // 管理员手建（非 dt-）
+	seedSyncUser(t, repo, userRepo, "u-nojob", "dt-nojobacct", "nojob@c.com")    // 旧格式但远端无工号
 	bind(t, repo, "ding-legacy", "u-legacy", "张三")
-	bind(t, repo, "ding-newfmt", "u-newfmt", "李四")
-	bind(t, repo, "ding-manual", "u-manual", "王五")
-	bind(t, repo, "ding-nojob", "u-nojob", "赵六")
+	bind(t, repo, "ding-v12", "u-v12", "李四")
+	bind(t, repo, "ding-current", "u-current", "王五")
+	bind(t, repo, "ding-manual", "u-manual", "赵七")
+	bind(t, repo, "ding-nojob", "u-nojob", "钱八")
 
 	if _, err := svc.RunFullSync(ctx, SyncTriggerCron); err != nil {
 		t.Fatalf("RunFullSync: %v", err)
 	}
 
-	renamed := userRepo.users["u-legacy"].Username
-	if !regexp.MustCompile(`^dt-8823[a-z0-9]{4}$`).MatchString(renamed) {
-		t.Fatalf("legacy dt-<nick> username should become dt-<job><4 random>, got %q", renamed)
+	if got := userRepo.users["u-legacy"].Username; got != "张三-8823" {
+		t.Fatalf("v1 legacy dt-<unionId> should become 姓名-工号, got %q", got)
 	}
-	if got := userRepo.users["u-newfmt"].Username; got != "dt-1024x7k2" {
-		t.Fatalf("new-format username must stay, got %q", got)
+	if got := userRepo.users["u-v12"].Username; got != "李四-1024" {
+		t.Fatalf("v1.2.0 dt-<job><random> should become 姓名-工号, got %q", got)
 	}
-	if got := userRepo.users["u-manual"].Username; got != "wangwu" {
-		t.Fatalf("non dt- username must stay, got %q", got)
+	if got := userRepo.users["u-current"].Username; got != "王五-2048" {
+		t.Fatalf("canonical username must stay, got %q", got)
 	}
-	if got := userRepo.users["u-nojob"].Username; got != "dt-ozXy123456" {
+	if got := userRepo.users["u-manual"].Username; got != "zhaoqi" {
+		t.Fatalf("manual (non dt-) username must stay, got %q", got)
+	}
+	if got := userRepo.users["u-nojob"].Username; got != "dt-nojobacct" {
 		t.Fatalf("no-job-number username must stay, got %q", got)
 	}
 }
 
-// TestSyncRenameCollisionFallsBackToTimestamp 查重永远命中（随机段持续
-// 撞名）→ 时间戳兜底，改名仍要完成。
-func TestSyncRenameCollisionFallsBackToTimestamp(t *testing.T) {
+// TestSyncRenameCollisionAppendsRandom 规范名撞名（同名同工号重复录入）
+// → 追加 4 位随机后缀仍完成改名。
+func TestSyncRenameCollisionAppendsRandom(t *testing.T) {
 	ctx := context.Background()
 	client := &mockContactClient{
 		deptTree: []SubDepartment{},
@@ -261,15 +266,16 @@ func TestSyncRenameCollisionFallsBackToTimestamp(t *testing.T) {
 		},
 	}
 	svc, repo, userRepo, _ := setupSync(t, client)
-	userRepo.usernameTaken = func(string) bool { return true }
+	// 规范名「张三-8823」已被占用，其余名字可用
+	userRepo.usernameTaken = func(username string) bool { return username == "张三-8823" }
 	seedSyncUser(t, repo, userRepo, "u-legacy", "dt-zhangsan", "legacy@c.com")
 	bind(t, repo, "ding-legacy", "u-legacy", "张三")
 
 	if _, err := svc.RunFullSync(ctx, SyncTriggerCron); err != nil {
 		t.Fatalf("RunFullSync: %v", err)
 	}
-	if got := userRepo.users["u-legacy"].Username; !regexp.MustCompile(`^dt-8823[0-9]+$`).MatchString(got) {
-		t.Fatalf("persistent collision should fall back to dt-<job><timestamp>, got %q", got)
+	if got := userRepo.users["u-legacy"].Username; !regexp.MustCompile(`^张三-8823-[a-z0-9]{4}$`).MatchString(got) {
+		t.Fatalf("collision should append 4 random chars to canonical name, got %q", got)
 	}
 }
 

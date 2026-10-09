@@ -753,15 +753,20 @@ func dingTalkIdentityKey(profile *dingtalk.DingTalkUserProfile) string {
 	return "union:" + profile.UnionID
 }
 
-// generateDingTalkUsername 生成钉钉首登账号的用户名：有工号
-// dt-<工号><4位随机>，无工号 dt-<8位随机>（格式见 dingtalk.GenerateUsername，
-// 与通讯录同步的存量改名共用）。重名时重新生成随机段，兜底带时间戳。
+// generateDingTalkUsername 生成钉钉首登账号的用户名：规范格式
+// <姓名>-<工号>（如 汪利辉-0003，钉钉昵称 + 工号），无工号时 <姓名>-<4随机>，
+// 兜底链见 dingtalk.GenerateUsername（与通讯录同步的存量改名共用）。
+// 重名时重新生成候选（姓名-工号 形态撞名多为重复录入，最终时间戳兜底）。
 func (s *userService) generateDingTalkUsername(ctx context.Context, profile *dingtalk.DingTalkUserProfile) string {
-	candidate := dingtalk.GenerateUsername(profile.JobNumber)
-	if candidate == "dt-" {
-		// crypto/rand 失败的极端情况，退化到时间戳保证非空可注册。
-		return fmt.Sprintf("dt-%d", time.Now().UnixNano())
+	next := func() string {
+		candidate := dingtalk.GenerateUsername(profile.Nick, profile.JobNumber)
+		if candidate == "" || strings.HasSuffix(candidate, "-") {
+			// crypto/rand 失败的极端情况（随机段为空），退化到时间戳保证非空可注册。
+			return fmt.Sprintf("dt-%d", time.Now().UnixNano())
+		}
+		return candidate
 	}
+	candidate := next()
 	for i := 0; i < 20; i++ {
 		existing, err := s.userRepo.GetUserByUsername(ctx, candidate)
 		if isUserLookupNotFound(err) || (err == nil && existing == nil) {
@@ -770,9 +775,7 @@ func (s *userService) generateDingTalkUsername(ctx context.Context, profile *din
 		if err != nil && !isUserLookupNotFound(err) {
 			logger.Warnf(ctx, "Failed to check existing DingTalk username %q: %v", candidate, err)
 		}
-		// 随机段本来就是为唯一性服务的：撞名直接换一段新的随机，
-		// 而不是追加序号（dt-8823x7k2 比 dt-8823x7k2-1 更符合格式约定）。
-		candidate = dingtalk.GenerateUsername(profile.JobNumber)
+		candidate = next()
 	}
 	// 20 次都撞（或查重接口持续报错）：时间戳兜底，保证可用且基本唯一。
 	return fmt.Sprintf("dt-%d", time.Now().UnixNano())

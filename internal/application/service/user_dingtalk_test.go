@@ -18,32 +18,42 @@ func (c *collidingUserRepo) GetUserByUsername(context.Context, string) (*types.U
 	return &types.User{ID: "taken", Username: "taken"}, nil
 }
 
-func TestGenerateDingTalkUsernameUsesJobNumber(t *testing.T) {
+func TestGenerateDingTalkUsernameCanonical(t *testing.T) {
+	// 规范格式：姓名-工号（无随机段）
 	svc := &userService{userRepo: &stubUserRepoForAuth{}}
-
 	name := svc.generateDingTalkUsername(context.Background(), &dingtalk.DingTalkUserProfile{
-		JobNumber: "8823",
+		Nick: "汪利辉", JobNumber: "0003",
 	})
-	if !regexp.MustCompile(`^dt-8823[a-z0-9]{4}$`).MatchString(name) {
-		t.Fatalf("generateDingTalkUsername(job=8823) = %q, want dt-8823 + 4 random chars", name)
+	if name != "汪利辉-0003" {
+		t.Fatalf("generateDingTalkUsername(汪利辉, 0003) = %q, want 汪利辉-0003", name)
 	}
 }
 
-func TestGenerateDingTalkUsernameFallbackWithoutJobNumber(t *testing.T) {
+func TestGenerateDingTalkUsernameNameOnlyFallback(t *testing.T) {
+	// 无工号：姓名-4位随机
 	svc := &userService{userRepo: &stubUserRepoForAuth{}}
+	name := svc.generateDingTalkUsername(context.Background(), &dingtalk.DingTalkUserProfile{
+		Nick: "汪利辉",
+	})
+	if !regexp.MustCompile(`^汪利辉-[a-z0-9]{4}$`).MatchString(name) {
+		t.Fatalf("generateDingTalkUsername(no job) = %q, want 姓名 + 4 random chars", name)
+	}
+}
 
+func TestGenerateDingTalkUsernameNothingFallback(t *testing.T) {
+	// 姓名工号全无：dt-8位随机兜底
+	svc := &userService{userRepo: &stubUserRepoForAuth{}}
 	name := svc.generateDingTalkUsername(context.Background(), &dingtalk.DingTalkUserProfile{})
 	if !regexp.MustCompile(`^dt-[a-z0-9]{8}$`).MatchString(name) {
-		t.Fatalf("generateDingTalkUsername(no job) = %q, want dt- + 8 random chars", name)
+		t.Fatalf("generateDingTalkUsername(nothing) = %q, want dt- + 8 random chars", name)
 	}
 }
 
 func TestGenerateDingTalkUsernameCollisionFallsBackToTimestamp(t *testing.T) {
-	// 查重永远命中（撞名 20 次）→ 时间戳兜底，保证返回可用用户名。
+	// 查重永远命中（规范名是确定性的，撞 20 次）→ 时间戳兜底。
 	svc := &userService{userRepo: &collidingUserRepo{}}
-
 	name := svc.generateDingTalkUsername(context.Background(), &dingtalk.DingTalkUserProfile{
-		JobNumber: "8823",
+		Nick: "张三", JobNumber: "8823",
 	})
 	if !regexp.MustCompile(`^dt-[0-9]+$`).MatchString(name) {
 		t.Fatalf("generateDingTalkUsername(collision) = %q, want dt- + timestamp fallback", name)

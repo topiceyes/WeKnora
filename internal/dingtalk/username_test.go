@@ -5,55 +5,65 @@ import (
 	"testing"
 )
 
-var generatedUsernamePattern = regexp.MustCompile(`^dt-[a-z0-9]+$`)
-
-func TestGenerateUsernameWithJobNumber(t *testing.T) {
-	name := GenerateUsername("8823")
-	if !regexp.MustCompile(`^dt-8823[a-z0-9]{4}$`).MatchString(name) {
-		t.Fatalf("GenerateUsername(8823) = %q, want dt-8823 + 4 random chars", name)
+func TestGenerateUsernameNameAndJobNumber(t *testing.T) {
+	// 规范格式：姓名-工号（无随机段，工号唯一保证不碰撞）
+	if got := GenerateUsername("汪利辉", "0003"); got != "汪利辉-0003" {
+		t.Fatalf("GenerateUsername(汪利辉, 0003) = %q, want 汪利辉-0003", got)
 	}
 }
 
-func TestGenerateUsernameSanitizesJobNumber(t *testing.T) {
-	// 钉钉侧工号可能带字母/符号/前后空格，清洗后只留 [a-z0-9]。
-	name := GenerateUsername(" GK-1024 ")
-	if !regexp.MustCompile(`^dt-gk1024[a-z0-9]{4}$`).MatchString(name) {
-		t.Fatalf("GenerateUsername(\" GK-1024 \") = %q, want dt-gk1024 + 4 random chars", name)
+func TestGenerateUsernameSanitizes(t *testing.T) {
+	// 姓名里的空白/符号剔除；工号清洗成小写 [a-z0-9]
+	if got := GenerateUsername("张 三", "8823"); got != "张三-8823" {
+		t.Fatalf("GenerateUsername(\"张 三\") = %q, want 张三-8823", got)
+	}
+	if got := GenerateUsername("Jack.M", " GK-1024 "); got != "JackM-gk1024" {
+		t.Fatalf("GenerateUsername(Jack.M, \" GK-1024 \") = %q, want JackM-gk1024", got)
 	}
 }
 
-func TestGenerateUsernameFallbackWithoutJobNumber(t *testing.T) {
-	for _, job := range []string{"", "   ", "---", "中文"} {
-		name := GenerateUsername(job)
-		if !regexp.MustCompile(`^dt-[a-z0-9]{8}$`).MatchString(name) {
-			t.Fatalf("GenerateUsername(%q) = %q, want dt- + 8 random chars", job, name)
+func TestGenerateUsernameNameOnly(t *testing.T) {
+	// 无工号：姓名-4位随机（重点姓名，随机段保唯一）
+	if got := GenerateUsername("汪利辉", ""); !regexp.MustCompile(`^汪利辉-[a-z0-9]{4}$`).MatchString(got) {
+		t.Fatalf("GenerateUsername(name only) = %q, want 姓名 + 4 random chars", got)
+	}
+	if got := GenerateUsername("汪利辉", "中文"); !regexp.MustCompile(`^汪利辉-[a-z0-9]{4}$`).MatchString(got) {
+		t.Fatalf("non-alnum job should be treated as missing: %q", got)
+	}
+}
+
+func TestGenerateUsernameJobOnlyAndNeither(t *testing.T) {
+	// 仅工号（钉钉昵称为空）：沿用 dt- 前缀 + 工号 + 随机
+	if got := GenerateUsername("", "8823"); !regexp.MustCompile(`^dt-8823[a-z0-9]{4}$`).MatchString(got) {
+		t.Fatalf("GenerateUsername(job only) = %q, want dt-8823 + 4 random", got)
+	}
+	// 都没有：dt-8位随机兜底
+	for _, in := range [][2]string{{"", ""}, {"  ", "---"}} {
+		if got := GenerateUsername(in[0], in[1]); !regexp.MustCompile(`^dt-[a-z0-9]{8}$`).MatchString(got) {
+			t.Fatalf("GenerateUsername(%q,%q) = %q, want dt- + 8 random", in[0], in[1], got)
 		}
 	}
 }
 
-func TestGenerateUsernameRandomness(t *testing.T) {
-	// 同一工号多次生成，随机后缀应几乎必不同（36^4 空间，30 次全撞概率 ~1e-6）。
+func TestGenerateUsernameRandomSuffixVaries(t *testing.T) {
+	// 无工号时随机段应几乎必不同（36^4 空间，30 次全撞概率 ~1e-6）
 	seen := map[string]bool{}
 	for i := 0; i < 30; i++ {
-		name := GenerateUsername("8823")
-		if !generatedUsernamePattern.MatchString(name) {
-			t.Fatalf("GenerateUsername(8823) = %q, unexpected format", name)
-		}
-		seen[name] = true
+		seen[GenerateUsername("张三", "")] = true
 	}
 	if len(seen) < 29 {
 		t.Fatalf("30 generations produced only %d distinct names, suffix not random", len(seen))
 	}
 }
 
-func TestUsernamePrefix(t *testing.T) {
-	if got := UsernamePrefix("8823"); got != "dt-8823" {
-		t.Fatalf("UsernamePrefix(8823) = %q, want dt-8823", got)
+func TestExpectedUsername(t *testing.T) {
+	if got := ExpectedUsername("汪利辉", "0003"); got != "汪利辉-0003" {
+		t.Fatalf("ExpectedUsername = %q, want 汪利辉-0003", got)
 	}
-	// 清洗后为空的工号返回 ""，调用方（同步改名）据此跳过。
-	for _, job := range []string{"", "  ", "-", "中文"} {
-		if got := UsernamePrefix(job); got != "" {
-			t.Fatalf("UsernamePrefix(%q) = %q, want empty", job, got)
+	// 姓名或工号任一缺失 → ""（调用方据此跳过改名）
+	for _, in := range [][2]string{{"", "0003"}, {"汪利辉", ""}, {"---", "中文"}, {"", ""}} {
+		if got := ExpectedUsername(in[0], in[1]); got != "" {
+			t.Fatalf("ExpectedUsername(%q,%q) = %q, want empty", in[0], in[1], got)
 		}
 	}
 }
