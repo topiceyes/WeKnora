@@ -387,7 +387,7 @@ const userColumns = computed(() => [
   // 姓名打头（同钉钉绑定 tab）：dt-xxxx 用户名不可读，姓名才是人的识别列。
   // 姓名/用户名定宽（内容短且可预期），email 独占剩余弹性空间不被挤变形。
   { colKey: 'nick', title: t('platformUsers.nick'), width: 100 },
-  { colKey: 'username', title: t('platformUsers.username'), width: 170 },
+  { colKey: 'username', title: t('platformUsers.username'), width: 130, ellipsis: true },
   { colKey: 'email', title: t('platformUsers.email'), ellipsis: true },
   { colKey: 'status', title: t('platformUsers.status'), width: 100 },
   { colKey: 'isAdmin', title: t('platformUsers.sysAdmin'), width: 110 },
