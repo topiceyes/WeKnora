@@ -218,9 +218,11 @@ const router = createRouter({
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
         {
+          // 旧别名：用户清单已并入官方系统设置页的「用户」tab
+          // （SystemSettings.vue → UserManagement.vue），此处只做落地跳转。
           path: "system/users",
           name: "systemUsers",
-          redirect: { path: "/platform/settings", query: { section: "platform-users" } },
+          redirect: { path: "/platform/settings", query: { section: "system-global" } },
           meta: { requiresInit: true, requiresAuth: true, requiresSystemAdmin: true },
         },
       ],

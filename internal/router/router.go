@@ -66,7 +66,6 @@ type RouterParams struct {
 	InitializationHandler        *handler.InitializationHandler
 	SystemHandler                *handler.SystemHandler
 	DingTalkAdminHandler         *handler.DingTalkAdminHandler
-	UserAdminHandler             *handler.UserAdminHandler
 	MCPServiceHandler            *handler.MCPServiceHandler
 	MCPCredentialsHandler        *handler.MCPCredentialsHandler
 	MCPOAuthHandler              *handler.MCPOAuthHandler
@@ -129,7 +128,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 			"X-Embed-Session", "X-External-User-ID", "X-External-User-Token", "X-WeKnora-Desktop-Token",
 			// Streamable HTTP MCP clients running in a browser send these on
 			// the /mcp/:endpoint_id surface.
-			"MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID",
+			"MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id", "Last-Event-ID",
 		},
 		ExposeHeaders:    []string{"Content-Length", "Access-Control-Allow-Origin", "Mcp-Session-Id"},
 		AllowCredentials: true,
@@ -313,7 +312,6 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
 		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
 		RegisterDingTalkAdminRoutes(v1, params.DingTalkAdminHandler, rbacGuards)
-		RegisterUserAdminRoutes(v1, params.UserAdminHandler, rbacGuards)
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
 		RegisterWebSearchRoutes(v1, params.WebSearchHandler, rbacGuards)
 		RegisterWebSearchProviderRoutes(v1, params.WebSearchProviderHandler, params.WebSearchCredentialsHandler, rbacGuards)

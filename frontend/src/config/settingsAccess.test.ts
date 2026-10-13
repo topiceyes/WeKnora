@@ -34,6 +34,8 @@ test('personal skill environment variables are visible to every member', () => {
 test('system administration settings stay explicitly system-admin-only', () => {
   assert.deepEqual(
     [...SYSTEM_ADMIN_SETTINGS_SECTIONS],
-    ['system-global', 'model-catalog', 'runtime-queues', 'platform-api-keys', 'system-audit-log'],
+    // platform-users（钉钉通讯录，二开 fork）同样是平台级身份源操作，
+    // 与 per-tenant 角色无关，因此和上面几项一起限定为系统管理员可见。
+    ['system-global', 'model-catalog', 'runtime-queues', 'platform-api-keys', 'system-audit-log', 'platform-users'],
   )
 })

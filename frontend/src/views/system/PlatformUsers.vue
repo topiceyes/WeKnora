@@ -66,50 +66,8 @@
         </div>
       </t-tab-panel>
 
-      <!-- 用户清单 -->
-      <t-tab-panel value="users" :label="t('platformUsers.tabs.users')">
-        <div class="platform-users__panel">
-          <div v-if="usersLoading" class="platform-users__state">
-            <t-loading size="small" />
-            <span>{{ t('platformUsers.loading') }}</span>
-          </div>
-          <div v-else class="data-table-shell">
-            <t-table row-key="id" :data="users" :columns="userColumns">
-              <template #nick="{ row }">
-                <!-- 未绑钉钉的账号（手建管理员等）没有姓名，显示 — -->
-                <span v-if="row.nick">{{ row.nick }}</span>
-                <span v-else class="platform-users__muted">—</span>
-              </template>
-              <template #status="{ row }">
-                <t-tag v-if="row.is_active" theme="success" variant="light">{{ t('platformUsers.active') }}</t-tag>
-                <t-tag v-else theme="danger" variant="light">{{ t('platformUsers.disabled') }}</t-tag>
-              </template>
-              <template #isAdmin="{ row }">
-                <t-tag v-if="row.is_system_admin" theme="primary" variant="light">{{ t('platformUsers.sysAdmin') }}</t-tag>
-                <span v-else class="platform-users__muted">—</span>
-              </template>
-              <template #createdAt="{ row }">{{ formatDate(row.created_at) }}</template>
-              <template #actions="{ row }">
-                <t-popconfirm
-                  :content="row.is_active ? t('platformUsers.disableConfirm') : t('platformUsers.enableConfirm')"
-                  :confirm-btn="{ content: row.is_active ? t('platformUsers.disable') : t('platformUsers.enable'), theme: row.is_active ? 'danger' : 'primary' }"
-                  :cancel-btn="{ content: t('common.cancel') }"
-                  @confirm="toggleUserStatus(row)"
-                >
-                  <t-button
-                    size="small"
-                    variant="outline"
-                    :theme="row.is_active ? 'danger' : 'primary'"
-                    :disabled="row.id === currentUserId"
-                  >
-                    {{ row.is_active ? t('platformUsers.disable') : t('platformUsers.enable') }}
-                  </t-button>
-                </t-popconfirm>
-              </template>
-            </t-table>
-          </div>
-        </div>
-      </t-tab-panel>
+      <!-- 用户清单已砍：改用官方「系统设置 → 用户」面板（/system/admin/users），
+           见 SystemSettings.vue 的 users tab。本组件只保留钉钉三块。 -->
 
       <!-- 钉钉绑定 -->
       <t-tab-panel value="identities" :label="t('platformUsers.tabs.identities')">
@@ -197,21 +155,15 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
-  listPlatformUsers,
   listDingTalkIdentities,
   listDingTalkDepartments,
   listDingTalkSyncRuns,
   triggerDingTalkSync,
-  type PlatformUserRow,
   type DingTalkIdentityRow,
   type DingTalkSyncRun,
 } from '@/api/system'
-import { put } from '@/utils/request'
-import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
-const authStore = useAuthStore()
-const currentUserId = computed(() => authStore.user?.id || '')
 
 const activeTab = ref('org')
 
@@ -251,17 +203,6 @@ const fetchAllIdentities = async (keyword?: string): Promise<DingTalkIdentityRow
   }
   return out
 }
-const fetchAllUsers = async (): Promise<PlatformUserRow[]> => {
-  const out: PlatformUserRow[] = []
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const resp = await listPlatformUsers(page, PAGE_SIZE)
-    const rows = resp.data?.list ?? []
-    out.push(...rows)
-    if (rows.length < PAGE_SIZE) break
-  }
-  return out
-}
-
 // ---------------------------------------------------------------------------
 // 组织架构
 // ---------------------------------------------------------------------------
@@ -378,52 +319,6 @@ const syncFromOrgTab = async () => {
 }
 
 // ---------------------------------------------------------------------------
-// 用户清单
-// ---------------------------------------------------------------------------
-const usersLoading = ref(false)
-const users = ref<PlatformUserRow[]>([])
-
-const userColumns = computed(() => [
-  // 姓名打头（同钉钉绑定 tab）：dt-xxxx 用户名不可读，姓名才是人的识别列。
-  // 姓名/用户名定宽（内容短且可预期），email 独占剩余弹性空间不被挤变形。
-  { colKey: 'nick', title: t('platformUsers.nick'), width: 100 },
-  { colKey: 'username', title: t('platformUsers.username'), width: 130, ellipsis: true },
-  { colKey: 'email', title: t('platformUsers.email'), ellipsis: true },
-  { colKey: 'status', title: t('platformUsers.status'), width: 100 },
-  { colKey: 'isAdmin', title: t('platformUsers.sysAdmin'), width: 110 },
-  { colKey: 'createdAt', title: t('platformUsers.createdAt'), width: 120 },
-  { colKey: 'actions', title: t('platformUsers.actions'), width: 110 },
-])
-
-const loadUsers = async () => {
-  usersLoading.value = true
-  try {
-    users.value = await fetchAllUsers()
-  } catch (e: unknown) {
-    MessagePlugin.error(errText(e))
-  } finally {
-    usersLoading.value = false
-  }
-}
-
-const toggleUserStatus = async (row: PlatformUserRow) => {
-  try {
-    const resp = await put(`/api/v1/system/users/${row.id}/status`, { is_active: !row.is_active }) as unknown as {
-      success: boolean
-      error?: string
-    }
-    if (!resp.success) {
-      MessagePlugin.error(resp.error || t('platformUsers.actionFailed'))
-      return
-    }
-    row.is_active = !row.is_active
-    MessagePlugin.success(row.is_active ? t('platformUsers.enabled') : t('platformUsers.disabledMsg'))
-  } catch (e: unknown) {
-    MessagePlugin.error(errText(e))
-  }
-}
-
-// ---------------------------------------------------------------------------
 // 钉钉绑定
 // ---------------------------------------------------------------------------
 const loadIdentities = async () => {
@@ -504,7 +399,6 @@ const loadedTabs = new Set<string>(['org'])
 watch(activeTab, (tab) => {
   if (loadedTabs.has(tab)) return
   loadedTabs.add(tab)
-  if (tab === 'users') loadUsers()
   if (tab === 'identities') loadIdentities()
   if (tab === 'sync') loadRuns()
 })
@@ -547,7 +441,7 @@ onMounted(loadOrg)
 .platform-users__org-syncbar {
   display: flex;
   justify-content: flex-end;
-  font-size: 12px;
+  font-size: var(--app-text-sm);
 }
 
 .platform-users__org-layout {
@@ -589,7 +483,7 @@ onMounted(loadOrg)
 }
 
 .platform-users__tree-count {
-  font-size: 12px;
+  font-size: var(--app-text-sm);
   color: var(--td-text-color-placeholder);
 }
 

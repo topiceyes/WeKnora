@@ -25,35 +25,9 @@ export async function deletePlatformAPIKey(keyId: number): Promise<{ success: bo
 }
 
 // ---------------------------------------------------------------------------
-// 平台用户与钉钉组织架构（二开 fork 新增，SystemAdmin 门控）
+// 钉钉组织架构（二开 fork 新增，SystemAdmin 门控）。
+// 平台用户清单已改用官方面板 /system/admin/users（见 api 里的 system 全局设置 API）。
 // ---------------------------------------------------------------------------
-
-export interface PlatformUserRow {
-  id: string
-  username: string
-  /** 姓名（钉钉绑定表的 nick；未绑钉钉的账号为空） */
-  nick?: string
-  email: string
-  avatar: string
-  is_active: boolean
-  is_system_admin: boolean
-  created_at: string
-}
-
-export interface PlatformUsersResponse {
-  success: boolean
-  data?: {
-    list: PlatformUserRow[]
-    total: number
-    page: number
-    page_size: number
-  }
-  error?: string
-}
-
-export async function listPlatformUsers(page = 1, pageSize = 50): Promise<PlatformUsersResponse> {
-  return await get(`/api/v1/system/users?page=${page}&page_size=${pageSize}`) as unknown as PlatformUsersResponse
-}
 
 export interface DingTalkIdentityRow {
   id: number
@@ -398,24 +372,11 @@ export interface SystemAdminUser {
   updated_at: string
 }
 
-export interface PromoteUserRequest {
-  user_id: string
-}
-
-export interface RevokeSystemAdminRequest {
-  user_id: string
-}
-
-export interface ListSystemAdminsResponse {
-  total: number
-  admins: SystemAdminUser[]
-}
-
 /**
  * Promote a user to system administrator.
  *
  * Identify the target either by user_id (UUID, for API clients) or
- * email (the human-friendly path used by the SystemAdmin UI). Backend
+ * email (supported by the backend for API clients). Backend
  * accepts whichever is provided; user_id wins when both are set.
  *
  * Backend handler (system.go) returns the updated UserInfo directly as
@@ -452,22 +413,42 @@ export async function revokeSystemAdmin(userId: string): Promise<SystemAdminUser
   return response as unknown as SystemAdminUser
 }
 
+export interface SetUserStatusRequest {
+  user_id: string
+  is_active: boolean
+}
+
 /**
- * List all system administrators (paginated).
- * Returns {total, admins[]} directly — no {data: ...} wrapping.
+ * Enable/disable a platform user account (SystemAdmin only).
+ * Disabling immediately revokes the target's active sessions.
  */
-export async function listSystemAdmins(
+export async function setUserStatus(
+  req: SetUserStatusRequest,
+): Promise<{ message: string; is_active: boolean }> {
+  const response = await post('/api/v1/system/admin/users/status', req)
+  return response as unknown as { message: string; is_active: boolean }
+}
+
+export interface ListAllUsersResponse {
+  users: SystemAdminUser[]
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
+/**
+ * List every platform user across tenants (SystemAdmin only, paginated).
+ * Returns {users, offset, limit, has_more} directly (no data wrapping).
+ */
+export async function listAllUsers(
   params?: { offset?: number; limit?: number },
-): Promise<ListSystemAdminsResponse> {
-  // The shared `get` helper doesn't accept a config object, so we
-  // assemble the query string manually. Both params are optional;
-  // the server applies sane defaults (offset=0, limit=50, max=200).
+): Promise<ListAllUsersResponse> {
   const qs = new URLSearchParams()
   if (params?.offset != null) qs.set('offset', String(params.offset))
   if (params?.limit != null) qs.set('limit', String(params.limit))
   const suffix = qs.toString() ? `?${qs.toString()}` : ''
-  const response = await get(`/api/v1/system/admin/list${suffix}`)
-  return response as unknown as ListSystemAdminsResponse
+  const response = await get(`/api/v1/system/admin/users${suffix}`)
+  return response as unknown as ListAllUsersResponse
 }
 
 export interface ResetUserPasswordRequest {
