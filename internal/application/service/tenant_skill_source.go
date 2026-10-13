@@ -24,7 +24,7 @@ var ErrSkillSourceInvalid = errors.New("skill source is invalid")
 
 const (
 	defaultSkillRegistryOrigin = "https://clawhub.ai"
-	skillSourceUserAgent       = "WeKnora-SkillInstaller (+https://github.com/Tencent/WeKnora)"
+	skillSourceUserAgent       = "m-wiki-SkillInstaller"
 	skillSourceFetchTimeout    = 5 * time.Minute
 	skillSourceMaxHops         = 3
 )

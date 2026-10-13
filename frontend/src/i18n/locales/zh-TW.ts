@@ -5464,7 +5464,7 @@ export default {
     registerSuccess: '註冊成功，請登入',
     registerFailed: '註冊失敗',
     subtitle: 'RAG 問答、ReAct 智慧代理與 Wiki 知識庫，大型語言模型驅動的企業級知識框架',
-    registerSubtitle: '建立帳戶並開始使用 WeKnora',
+    registerSubtitle: '建立帳戶並開始使用 m-wiki',
     emailPlaceholder: '輸入電子信箱地址',
     passwordPlaceholder: '輸入密碼',
     confirmPasswordPlaceholder: '再次輸入密碼',

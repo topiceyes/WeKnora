@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
 
@@ -29,24 +29,6 @@ function resolveFrontendCommit(): string {
 
 const FRONTEND_COMMIT = resolveFrontendCommit()
 
-/** Dev parity with nginx: serve embed.html for /embed/:channelId (not the main SPA). */
-function embedHtmlDevFallback(): Plugin {
-  return {
-    name: 'embed-html-dev-fallback',
-    configureServer(server) {
-      server.middlewares.use((req, _res, next) => {
-        const raw = req.url ?? ''
-        const qIdx = raw.indexOf('?')
-        const path = qIdx >= 0 ? raw.slice(0, qIdx) : raw
-        const qs = qIdx >= 0 ? raw.slice(qIdx) : ''
-        if (path.startsWith('/embed/') && path !== '/embed.html' && !path.includes('.')) {
-          req.url = `/embed.html${qs}`
-        }
-        next()
-      })
-    },
-  }
-}
 const DEV_PROXY_TARGET =
   process.env.VITE_DEV_PROXY_TARGET ||
   process.env.FRONTEND_BACKEND_URL ||
@@ -102,8 +84,9 @@ export default defineConfig({
     },
     rollupOptions: {
       input: {
+        // 单入口：嵌入页（embed.html + src/embed-main.ts）已下线，
+        // 本部署不对外提供 iframe 嵌入。后端 /api/v1/embed/* 路由不受影响。
         main: resolve(__dirname, 'index.html'),
-        embed: resolve(__dirname, 'embed.html'),
       },
       output: {
         manualChunks(id) {
@@ -124,7 +107,6 @@ export default defineConfig({
   plugins: [
     vue(),
     vueJsx(),
-    embedHtmlDevFallback(),
   ],
   resolve: {
     alias: {
