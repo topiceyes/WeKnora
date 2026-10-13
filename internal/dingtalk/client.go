@@ -25,7 +25,17 @@ const (
 
 	apiTimeout       = 30 * time.Second
 	maxResponseBytes = 16 << 20
-	maxAttempts      = 3
+	// 普通可重试错误（429/5xx/网络抖动）的重试预算。
+	maxAttempts       = 3
+	defaultRetryDelay = 200 * time.Millisecond
+
+	// 平台限流（errcode 88 / subcode 90002）单独一条预算：这是钉钉
+	// 全平台共享的 QPS 配额被压满，窗口能从几秒一路续到几十秒，默认
+	// 3 次 × 200ms 的预算等不出来。退避 3s/6s/12s/24s（合计约 45s）。
+	maxFlowLimitAttempts = 5
+	flowLimitBaseDelay   = 3 * time.Second
+	retryDelayCap        = 30 * time.Second
+
 	// token 提前过期余量，避免临界点使用旧 token
 	tokenExpirySkew = 5 * time.Minute
 )
@@ -337,9 +347,13 @@ func (c *Client) do(ctx context.Context, method, url string, body interface{}, u
 		}
 	}
 
-	delay := 200 * time.Millisecond
+	// attempts 在遇到限流时会被抬高到 maxFlowLimitAttempts；退避时长由
+	// 各失败分支显式设置，避免「顶部统一翻倍」和「分支重置」互相打架。
+	attempts := maxAttempts
+	flowLimitHits := 0
+	delay := defaultRetryDelay
 	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
 			timer := time.NewTimer(delay)
 			select {
@@ -348,7 +362,6 @@ func (c *Client) do(ctx context.Context, method, url string, body interface{}, u
 				return ctx.Err()
 			case <-timer.C:
 			}
-			delay *= 2
 		}
 
 		var bodyReader io.Reader
@@ -370,18 +383,21 @@ func (c *Client) do(ctx context.Context, method, url string, body interface{}, u
 		resp, err := c.http.Do(req)
 		if err != nil {
 			lastErr = err
+			delay = min(delay*2, retryDelayCap)
 			continue
 		}
 		raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 		resp.Body.Close()
 		if readErr != nil {
 			lastErr = readErr
+			delay = min(delay*2, retryDelayCap)
 			continue
 		}
 
 		// 限流/服务端错误可重试
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("dingtalk api %s: status=%d body=%s", url, resp.StatusCode, redact(string(raw), c.appSecret))
+			delay = min(delay*2, retryDelayCap)
 			continue
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -389,14 +405,16 @@ func (c *Client) do(ctx context.Context, method, url string, body interface{}, u
 		}
 		// 钉钉旧版 oapi 接口的限流是 HTTP 200 + body errcode=88
 		// （subcode 90002，全平台 QPS 限流，整点前后高发），响应里直接
-		// 给出限流窗口（通常几秒）。默认的 200ms 档退避等不出窗口，
-		// 这里单独用 3s 起步的退避重试。
+		// 给出限流窗口，但配额被持续压满时窗口会不断续期。这里抬高
+		// 重试预算并按 3s/6s/12s/24s 递增退避，骑过整点的饱和期。
 		var flowProbe struct {
 			ErrCode int `json:"errcode"`
 		}
 		if json.Unmarshal(raw, &flowProbe) == nil && flowProbe.ErrCode == 88 {
 			lastErr = fmt.Errorf("dingtalk api %s: flow limited: %s", url, redact(string(raw), c.appSecret))
-			delay = 3 * time.Second
+			flowLimitHits++
+			attempts = maxFlowLimitAttempts
+			delay = min(flowLimitBaseDelay<<(flowLimitHits-1), retryDelayCap)
 			continue
 		}
 		if result != nil {
@@ -406,7 +424,7 @@ func (c *Client) do(ctx context.Context, method, url string, body interface{}, u
 		}
 		return nil
 	}
-	return fmt.Errorf("dingtalk api %s: %w (after %d attempts)", url, lastErr, maxAttempts)
+	return fmt.Errorf("dingtalk api %s: %w (after %d attempts)", url, lastErr, attempts)
 }
 
 // redact 从错误信息里抹掉 secret，避免凭证随日志泄露。

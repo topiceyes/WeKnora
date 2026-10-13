@@ -325,7 +325,7 @@ type DingTalkAuthConfig struct {
 	RedirectURI     string `yaml:"redirect_uri"  json:"redirect_uri"`
 	DefaultTenantID uint64 `yaml:"default_tenant_id" json:"default_tenant_id"` // 钉钉用户默认空间（viewer），0=走平台默认策略
 	SyncEnable      bool   `yaml:"sync_enable"   json:"sync_enable"`           // 通讯录同步总开关
-	SyncCron        string `yaml:"sync_cron"     json:"sync_cron"`             // robfig/cron 5 段式，默认每日 03:00
+	SyncCron        string `yaml:"sync_cron"     json:"sync_cron"`             // robfig/cron 5/6 段式，默认每日 03:17（避开整点限流）
 }
 
 type OIDCAuthConfig struct {
@@ -821,9 +821,12 @@ func applyDingTalkEnvOverrides(cfg *Config) {
 	if value := strings.TrimSpace(os.Getenv("DINGTALK_SYNC_CRON")); value != "" {
 		cfg.DingTalkAuth.SyncCron = value
 	}
-	// 默认每日 03:00 全量对账
+	// 默认每日 03:17 全量对账。刻意避开整点：listsub / user/list 的
+	// QPS 配额是钉钉全平台共享的，03:00:00 那一刻所有企业的定时任务
+	// 一起挤（errsubcode 90002，钉钉报错原话就是「建议错开整点时刻
+	// 调用该接口」），准点跑必然被限流。
 	if cfg.DingTalkAuth.SyncCron == "" {
-		cfg.DingTalkAuth.SyncCron = "0 0 3 * * *"
+		cfg.DingTalkAuth.SyncCron = "0 17 3 * * *"
 	}
 }
 

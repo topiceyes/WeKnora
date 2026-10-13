@@ -22,6 +22,14 @@ const unionIDPlaceholderPrefix = "union:"
 // deptUserPageSize 部门成员分页大小（钉钉 /topapi/v2/user/list 上限 100）。
 const deptUserPageSize = 100
 
+// syncRunTimeout 单轮全量同步的硬上限。正常一轮约 1~2 分钟（326 人 /
+// 193 部门）；跑到这个时长说明远端在持续超时或限流，继续挂着只会留下
+// 一条永远 running 的记录——生产上观察到的 1h44m、9.5h 僵尸行即为此。
+const syncRunTimeout = 30 * time.Minute
+
+// finishRunTimeout 落终态的写库超时。
+const finishRunTimeout = 10 * time.Second
+
 // UserRepo 同步所需的本地用户读写最小接口（interfaces.UserRepository 已实现）。
 // 本地定义小接口以避免 dingtalk 包反向依赖 application/repository。
 type UserRepo interface {
@@ -81,6 +89,13 @@ func NewSyncService(client *Client, repo *Repository, userRepo UserRepo, tokenRe
 //
 // triggerType 取 SyncTriggerCron / SyncTriggerManual。
 func (s *SyncService) RunFullSync(ctx context.Context, triggerType string) (*SyncRun, error) {
+	// 总超时兜底；调用方已有更短的 deadline 时尊重之。
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, syncRunTimeout)
+		defer cancel()
+	}
+
 	running, err := s.repo.HasRunningSync(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("check running sync: %w", err)
@@ -161,9 +176,8 @@ func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUse
 			if err != nil {
 				return nil, nil, fmt.Errorf("list dept users (dept=%d): %w", deptID, err)
 			}
-			// 请求间隔：钉钉 user/list 在整点前后有全平台 QPS 限流
-			// （subcode 90002），连续翻页容易触发。150ms 对 14 个部门
-			// 只多花 ~2s，却能把突发压到限额内。
+			// 请求间隔：钉钉 user/list 有全平台 QPS 限流（subcode 90002），
+			// 连续翻页容易触发。193 个部门多花约 29s，但把突发压到限额内。
 			select {
 			case <-ctx.Done():
 				return nil, nil, ctx.Err()
@@ -415,8 +429,13 @@ func (s *SyncService) deactivateUser(ctx context.Context, userID string) error {
 }
 
 // finishRun 落终态，失败仅记日志（不影响主流程返回值）。
+// finishRun 落同步终态。写库用脱离取消的 ctx：这一轮很可能正是因为
+// 超时或被取消才失败的，若沿用同一个 ctx，这条 failed 会跟着写不进去，
+// 于是又留下一条永远 running 的僵尸记录。
 func (s *SyncService) finishRun(ctx context.Context, runID uint64, status string, totalRemote, created, updated, deactivated int, errMsg string) {
-	if err := s.repo.FinishSyncRun(ctx, runID, status, totalRemote, created, updated, deactivated, errMsg); err != nil {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishRunTimeout)
+	defer cancel()
+	if err := s.repo.FinishSyncRun(writeCtx, runID, status, totalRemote, created, updated, deactivated, errMsg); err != nil {
 		logger.Errorf(ctx, "DingTalk sync: finish run %d failed: %v", runID, err)
 	}
 }
