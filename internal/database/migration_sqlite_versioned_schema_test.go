@@ -15,7 +15,7 @@ import (
 // create to stay in sync with the versioned (PostgreSQL) migrations:
 // 000041 task queue, 000053 system settings, 000055 processing spans,
 // 000063 knowledge multi-tags, 000093 browser authorization, 000103 message
-// artifacts, 000034 dingtalk integration (fork), 000035 dingtalk departments
+// artifacts, 000036 dingtalk integration (fork), 000037 dingtalk departments
 // (fork).
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
@@ -36,9 +36,9 @@ var versionedSQLiteTables = []string{
 	"tenant_skill_snapshots",
 	"tenant_skill_catalog",
 	"tenant_user_env_vars",
-	"user_dingtalk_identities", // 000034
-	"dingtalk_sync_runs",       // 000034
-	"dingtalk_departments",     // 000035
+	"user_dingtalk_identities", // 000036
+	"dingtalk_sync_runs",       // 000036
+	"dingtalk_departments",     // 000037
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -73,7 +73,7 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-const expectedSQLiteMigrationVersion = 35
+const expectedSQLiteMigrationVersion = 37
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

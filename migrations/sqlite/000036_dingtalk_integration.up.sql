@@ -1,4 +1,4 @@
--- Migration 000034 (sqlite): DingTalk integration — 扫码登录身份绑定 + 通讯录同步记录。
+-- Migration 000036 (sqlite): DingTalk integration — 扫码登录身份绑定 + 通讯录同步记录。
 -- SQLite 方言：无 BIGSERIAL/JSONB/TIMESTAMPTZ，主键用 INTEGER，jsonb 用 TEXT。
 
 CREATE TABLE IF NOT EXISTS user_dingtalk_identities (
