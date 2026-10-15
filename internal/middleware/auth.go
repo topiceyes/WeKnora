@@ -732,8 +732,9 @@ func principalTenantIDFromClaims(claims jwt.MapClaims) uint64 {
 //
 // Order of resolution:
 //  1. Active TenantMember row → return that role.
-//  2. Cross-tenant superuser switch (X-Tenant-ID with CanAccessAllTenants=true)
-//     → grant Admin in the target tenant. Org admins are intentionally not
+//  2. Cross-space switch (X-Tenant-ID) made by a cross-tenant superuser
+//     (CanAccessAllTenants=true) or a platform system administrator
+//     (IsSystemAdmin=true) → grant Admin in the target tenant. Org admins are intentionally not
 //     promoted to Owner; tenant deletion / API-key rotation should always
 //     stay with a real Owner inside the target tenant. Cross-tenant access
 //     is also never allowed to trigger the orphan-tenant auto-promotion
@@ -788,10 +789,11 @@ func resolveTenantRole(
 			user.ID, targetTenantID, statusInfo)
 	}
 
-	// 2. 跨空间超管直通：CanAccessAllTenants 用户切到别的空间时不强制要求 membership。
+	// 2. 跨空间直通：系统管理员或 CanAccessAllTenants 用户切到别的空间时不强制要求
+	//    membership。系统管理员是平台层身份，不受 EnableCrossTenantAccess 开关约束。
 	//    注意：这里只授予临时 Admin 角色，不写入 tenant_members，避免"看一眼别人空间"
 	//    意外升级为持久化所有权。
-	if crossTenantSwitch && user.CanAccessAllTenants {
+	if crossTenantSwitch && (user.CanAccessAllTenants || user.IsSystemAdmin) {
 		logger.Infof(ctx,
 			"[auth] resolveTenantRole step2 (cross-tenant superuser) -> Admin: user=%s tenant=%d",
 			user.ID, targetTenantID)

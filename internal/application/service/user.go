@@ -1178,9 +1178,10 @@ func (s *userService) resolveLoginTenantID(ctx context.Context, user *types.User
 		}
 	}
 
-	// Membership (or cross-tenant superuser) must still be valid. Mirrors
-	// the gate in SwitchTenant so the two entry points stay consistent.
-	if !user.CanAccessAllTenants {
+	// Membership (or a cross-space operator — cross-tenant superuser or
+	// platform system admin) must still be valid. Mirrors the gate in
+	// SwitchTenant so the two entry points stay consistent.
+	if !user.CanAccessAllTenants && !user.IsSystemAdmin {
 		if s.memberService == nil {
 			logger.Warnf(ctx,
 				"resolveLoginTenantID: member service unavailable; falling back to home for user %s",
@@ -1420,9 +1421,10 @@ func (s *userService) SwitchTenant(
 		return nil, errors.New("target workspace ID is required")
 	}
 
-	// Verify membership unless the caller is a cross-tenant superuser
-	// switching outside their home tenant.
-	if !user.CanAccessAllTenants || targetTenantID == user.TenantID {
+	// Verify membership unless the caller is a cross-space operator
+	// (cross-tenant superuser or platform system admin) switching outside
+	// their home tenant.
+	if (!user.CanAccessAllTenants && !user.IsSystemAdmin) || targetTenantID == user.TenantID {
 		if s.memberService == nil {
 			return nil, errors.New("workspace membership service unavailable")
 		}

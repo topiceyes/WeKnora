@@ -1,5 +1,6 @@
 import { get, post, put, del, patch, postUpload } from '@/utils/request'
 import type { CreatedTenantAPIKey, TenantAPIKey, TenantAPIKeyCapability } from '@/api/tenant'
+import type { KnowledgeBaseInfo } from '@/api/auth'
 
 export interface CreatePlatformAPIKeyPayload {
   name: string
@@ -22,6 +23,26 @@ export async function createPlatformAPIKey(
 
 export async function deletePlatformAPIKey(keyId: number): Promise<{ success: boolean }> {
   return await del(`/api/v1/system/admin/api-keys/${keyId}`) as unknown as { success: boolean }
+}
+
+// ---------------------------------------------------------------------------
+// 空间管理（二开 fork 新增，SystemAdmin 门控）
+// ---------------------------------------------------------------------------
+//
+// 「列出全部空间」不在这里：它复用 api/tenant 的 listAllTenants()
+// (GET /api/v1/tenants/all)，那份响应已经按 Viewer 级别脱敏。这里只补
+// 唯一一个需要新端点的能力——只读查看某个空间里的知识库。
+//
+// 注意这是唯一一个「空间 ID 来自 URL 而非当前上下文」的知识库接口；
+// 返回的行按跨空间「共享」形态脱敏，不会带出目标空间的向量库配置。
+
+export async function listSpaceKnowledgeBases(
+  tenantId: number,
+): Promise<{ success: boolean; data?: KnowledgeBaseInfo[] }> {
+  return await get(`/api/v1/system/admin/spaces/${tenantId}/knowledge-bases`) as unknown as {
+    success: boolean
+    data?: KnowledgeBaseInfo[]
+  }
 }
 
 // ---------------------------------------------------------------------------

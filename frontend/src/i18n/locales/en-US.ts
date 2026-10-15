@@ -7794,6 +7794,23 @@ export default {
       generic: 'Something went wrong. Please try again.'
     }
   },
+  spaceManagement: {
+    title: 'Workspace management',
+    description: 'Browse every workspace and the knowledge bases inside it. This view is read-only — use “Enter workspace” to make changes from inside.',
+    loading: 'Loading…',
+    retry: 'Retry',
+    empty: 'No workspaces yet',
+    pickHint: 'Pick a workspace on the left to see its knowledge bases',
+    noKbs: 'This workspace has no knowledge bases',
+    enter: 'Enter workspace',
+    kbCount: '{count} knowledge bases',
+    columns: {
+      name: 'Name',
+      type: 'Type',
+      creator: 'Created by',
+      createdAt: 'Created at',
+    },
+  },
   platformUsers: {
     title: 'DingTalk Directory',
     description: 'DingTalk org structure, contact bindings and sync status.',

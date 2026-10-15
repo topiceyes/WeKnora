@@ -172,6 +172,12 @@
           <PlatformUsers />
         </div>
 
+        <!-- 空间管理（二开 fork）：列出全部空间及各自的知识库，只读；
+             「进入空间」走 X-Tenant-ID 切换后由租户内既有权限接管。 -->
+        <div v-if="currentSection === 'space-management'" class="section">
+          <SpaceManagement />
+        </div>
+
         <!-- 用户信息（账户基础信息：ID / 用户名 / 邮箱 / 注册时间）。
            用户的基本信息不该跟 owner 权限绑定。 -->
         <div v-if="currentSection === 'userprofile'" class="section">
@@ -231,6 +237,7 @@ import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
 import SystemAuditLog from '@/views/system/SystemAuditLog.vue'
 import PlatformUsers from '@/views/system/PlatformUsers.vue'
+import SpaceManagement from '@/views/system/SpaceManagement.vue'
 import IntegrationSettingsSection from '@/views/integrations/IntegrationSettingsSection.vue'
 import {
   INTEGRATION_PREVIEW_ITEMS,
@@ -376,6 +383,7 @@ const navItems = computed(() => {
     { key: 'platform-api-keys', icon: 'secured', label: t('platformApiKeys.title') },
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
     { key: 'platform-users', icon: 'usergroup', label: t('platformUsers.title') },
+    { key: 'space-management', icon: 'city', label: t('spaceManagement.title') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
     { key: 'envvars', icon: 'key', label: envNavLabel() },
@@ -434,7 +442,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'system_administration',
       label: t('settings.navGroups.systemAdministration'),
-      items: pickItems(['system-global', 'model-catalog', 'runtime-queues', 'platform-api-keys', 'system-audit-log', 'platform-users']),
+      items: pickItems(['system-global', 'model-catalog', 'runtime-queues', 'platform-api-keys', 'system-audit-log', 'platform-users', 'space-management']),
     },
     {
       key: 'platform',
@@ -494,7 +502,7 @@ const handleClose = () => {
   // 如果当前路由是设置页，返回上一页
   if (route.path === '/platform/settings') {
     const sec = route.query.section
-    if (sec === 'model-catalog' || sec === 'system-global' || sec === 'runtime-queues' || sec === 'platform-api-keys' || sec === 'system-audit-log' || sec === 'platform-users') {
+    if (sec === 'model-catalog' || sec === 'system-global' || sec === 'runtime-queues' || sec === 'platform-api-keys' || sec === 'system-audit-log' || sec === 'platform-users' || sec === 'space-management') {
       router.push('/platform/knowledge-bases')
     } else {
       router.back()

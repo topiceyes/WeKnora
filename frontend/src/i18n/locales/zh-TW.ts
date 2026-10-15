@@ -275,6 +275,23 @@ export default {
     nameAscending: 'A–Z',
     nameDescending: 'Z–A',
   },
+  spaceManagement: {
+    title: '空間管理',
+    description: '檢視全部空間及其知識庫。此處為唯讀總覽，需要修改請「進入空間」後在空間內操作。',
+    loading: '正在載入…',
+    retry: '重試',
+    empty: '暫無空間',
+    pickHint: '從左側選擇一個空間，檢視其知識庫',
+    noKbs: '該空間暫無知識庫',
+    enter: '進入空間',
+    kbCount: '知識庫 {count} 個',
+    columns: {
+      name: '名稱',
+      type: '類型',
+      creator: '建立者',
+      createdAt: '建立時間',
+    },
+  },
   platformUsers: {
     title: '釘釘通訊錄',
     description: '釘釘組織架構、成員綁定與通訊錄同步狀態。',

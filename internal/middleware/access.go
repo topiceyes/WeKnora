@@ -67,8 +67,14 @@ func IsCrossTenantSuperuser(ctx context.Context, cfg *config.Config) bool {
 // `targetTenantID`. The decision order is:
 //
 //  1. Home tenant (user.TenantID == targetTenantID): always.
-//  2. Cross-tenant superuser: governed by IsCrossTenantSuperuser.
-//  3. Multi-tenant member: an active tenant_members row in the target
+//  2. Platform system administrator (user.IsSystemAdmin): always. The
+//     system-admin tier sits above both the tenant role ladder and the
+//     EnableCrossTenantAccess switch — that switch exists to contain the
+//     can_access_all_tenants attribute on ordinary users, not to gate
+//     platform administration. Mirrors RequireSystemAdmin's "always
+//     enforced, never modulated by the rollout flag" rule.
+//  3. Cross-tenant superuser: governed by IsCrossTenantSuperuser.
+//  4. Multi-tenant member: an active tenant_members row in the target
 //     tenant grants access (this is what makes cross-tenant browsing
 //     work for non-superusers added via PR 3's member management).
 //
@@ -85,6 +91,9 @@ func IsTenantAccessible(
 		return false
 	}
 	if user.TenantID == targetTenantID {
+		return true
+	}
+	if user.IsSystemAdmin {
 		return true
 	}
 	if cfg != nil && cfg.Tenant != nil && cfg.Tenant.EnableCrossTenantAccess && user.CanAccessAllTenants {
@@ -108,6 +117,11 @@ func IsTenantAccessible(
 // Unlike RequireRole this is NOT modulated by cfg.Tenant.EnableRBAC:
 // cross-workspace operations are always sensitive regardless of whether
 // per-tenant RBAC is being enforced, so we never log-and-pass.
+//
+// Platform system administrators pass unconditionally. The
+// EnableCrossTenantAccess switch below contains the can_access_all_tenants
+// attribute on ordinary users; it is not a gate on the platform-admin
+// tier, which is why the system-admin short-circuit sits ahead of it.
 func RequireCrossTenantAccess(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
@@ -115,9 +129,16 @@ func RequireCrossTenantAccess(cfg *config.Config) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		// First the cluster-wide flag — if it's off, nobody gets through,
-		// not even users with CanAccessAllTenants=true. This mirrors the
-		// "must require BOTH" rule that previously lived in tenant.go.
+		// Platform system administrators bypass the cluster-wide switch.
+		if types.IsSystemAdminFromContext(ctx) {
+			c.Next()
+			return
+		}
+		// Then the cluster-wide flag — with it off, no ordinary caller gets
+		// through, not even users with CanAccessAllTenants=true. This mirrors
+		// the "must require BOTH" rule that previously lived in tenant.go.
+		// (Platform admins and platform-scoped API keys already returned
+		// above; only the can_access_all_tenants attribute is gated here.)
 		if cfg == nil || cfg.Tenant == nil || !cfg.Tenant.EnableCrossTenantAccess {
 			uid, _ := types.UserIDFromContext(ctx)
 			logger.Warnf(ctx,

@@ -311,6 +311,9 @@ func NewRouter(params RouterParams) *gin.Engine {
 		params.SystemHandler.BindDeploymentCapabilities(deploymentCapabilitiesFromRouter(params))
 		RegisterSystemRoutes(v1, params.SystemHandler, rbacGuards)
 		RegisterSystemAdminRoutes(v1, params.SystemHandler, params.AuditLogHandler, rbacGuards)
+		// Fork-local: platform system admins reading another workspace's
+		// knowledge bases. See routes_space_admin.go.
+		RegisterSpaceAdminRoutes(v1, params.KBHandler, rbacGuards)
 		RegisterDingTalkAdminRoutes(v1, params.DingTalkAdminHandler, rbacGuards)
 		RegisterMCPServiceRoutes(v1, params.MCPServiceHandler, params.MCPCredentialsHandler, params.MCPOAuthHandler, rbacGuards)
 		RegisterWebSearchRoutes(v1, params.WebSearchHandler, rbacGuards)

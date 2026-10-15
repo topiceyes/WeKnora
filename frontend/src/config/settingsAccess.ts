@@ -50,4 +50,9 @@ export const SYSTEM_ADMIN_SETTINGS_SECTIONS = new Set([
   'platform-api-keys',
   'system-audit-log',
   'platform-users',
+  // Read-only inventory of every workspace and the knowledge bases inside
+  // them. Platform-level by nature: it crosses the workspace boundary, so
+  // it can never be gated on a role inside one workspace. The matching
+  // server routes sit under /system/admin/spaces (RequireSystemAdmin).
+  'space-management',
 ])

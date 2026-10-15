@@ -36,6 +36,16 @@ test('system administration settings stay explicitly system-admin-only', () => {
     [...SYSTEM_ADMIN_SETTINGS_SECTIONS],
     // platform-users（钉钉通讯录，二开 fork）同样是平台级身份源操作，
     // 与 per-tenant 角色无关，因此和上面几项一起限定为系统管理员可见。
-    ['system-global', 'model-catalog', 'runtime-queues', 'platform-api-keys', 'system-audit-log', 'platform-users'],
+    // space-management（二开 fork）列出全部空间及其知识库，天然跨空间，
+    // 也不可能挂在任何单个空间内的角色上，同属平台级。
+    [
+      'system-global',
+      'model-catalog',
+      'runtime-queues',
+      'platform-api-keys',
+      'system-audit-log',
+      'platform-users',
+      'space-management',
+    ],
   )
 })

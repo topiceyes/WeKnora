@@ -7794,6 +7794,23 @@ export default {
       generic: '問題が発生しました。もう一度お試しください。'
     }
   },
+  spaceManagement: {
+    title: 'ワークスペース管理',
+    description: 'すべてのワークスペースとそのナレッジベースを閲覧します。この画面は参照専用です。変更するには「ワークスペースに入る」から移動してください。',
+    loading: '読み込み中…',
+    retry: '再試行',
+    empty: 'ワークスペースがありません',
+    pickHint: '左側からワークスペースを選択すると、ナレッジベースが表示されます',
+    noKbs: 'このワークスペースにはナレッジベースがありません',
+    enter: 'ワークスペースに入る',
+    kbCount: 'ナレッジベース {count} 件',
+    columns: {
+      name: '名前',
+      type: '種類',
+      creator: '作成者',
+      createdAt: '作成日時',
+    },
+  },
   platformUsers: {
     title: 'DingTalk名簿',
     description: 'DingTalkの組織構造、連絡先の紐付け、同期状態。',

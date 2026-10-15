@@ -81,6 +81,37 @@ func TestRequireRole_RejectsBelowMin(t *testing.T) {
 	}
 }
 
+func TestRequireRole_SystemAdminStillBoundByOwnerGate(t *testing.T) {
+	// Deliberate boundary, guarded here so a future refactor can't quietly
+	// widen it: system admins are NOT folded into IsCrossTenantSuperuser,
+	// so they do not clear a RequireRole(Owner) gate. Cross-space visits
+	// grant a temporary *Admin* role (middleware/auth.go resolveTenantRole
+	// step 2), precisely so Owner-only operations — workspace deletion,
+	// API-key rotation, ownership transfer — stay with a real Owner
+	// inside the target workspace.
+	//
+	// The config below is the most permissive case (cluster cross-tenant
+	// flag ON, RBAC enforced, system admin + Admin role): still 403.
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		ctx := context.WithValue(c.Request.Context(), types.TenantRoleContextKey, types.TenantRoleAdmin)
+		ctx = context.WithValue(ctx, types.SystemAdminContextKey, true)
+		ctx = context.WithValue(ctx, types.UserIDContextKey, "u1")
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	})
+	router.GET("/protected",
+		RequireRole(types.TenantRoleOwner, cfgRBACWithCrossTenant(true)),
+		func(c *gin.Context) { c.Status(http.StatusOK) },
+	)
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/protected", nil))
+	assert.Equal(t, http.StatusForbidden, w.Code,
+		"system admin must not clear an Owner gate — that path belongs to a real Owner")
+}
+
 func TestRequireRoleOrSystemAdmin_AllowsSystemAdminBelowTenantRole(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

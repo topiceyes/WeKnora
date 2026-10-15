@@ -103,8 +103,21 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value?.id || ''
   })
 
+  // canAccessAllTenants is the EFFECTIVE cross-space capability, not the
+  // raw column. Two things feed it:
+  //   1. the server's can_access_all_tenants, already masked by the
+  //      cluster-wide EnableCrossTenantAccess config, and
+  //   2. the platform system-admin flag, which always qualifies for
+  //      cross-space access regardless of that config flag.
+  // Reading only the raw attribute would hide the workspace switcher from
+  // system admins on any deployment that never enabled cross-tenant
+  // access — which is the default. Mirrors IsTenantAccessible /
+  // RequireCrossTenantAccess in internal/middleware/access.go.
+  //
+  // SECURITY: UI-gating only, same caveat as isSystemAdmin below — the
+  // real check runs server-side on every request.
   const canAccessAllTenants = computed(() => {
-    return user.value?.can_access_all_tenants || false
+    return user.value?.can_access_all_tenants === true || user.value?.is_system_admin === true
   })
 
   // isSystemAdmin reflects the platform-wide system-administrator flag

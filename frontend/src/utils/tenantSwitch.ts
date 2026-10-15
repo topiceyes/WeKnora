@@ -46,6 +46,43 @@ export function stashTenantSwitchToast(payload: PendingTenantSwitchToast): void 
   }
 }
 
+/**
+ * Run the back half of an in-app workspace switch: stash the post-reload
+ * toast, best-effort persist the "last active workspace" preference, then
+ * hard-navigate to the workspace's landing page.
+ *
+ * Callers are expected to have already called
+ * authStore.setSelectedTenant(...) — that writes the localStorage override
+ * `utils/request.ts` reads to attach X-Tenant-ID — and to close any open
+ * dropdown first.
+ *
+ * Extracted so the sidebar TenantSelector and the platform space overview
+ * run the *same* sequence. The subtle parts worth not duplicating:
+ *   - the toast must be stashed rather than shown (a hard reload would eat it),
+ *   - switching to the home workspace must persist `null` (clears the
+ *     preference) while a peer workspace persists its id,
+ *   - the persist is raced against a 500ms budget so the navigation isn't
+ *     held hostage by a slow preference write.
+ */
+export function switchToTenant(options: {
+  tenantId: number
+  /** Display name for the post-reload toast. */
+  name: string
+  /** True when the target is the user's home workspace. */
+  isHomeTenant: boolean
+  /** Human-readable role label, e.g. "所有者" / "Owner". Omitted when the
+   *  caller has no membership row (cross-space visitors). */
+  roleLabel?: string
+  /** Raw role enum, e.g. "owner". Drives the toast's chip colour. */
+  roleEnum?: string
+}): void {
+  const { tenantId, name, isHomeTenant, roleLabel, roleEnum } = options
+  stashTenantSwitchToast({ name, role: roleLabel, roleEnum })
+  const persist = persistLastActiveTenantPreference(isHomeTenant ? null : tenantId)
+  Promise.race([persist, new Promise((r) => setTimeout(r, 500))])
+    .finally(() => navigateAfterTenantSwitch())
+}
+
 export function consumePendingTenantSwitchToast(): PendingTenantSwitchToast | null {
   try {
     const raw = sessionStorage.getItem(PENDING_TOAST_KEY)

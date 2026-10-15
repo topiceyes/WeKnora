@@ -275,6 +275,23 @@ export default {
     nameAscending: 'A–Z',
     nameDescending: 'Z–A',
   },
+  spaceManagement: {
+    title: '空间管理',
+    description: '查看全部空间及其知识库。此处为只读总览，需要修改请「进入空间」后在空间内操作。',
+    loading: '正在加载…',
+    retry: '重试',
+    empty: '暂无空间',
+    pickHint: '从左侧选择一个空间，查看其知识库',
+    noKbs: '该空间暂无知识库',
+    enter: '进入空间',
+    kbCount: '知识库 {count} 个',
+    columns: {
+      name: '名称',
+      type: '类型',
+      creator: '创建者',
+      createdAt: '创建时间',
+    },
+  },
   platformUsers: {
     title: '钉钉通讯录',
     description: '钉钉组织架构、成员绑定与通讯录同步状态。',

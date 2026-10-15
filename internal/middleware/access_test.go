@@ -114,6 +114,26 @@ func TestIsTenantAccessible_SuperuserPathRequiresFlag(t *testing.T) {
 	}
 }
 
+func TestIsTenantAccessible_SystemAdminBypassesClusterFlag(t *testing.T) {
+	// A platform system admin reaches any tenant even when the
+	// EnableCrossTenantAccess switch is OFF — and that switch defaults to
+	// false, so this is the normal production configuration.
+	//
+	// The switch exists to contain the can_access_all_tenants attribute
+	// on ordinary users; it is not a gate on the platform-admin tier.
+	// Without this path a system admin could not open a workspace they
+	// are not a member of, which is the whole point of the space overview.
+	user := &types.User{ID: "u1", TenantID: 1, IsSystemAdmin: true}
+	if !IsTenantAccessible(context.Background(), user, 99, nil, cfgCrossTenant(false)) {
+		t.Fatalf("system admin must reach a foreign tenant without the cluster flag")
+	}
+	// And with no member service configured — the membership branch is
+	// never reached, so a missing service must not turn into a rejection.
+	if !IsTenantAccessible(context.Background(), user, 99, nil, nil) {
+		t.Fatalf("system admin must reach a foreign tenant even with a nil cfg")
+	}
+}
+
 func TestIsTenantAccessible_ActiveMembershipAllows(t *testing.T) {
 	user := &types.User{ID: "u1", TenantID: 1}
 	ms := newFakeMemberService()
@@ -164,6 +184,10 @@ func runCrossTenantHandler(cfg *config.Config, user *types.User) *httptest.Respo
 		if user != nil {
 			ctx := context.WithValue(c.Request.Context(), types.UserContextKey, user)
 			ctx = context.WithValue(ctx, types.UserIDContextKey, user.ID)
+			// Mirror applyAuthSession (auth_context.go): the system-admin
+			// bit reaches the guards through its own context key, not by
+			// re-reading User.IsSystemAdmin.
+			ctx = context.WithValue(ctx, types.SystemAdminContextKey, user.IsSystemAdmin)
 			c.Request = c.Request.WithContext(ctx)
 		}
 		c.Next()
@@ -205,6 +229,30 @@ func TestRequireCrossTenantAccess_NoUserBlocks(t *testing.T) {
 	w := runCrossTenantHandler(cfgCrossTenant(true), nil)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("missing user must 403, got %d", w.Code)
+	}
+}
+
+func TestRequireCrossTenantAccess_SystemAdminBypassesClusterFlag(t *testing.T) {
+	// Unlocks GET /tenants/all and /tenants/search for system admins on a
+	// deployment that never turned on EnableCrossTenantAccess — which is
+	// the default. The flag must still block everyone else, including an
+	// ordinary user carrying the CanAccessAllTenants attribute (covered by
+	// TestRequireCrossTenantAccess_FlagOffBlocksEveryone).
+	w := runCrossTenantHandler(cfgCrossTenant(false),
+		&types.User{ID: "u1", IsSystemAdmin: true})
+	if w.Code != http.StatusOK {
+		t.Fatalf("system admin must clear the cross-tenant gate with the flag off, got %d", w.Code)
+	}
+}
+
+func TestRequireCrossTenantAccess_SystemAdminStillNeedsUserInCtx(t *testing.T) {
+	// The system-admin bit travels in the same context as the user, so a
+	// request that never got a user resolved can't slip through on the
+	// admin branch. Defensive: the admin check runs before the flag check,
+	// but it still reads ctx — an empty ctx yields false.
+	w := runCrossTenantHandler(cfgCrossTenant(false), nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("missing user must 403 even on the admin-capable config, got %d", w.Code)
 	}
 }
 

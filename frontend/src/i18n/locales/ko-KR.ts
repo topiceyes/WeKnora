@@ -275,6 +275,23 @@ export default {
     nameAscending: 'A–Z',
     nameDescending: 'Z–A',
   },
+  spaceManagement: {
+    title: '워크스페이스 관리',
+    description: '모든 워크스페이스와 그 안의 지식베이스를 조회합니다. 이 화면은 읽기 전용이며, 변경하려면 「워크스페이스 들어가기」를 사용하세요.',
+    loading: '불러오는 중…',
+    retry: '다시 시도',
+    empty: '워크스페이스가 없습니다',
+    pickHint: '왼쪽에서 워크스페이스를 선택하면 지식베이스가 표시됩니다',
+    noKbs: '이 워크스페이스에는 지식베이스가 없습니다',
+    enter: '워크스페이스 들어가기',
+    kbCount: '지식베이스 {count}개',
+    columns: {
+      name: '이름',
+      type: '유형',
+      creator: '생성자',
+      createdAt: '생성 시간',
+    },
+  },
   platformUsers: {
     title: 'DingTalk 주소록',
     description: 'DingTalk 조직 구조, 연락처 연결 및 동기화 상태.',
