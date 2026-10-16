@@ -1,4 +1,4 @@
--- Migration 000118: DingTalk 部门表 —— 组织架构本地化存储。
+-- Migration 000123: DingTalk 部门表 —— 组织架构本地化存储。
 -- 每日通讯录同步时全量替换（见 dingtalk.Repository.ReplaceDepartments），
 -- 查询端点 GET /system/dingtalk/departments 只读本地，不再实时调钉钉。
 -- 根部门（dept_id=1，钉钉默认公司节点）不落库，前端虚拟「全公司」根。

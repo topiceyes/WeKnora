@@ -1,4 +1,4 @@
--- Migration 000117: DingTalk integration — 扫码登录身份绑定 + 通讯录同步记录。
+-- Migration 000122: DingTalk integration — 扫码登录身份绑定 + 通讯录同步记录。
 -- 不动 users 表（避免侵入上游），钉钉外部身份独立成表，通过 user_id 关联。
 
 -- 钉钉身份绑定表：一条记录 = 一个本地账号绑定一个钉钉身份。

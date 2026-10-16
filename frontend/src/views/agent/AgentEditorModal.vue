@@ -1849,6 +1849,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAssistantDataChange } from '@/utils/assistantDataChange';
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import AgentCreateContextualGuide from '@/components/AgentCreateContextualGuide.vue';
@@ -1974,6 +1975,17 @@ const savedAgent = ref<CustomAgent | null>(null);
 const editorMode = computed(() => (savedAgent.value ? 'edit' : props.mode));
 const editorAgent = computed(() => savedAgent.value ?? props.agent ?? null);
 const isPostCreateSession = computed(() => !!savedAgent.value);
+
+useAssistantDataChange((changes) => {
+  const agentId = editorAgent.value?.id;
+  if (!props.visible || !agentId) return;
+  const relevant = changes.filter(change => change.ids.agentIds.includes(agentId)
+    && change.operation !== 'agent.copy');
+  if (!relevant.length) return;
+  const deleted = relevant.some(change => change.operation === 'agent.delete');
+  MessagePlugin.warning(t(deleted ? 'agent.editor.assistantDeleted' : 'agent.editor.assistantChanged'));
+}, { areas: ['agent'] });
+
 const saveButtonLabel = computed(() =>
   editorMode.value === 'create'
     ? t('agent.editor.buttons.create')
@@ -2494,6 +2506,7 @@ const keepAllowedToolsUnset = ref(false);
 const toolTexts = computed<Record<string, ToolText>>(() => ({
   thinking: { label: t('agentEditor.tools.thinking'), description: t('agentEditor.tools.thinkingDesc') },
   todo_write: { label: t('agentEditor.tools.todoWrite'), description: t('agentEditor.tools.todoWriteDesc') },
+  ask_user: { label: t('agentEditor.tools.askUser'), description: t('agentEditor.tools.askUserDesc') },
   search_conversations: { label: t('agentEditor.tools.searchConversations'), description: t('agentEditor.tools.searchConversationsDesc') },
   search_knowledge: { label: t('agentEditor.tools.searchKnowledge'), description: t('agentEditor.tools.searchKnowledgeDesc') },
   read_document: { label: t('agentEditor.tools.readDocument'), description: t('agentEditor.tools.readDocumentDesc') },
@@ -3922,7 +3935,7 @@ watch(agentMode, (val, _oldVal) => {
     // 用户主动切换模式后列表即为显式选择，不再保持未设置。
     if (!isInitializing.value) keepAllowedToolsUnset.value = false;
     if (!isInitializing.value && formData.value.config.allowed_tools.length === 0) {
-      const tools: string[] = [];
+      const tools: string[] = ['ask_user'];
       if (hasRagKnowledgeBase.value) {
         tools.push(...knowledgeBaseTools);
       }
