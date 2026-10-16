@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Exercise production embed and MCP Nginx locations with backend fixtures.
+"""Exercise the embed hardening and MCP Nginx locations with backend fixtures.
 
-Requires Docker. Run: python3 scripts/test_embed_nginx.py [nginx-or-ui-image]
+The site deliberately serves no iframe-embed surface: /embed/*, /embed.html
+and /weknora-widget.js must return 404 even when the files exist in the
+webroot (an explicit `return 404` beats the SPA fallback). MCP proxying is
+covered end-to-end. Run: python3 scripts/test_embed_nginx.py [nginx-image]
 """
 import json
 import subprocess
@@ -25,6 +28,7 @@ def check():
         work = Path(folder)
         (work / "web").mkdir()
         (work / "web/embed.html").write_text("embed entry")
+        (work / "web/weknora-widget.js").write_text("embed entry")
         (work / "web/index.html").write_text("main SPA")
         (work / "web/50x.html").write_text("backend unavailable")
         config = (ROOT / "frontend/nginx.conf").read_text()
@@ -36,21 +40,11 @@ def check():
         config = config.replace("/usr/share/nginx/html", "/check/web")
         config = config.replace("/etc/nginx/api-proxy.conf", "/check/api-proxy.conf")
         (work / "api-proxy.conf").write_text((ROOT / "frontend/nginx-api-proxy.conf").read_text())
-        # The real policy handler and token middleware are covered by Go tests.
-        # Here vary its responses to verify subrequests, fallback and fail-closed serving.
+        # The token middleware and MCP auth are covered by Go tests. Here vary
+        # the fixture responses to verify proxying and header pass-through.
         fixture = """
         server {
             listen 18081;
-            location = /api/v1/embed-frame-policy {
-                set $policy "frame-ancestors 'none'";
-                if ($http_x_embed_page_uri ~ "^/embed/active(?:[?]|$)") {
-                    set $policy "frame-ancestors 'self' https://a.example";
-                }
-                add_header Content-Security-Policy $policy always;
-                if ($http_x_embed_page_uri = "/embed/unavailable") { return 500; }
-                if ($policy = "frame-ancestors 'none'") { return 403; }
-                return 204;
-            }
             location /api/ { return 200 "$http_host"; }
             location /mcp/ {
                 default_type application/json;
@@ -94,20 +88,19 @@ def check():
                     if attempt == 29:
                         raise
                     time.sleep(0.1)
+            # Embed surface is hardened off: every embed/widget path must 404
+            # even though the files exist in the webroot, and must never fall
+            # through to the SPA or leak the entry file.
+            embed_paths = (
+                "/embed/active", "/embed/active?token=ignored",
+                "/embed/disabled", "/embed/empty", "/embed/unavailable",
+                "/embed.html", "/weknora-widget.js",
+            )
             for method in ("GET", "HEAD"):
-                for path in ("/embed/active", "/embed/active?token=ignored"):
+                for path in embed_paths:
                     with request(path, method) as response:
-                        assert response.status == 200, (path, response.status)
-                        assert response.headers["Content-Security-Policy"] == "frame-ancestors 'self' https://a.example"
-                        assert response.headers["Cache-Control"] == "no-store"
-                        assert "X-Frame-Options" not in response.headers
-                        assert response.read() == (b"embed entry" if method == "GET" else b"")
-            for path, status in (("/embed/disabled", 403), ("/embed/empty", 403),
-                                 ("/embed/unavailable", 500), ("/_embed-frame-policy", 404),
-                                 ("/embed.html", 404)):
-                with request(path) as response:
-                    assert response.status == status, (path, response.status)
-                    assert b"embed entry" not in response.read()
+                        assert response.status == 404, (path, response.status)
+                        assert b"embed entry" not in response.read(), path
             with request("/api/probe") as response:
                 assert response.read().decode() == f"127.0.0.1:{port}", "proxy lost public port"
             for method in ("POST", "GET", "DELETE"):
@@ -128,7 +121,7 @@ def check():
             with request("/mcp/stream") as response:
                 assert response.headers["Content-Type"] == "text/event-stream"
                 assert response.read() == b"event: message\ndata: test-event\n\n"
-            print("Embed and MCP Nginx integration checks passed")
+            print("Embed hardening and MCP Nginx integration checks passed")
         except Exception:
             print(docker("logs", cid), file=sys.stderr)
             raise
