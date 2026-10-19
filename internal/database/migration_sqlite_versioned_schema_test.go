@@ -15,7 +15,7 @@ import (
 // create to stay in sync with the versioned (PostgreSQL) migrations:
 // 000041 task queue, 000053 system settings, 000055 processing spans,
 // 000063 knowledge multi-tags, 000093 browser authorization, 000103 message
-// artifacts, 000036 dingtalk integration (fork), 000037 dingtalk departments
+// artifacts, 000042 dingtalk integration (fork), 000043 dingtalk departments
 // (fork).
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
@@ -37,11 +37,12 @@ var versionedSQLiteTables = []string{
 	"tenant_skill_snapshots",
 	"tenant_skill_catalog",
 	"tenant_user_env_vars",
-	"user_dingtalk_identities", // 000040 (fork, 原 000036)
-	"dingtalk_sync_runs",       // 000040
-	"dingtalk_departments",     // 000041 (fork, 原 000037)
+	"user_dingtalk_identities", // 000042 (fork, 原 000036)
+	"dingtalk_sync_runs",       // 000042
+	"dingtalk_departments",     // 000043 (fork, 原 000037)
 	"agent_prompts",
 	"agent_run_suspensions",
+	"agent_collaborations",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -79,8 +80,8 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-// 41 = upstream 000039 (session_kind) + fork 的钉钉迁移（000040/000041，原 000036/000037）。
-const expectedSQLiteMigrationVersion = 41
+// 43 = upstream 000041 (agent_collaborations) + fork 的钉钉迁移（000042/000043，原 000036/000037）。
+const expectedSQLiteMigrationVersion = 43
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
