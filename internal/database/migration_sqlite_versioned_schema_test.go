@@ -15,7 +15,7 @@ import (
 // create to stay in sync with the versioned (PostgreSQL) migrations:
 // 000041 task queue, 000053 system settings, 000055 processing spans,
 // 000063 knowledge multi-tags, 000093 browser authorization, 000103 message
-// artifacts, 000042 dingtalk integration (fork), 000043 dingtalk departments
+// artifacts, 000900 dingtalk integration (fork), 000901 dingtalk departments
 // (fork).
 var versionedSQLiteTables = []string{
 	"memory_extraction_sessions",
@@ -37,9 +37,9 @@ var versionedSQLiteTables = []string{
 	"tenant_skill_snapshots",
 	"tenant_skill_catalog",
 	"tenant_user_env_vars",
-	"user_dingtalk_identities", // 000042 (fork, 原 000036)
-	"dingtalk_sync_runs",       // 000042
-	"dingtalk_departments",     // 000043 (fork, 原 000037)
+	"user_dingtalk_identities", // 000900 (fork, 900 号段为 fork 专用，原 000036)
+	"dingtalk_sync_runs",       // 000900
+	"dingtalk_departments",     // 000901 (fork, 原 000037)
 	"agent_prompts",
 	"agent_run_suspensions",
 	"agent_collaborations",
@@ -80,8 +80,10 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-// 43 = upstream 000041 (agent_collaborations) + fork 的钉钉迁移（000042/000043，原 000036/000037）。
-const expectedSQLiteMigrationVersion = 43
+// 901 = upstream 000041 (agent_collaborations) + fork 的钉钉迁移（900 号段：
+// 000900/000901，原 000036/000037）。fork 迁移固定在 900+，上游新增迁移
+// 不再改变本常量——只有 fork 自己加迁移时才需要更新。
+const expectedSQLiteMigrationVersion = 901
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

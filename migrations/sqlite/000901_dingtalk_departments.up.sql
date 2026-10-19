@@ -1,4 +1,4 @@
--- Migration 000043 (sqlite): DingTalk 部门表 —— 组织架构本地化存储。
+-- Migration 000901 (sqlite): DingTalk 部门表 —— 组织架构本地化存储。
 -- SQLite 方言：无 TIMESTAMPTZ，用 DATETIME。
 
 CREATE TABLE IF NOT EXISTS dingtalk_departments (
