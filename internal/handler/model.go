@@ -54,6 +54,10 @@ type CreateModelRequest struct {
 	Source      types.ModelSource     `json:"source"      binding:"required"`
 	Description string                `json:"description"`
 	Parameters  types.ModelParameters `json:"parameters"  binding:"required"`
+	// IsBuiltin requests a platform-wide built-in model (visible to all
+	// tenants). Honored only for system administrators; the service rejects
+	// the request with 403 otherwise.
+	IsBuiltin bool `json:"is_builtin"`
 }
 
 // CreateModel godoc
@@ -110,9 +114,14 @@ func (h *ModelHandler) CreateModel(c *gin.Context) {
 		Source:      req.Source,
 		Description: secutils.SanitizeForLog(req.Description),
 		Parameters:  req.Parameters,
+		IsBuiltin:   req.IsBuiltin,
 	}
 
 	if err := h.service.CreateModel(ctx, model); err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			_ = c.Error(appErr)
+			return
+		}
 		logger.ErrorWithFields(ctx, err, nil)
 		c.Error(errors.NewInternalServerError(err.Error()))
 		return

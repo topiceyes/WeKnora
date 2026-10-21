@@ -58,6 +58,10 @@ type ModelUsageResource struct {
 	ID       string              `json:"id"`
 	Name     string              `json:"name"`
 	Bindings []ModelUsageBinding `json:"bindings"`
+	// TenantID is populated only by the cross-tenant lookups used when a
+	// system administrator deletes a built-in model, so the admin can tell
+	// which workspaces would be stranded. Tenant-scoped lookups leave it zero.
+	TenantID uint64 `json:"tenant_id,omitempty"`
 }
 
 // ModelUsageMemory describes workspace-level long-term-memory model pins.

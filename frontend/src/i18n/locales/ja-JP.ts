@@ -5156,6 +5156,8 @@ export default {
         dimensionOverrideLabel: '出力次元数のカスタマイズ',
         dimensionOverrideDesc: 'プロバイダのドキュメントでこのモデルがdimensionsパラメータに対応していると記載されている場合にのみ有効にしてください。デフォルトでは検出された実際の次元数のみを使用します。',
         supportsVisionLabel: '視覚・マルチモーダルに対応',
+        makeBuiltinLabel: '組み込みモデルにする',
+        makeBuiltinDesc: '組み込みモデルはすべてのワークスペースに表示され、そのまま利用できます。作成・編集・削除できるのはシステム管理者のみです',
         supportsVisionDesc: 'モデルが画像やマルチモーダル入力を受け付けるかどうか',
         embeddingImageInputLabel: '画像入力',
         embeddingImageInputDesc: 'モデルが画像をテキストと同じベクトル空間に埋め込めるかどうか。カタログ内のモデルは自動判定され、カスタムモデルは手動で宣言します',
@@ -5537,11 +5539,12 @@ export default {
       builtinModels: {
         title: '組み込みモデル',
         description: '組み込みモデルはすべてのワークスペースに表示されます。機密情報は非表示で、編集や削除はできません。',
-        descriptionAdmin: '組み込みモデルはすべてのワークスペースに表示されます。システム管理者は設定と認証情報を編集できますが、削除はデプロイ側で管理されます。',
+        descriptionAdmin: '組み込みモデルはすべてのワークスペースに表示されます。システム管理者は組み込みモデルの作成・編集・削除ができ、削除前にすべてのワークスペースの参照が自動で確認されます。',
         viewGuide: '組み込みモデルのガイドを見る'
       },
       builtinTag: '組み込み',
       confirmDelete: 'モデル「{name}」を削除しますか？',
+      confirmDeleteBuiltin: '組み込みモデル「{name}」を削除しますか？すべてのワークスペースに表示されており、削除すると参照しているすべてのワークスペースに影響します。',
       usage: {
         title: 'モデルを削除できません',
         description: 'モデル「{name}」は次の設定から参照されています。削除する前に各設定を開き、別のモデルを選択してください。',

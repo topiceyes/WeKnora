@@ -74,6 +74,20 @@ func (r *customAgentRepository) CountByModelID(
 	return count, err
 }
 
+// CountByModelIDAcrossTenants counts active agents in EVERY tenant whose
+// config references modelID. Reserved for system-admin operations on
+// built-in models, which any tenant may reference.
+func (r *customAgentRepository) CountByModelIDAcrossTenants(
+	ctx context.Context, modelID string,
+) (int64, error) {
+	var count int64
+	query := r.db.WithContext(ctx).
+		Model(&types.CustomAgent{})
+	query = scopeCustomAgentsByModelID(query, modelID)
+	err := query.Count(&count).Error
+	return count, err
+}
+
 // ListModelUsages returns active agents that reference modelID. Only id, name,
 // and config are loaded; the config is decoded locally and never returned.
 func (r *customAgentRepository) ListModelUsages(
@@ -99,6 +113,38 @@ func (r *customAgentRepository) ListModelUsages(
 			ID:       row.ID,
 			Name:     row.Name,
 			Bindings: bindings,
+		})
+	}
+	return usages, nil
+}
+
+// ListModelUsagesAcrossTenants is ListModelUsages without the tenant
+// predicate. Reserved for system-admin operations on built-in models; each
+// returned resource carries its TenantID so the admin can see which
+// workspaces reference the model.
+func (r *customAgentRepository) ListModelUsagesAcrossTenants(
+	ctx context.Context, modelID string,
+) ([]types.ModelUsageResource, error) {
+	rows := make([]*types.CustomAgent, 0)
+	query := r.db.WithContext(ctx).
+		Model(&types.CustomAgent{}).
+		Select("id", "tenant_id", "name", "config")
+	query = scopeCustomAgentsByModelID(query, modelID)
+	if err := query.Order("name ASC, id ASC").Limit(types.ModelUsageListLimit).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	usages := make([]types.ModelUsageResource, 0, len(rows))
+	for _, row := range rows {
+		bindings := customAgentModelUsageBindings(row, modelID)
+		if len(bindings) == 0 {
+			continue
+		}
+		usages = append(usages, types.ModelUsageResource{
+			ID:       row.ID,
+			Name:     row.Name,
+			Bindings: bindings,
+			TenantID: row.TenantID,
 		})
 	}
 	return usages, nil

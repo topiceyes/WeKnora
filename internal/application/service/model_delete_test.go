@@ -17,6 +17,10 @@ type stubKBRepoForModelDelete struct {
 	usages   []types.ModelUsageResource
 	count    *int64
 	usageErr error
+	// cross* back the AcrossTenants lookups separately so tests can prove
+	// the cross-tenant variant was used.
+	crossUsages []types.ModelUsageResource
+	crossCount  *int64
 }
 
 func (s *stubKBRepoForModelDelete) UpdateKnowledgeBaseGeneratedProfile(
@@ -70,6 +74,19 @@ func (s *stubKBRepoForModelDelete) ListModelUsages(
 	return s.usages, s.usageErr
 }
 
+func (s *stubKBRepoForModelDelete) CountByModelIDAcrossTenants(context.Context, string) (int64, error) {
+	if s.crossCount != nil {
+		return *s.crossCount, s.usageErr
+	}
+	return int64(len(s.crossUsages)), s.usageErr
+}
+
+func (s *stubKBRepoForModelDelete) ListModelUsagesAcrossTenants(
+	context.Context, string,
+) ([]types.ModelUsageResource, error) {
+	return s.crossUsages, s.usageErr
+}
+
 func (s *stubKBRepoForModelDelete) SetUserKBPin(context.Context, uint64, string, string, bool) (*time.Time, error) {
 	return nil, nil
 }
@@ -82,6 +99,10 @@ type stubAgentRepoForModelDelete struct {
 	usages   []types.ModelUsageResource
 	count    *int64
 	usageErr error
+	// cross* back the AcrossTenants lookups separately so tests can prove
+	// the cross-tenant variant was used.
+	crossUsages []types.ModelUsageResource
+	crossCount  *int64
 }
 
 func (s *stubAgentRepoForModelDelete) CreateAgent(context.Context, *types.CustomAgent) error {
@@ -113,6 +134,19 @@ func (s *stubAgentRepoForModelDelete) ListModelUsages(
 	return s.usages, s.usageErr
 }
 
+func (s *stubAgentRepoForModelDelete) CountByModelIDAcrossTenants(context.Context, string) (int64, error) {
+	if s.crossCount != nil {
+		return *s.crossCount, s.usageErr
+	}
+	return int64(len(s.crossUsages)), s.usageErr
+}
+
+func (s *stubAgentRepoForModelDelete) ListModelUsagesAcrossTenants(
+	context.Context, string,
+) ([]types.ModelUsageResource, error) {
+	return s.crossUsages, s.usageErr
+}
+
 func (s *stubAgentRepoForModelDelete) CountBySandboxConfigID(context.Context, uint64, string) (int64, error) {
 	return 0, nil
 }
@@ -122,12 +156,19 @@ func (s *stubAgentRepoForModelDelete) ListNamesBySandboxConfigID(context.Context
 }
 
 type stubModelRepoForDelete struct {
-	model  *types.Model
-	delete func(id string) error
-	update func(model *types.Model) error
+	model        *types.Model
+	delete       func(id string) error
+	update       func(model *types.Model) error
+	create       func(model *types.Model) error
+	deleteTenant *uint64
 }
 
-func (s *stubModelRepoForDelete) Create(context.Context, *types.Model) error { return nil }
+func (s *stubModelRepoForDelete) Create(_ context.Context, model *types.Model) error {
+	if s.create != nil {
+		return s.create(model)
+	}
+	return nil
+}
 func (s *stubModelRepoForDelete) GetByID(_ context.Context, _ uint64, id string) (*types.Model, error) {
 	if s.model != nil && s.model.ID == id {
 		return s.model, nil
@@ -146,7 +187,10 @@ func (s *stubModelRepoForDelete) Update(_ context.Context, model *types.Model) e
 	return nil
 }
 
-func (s *stubModelRepoForDelete) Delete(_ context.Context, _ uint64, id string) error {
+func (s *stubModelRepoForDelete) Delete(_ context.Context, tenantID uint64, id string) error {
+	if s.deleteTenant != nil {
+		*s.deleteTenant = tenantID
+	}
 	if s.delete != nil {
 		return s.delete(id)
 	}
@@ -244,7 +288,7 @@ func TestGetModelUsageDetails_NormalizesEmptyCollections(t *testing.T) {
 		nil, nil, nil,
 	)
 
-	details, err := svc.(*modelService).getModelUsageDetails(context.Background(), 1, "unused-model")
+	details, err := svc.(*modelService).getModelUsageDetails(context.Background(), 1, "unused-model", false)
 	require.NoError(t, err)
 	assert.NotNil(t, details.KnowledgeBases)
 	assert.NotNil(t, details.Agents)

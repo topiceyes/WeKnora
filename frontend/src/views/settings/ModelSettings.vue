@@ -118,7 +118,9 @@
                   </t-dropdown>
                   <t-popconfirm
                     v-if="canDeleteModel(model)"
-                    :content="$t('modelSettings.confirmDelete', { name: modelDisplayName(model) })"
+                    :content="model.isBuiltin
+                      ? $t('modelSettings.confirmDeleteBuiltin', { name: modelDisplayName(model) })
+                      : $t('modelSettings.confirmDelete', { name: modelDisplayName(model) })"
                     :confirm-btn="{ content: $t('common.delete'), theme: 'danger' }"
                     :cancel-btn="{ content: $t('common.cancel') }"
                     placement="bottom-right"
@@ -590,10 +592,11 @@ const isModelCardClickable = (model: any) => canEditModel(model)
 
 const canManageModel = (model: any) => canEditModel(model)
 
-// Built-in lifecycle remains deployment-managed (YAML / SQL). The UI only
-// exposes configuration and credential editing to SystemAdmin.
+// Built-in models are shared platform-wide: only a SystemAdmin may delete
+// one (the backend repeats this authoritatively and cross-checks usage in
+// every tenant before removing).
 const canDeleteModel = (model: any) =>
-  authStore.hasRole('admin') && !model.isBuiltin
+  model.isBuiltin ? authStore.isSystemAdmin : authStore.hasRole('admin')
 
 const onModelCardClick = (event: Event, type: ModelType, model: any) => {
   if (!isModelCardClickable(model)) return
@@ -763,6 +766,11 @@ const handleModelSave = async (modelData: any) => {
       await updateModelAPI(editingModel.value.id, apiModelData)
       MessagePlugin.success(t('modelSettings.toasts.updated'))
     } else {
+      // 系统管理员可把新模型登记为内置（全租户共享）；编辑场景永不发送，
+      // 普通模型不会因此升级成内置。
+      if (modelData.isBuiltin) {
+        apiModelData.is_builtin = true
+      }
       await createModel(apiModelData)
       MessagePlugin.success(t('modelSettings.toasts.added'))
     }
@@ -777,7 +785,7 @@ const handleModelSave = async (modelData: any) => {
 // 删除模型
 const deleteModel = async (_type: ModelType, modelId: string) => {
   const model = allModels.value.find(m => m.id === modelId)
-  if (model?.is_builtin) {
+  if (model?.is_builtin && !authStore.isSystemAdmin) {
     MessagePlugin.warning(t('modelSettings.toasts.builtinCannotDelete'))
     return
   }

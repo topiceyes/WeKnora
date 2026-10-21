@@ -101,6 +101,20 @@ func (s *modelService) resolveWeKnoraCloudCredentials(ctx context.Context, param
 func (s *modelService) CreateModel(ctx context.Context, model *types.Model) error {
 	logger.Infof(ctx, "Creating model: %s, type: %s, source: %s", model.Name, model.Type, model.Source)
 
+	// Built-in models are platform-wide and shared with every tenant, so only
+	// a system administrator may create one. The row hangs off the builtin
+	// tenant convention; managed_by MUST stay "" so the builtin_models.yaml
+	// startup reconciler (types.pruneOrphanYAMLManagedModels) never sweeps it.
+	if model.IsBuiltin {
+		if !types.IsSystemAdminFromContext(ctx) {
+			logger.Warnf(ctx, "Non-system-admin attempted to create builtin model: %s", model.Name)
+			return apperrors.NewForbiddenError("only system administrators can create builtin models")
+		}
+		model.TenantID = types.DefaultBuiltinModelTenantID
+		model.ManagedBy = ""
+		model.IsDefault = false
+	}
+
 	// Handle remote models (e.g., OpenAI, Azure)
 	if model.Source == types.ModelSourceRemote {
 		logger.Info(ctx, "Remote model detected, setting status to active")
@@ -462,11 +476,19 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 		return ErrModelNotFound
 	}
 	if existingModel.IsBuiltin {
-		logger.Warnf(ctx, "Attempted to delete builtin model: %s", id)
-		return apperrors.NewBadRequestError("builtin models cannot be deleted")
+		if !types.IsSystemAdminFromContext(ctx) {
+			logger.Warnf(ctx, "Non-system-admin attempted to delete builtin model: %s", id)
+			return apperrors.NewForbiddenError("only system administrators can delete builtin models")
+		}
+		// repo.Delete filters WHERE id AND tenant_id; builtin rows hang off
+		// the row's own tenant (conventionally DefaultBuiltinModelTenantID),
+		// not the caller's.
+		tenantID = existingModel.TenantID
 	}
 
-	usage, err := s.getModelUsageDetails(ctx, tenantID, id)
+	// Built-in models are referenceable by every tenant, so the in-use check
+	// must span all tenants instead of just the caller's.
+	usage, err := s.getModelUsageDetails(ctx, tenantID, id, existingModel.IsBuiltin)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"model_id": id,
@@ -505,7 +527,7 @@ func (s *modelService) DeleteModel(ctx context.Context, id string) error {
 }
 
 func (s *modelService) getModelUsageDetails(
-	ctx context.Context, tenantID uint64, modelID string,
+	ctx context.Context, tenantID uint64, modelID string, crossTenant bool,
 ) (types.ModelUsageDetails, error) {
 	details := types.ModelUsageDetails{
 		KnowledgeBases: make([]types.ModelUsageResource, 0),
@@ -513,13 +535,23 @@ func (s *modelService) getModelUsageDetails(
 		LongTermMemory: types.ModelUsageMemory{Bindings: make([]types.ModelUsageBinding, 0)},
 	}
 
-	kbCount, err := s.kbRepo.CountByModelID(ctx, tenantID, modelID)
+	var kbCount int64
+	var err error
+	if crossTenant {
+		kbCount, err = s.kbRepo.CountByModelIDAcrossTenants(ctx, modelID)
+	} else {
+		kbCount, err = s.kbRepo.CountByModelID(ctx, tenantID, modelID)
+	}
 	if err != nil {
 		return details, err
 	}
 	details.KnowledgeBaseTotal = kbCount
 	if kbCount > 0 {
-		details.KnowledgeBases, err = s.kbRepo.ListModelUsages(ctx, tenantID, modelID)
+		if crossTenant {
+			details.KnowledgeBases, err = s.kbRepo.ListModelUsagesAcrossTenants(ctx, modelID)
+		} else {
+			details.KnowledgeBases, err = s.kbRepo.ListModelUsages(ctx, tenantID, modelID)
+		}
 		if err != nil {
 			return details, err
 		}
@@ -528,19 +560,35 @@ func (s *modelService) getModelUsageDetails(
 		}
 	}
 
-	agentCount, err := s.agentRepo.CountByModelID(ctx, tenantID, modelID)
+	var agentCount int64
+	if crossTenant {
+		agentCount, err = s.agentRepo.CountByModelIDAcrossTenants(ctx, modelID)
+	} else {
+		agentCount, err = s.agentRepo.CountByModelID(ctx, tenantID, modelID)
+	}
 	if err != nil {
 		return details, err
 	}
 	details.AgentTotal = agentCount
 	if agentCount > 0 {
-		details.Agents, err = s.agentRepo.ListModelUsages(ctx, tenantID, modelID)
+		if crossTenant {
+			details.Agents, err = s.agentRepo.ListModelUsagesAcrossTenants(ctx, modelID)
+		} else {
+			details.Agents, err = s.agentRepo.ListModelUsages(ctx, tenantID, modelID)
+		}
 		if err != nil {
 			return details, err
 		}
 		if details.Agents == nil {
 			details.Agents = make([]types.ModelUsageResource, 0)
 		}
+	}
+
+	// Known limitation: the long-term-memory pin check is per-tenant
+	// (tenant.MemoryConfig) and there is no "which tenants pin modelID" query,
+	// so a cross-tenant (builtin) delete only inspects the caller's tenant.
+	if crossTenant {
+		return details, nil
 	}
 
 	if s.tenantService == nil {

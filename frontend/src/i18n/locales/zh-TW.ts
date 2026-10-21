@@ -3123,6 +3123,7 @@ export default {
     copySuffix: ' 副本',
     builtinTag: '內建',
     confirmDelete: '確定刪除模型「{name}」嗎？',
+    confirmDeleteBuiltin: '確定刪除內建模型「{name}」嗎？它對所有空間可見，刪除後所有引用它的空間都會受影響。',
     usage: {
       title: '模型無法刪除',
       description: '模型「{name}」仍被以下設定引用。請先打開對應設定並更換模型，再重新刪除。',
@@ -3207,7 +3208,7 @@ export default {
     builtinModels: {
       title: '內建模型',
       description: '內建模型對所有空間可見，敏感資訊會被隱藏，且不可編輯或刪除。',
-      descriptionAdmin: '內建模型對所有空間可見。系統管理員可編輯設定和憑據；刪除仍由部署設定管理。',
+      descriptionAdmin: '內建模型對所有空間可見。系統管理員可建立、編輯和刪除內建模型；刪除前會自動檢查所有空間的引用。',
       viewGuide: '查看內建模型管理指南'
     },
     toasts: {
@@ -3655,6 +3656,8 @@ export default {
       dimensionOverrideLabel: '自定義輸出維度',
       dimensionOverrideDesc: '僅在確認該模型支持 dimensions 參數時開啟；預設只使用檢測到的實際維度。',
       supportsVisionLabel: '支持視覺/多模態',
+      makeBuiltinLabel: '設為內建模型',
+      makeBuiltinDesc: '內建模型對所有空間可見並可直接使用，僅系統管理員可建立、修改和刪除',
       supportsVisionDesc: '模型是否支持圖片等多模態輸入',
       embeddingImageInputLabel: '圖片輸入',
       embeddingImageInputDesc: '模型能把圖片編碼到與文字相同的向量空間。目錄內的模型會自動識別，自訂模型需手動宣告',

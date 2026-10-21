@@ -3123,6 +3123,7 @@ export default {
     copySuffix: ' 副本',
     builtinTag: '内置',
     confirmDelete: '确定删除模型「{name}」吗？',
+    confirmDeleteBuiltin: '确定删除内置模型「{name}」吗？它对所有空间可见，删除后所有引用它的空间都会受影响。',
     usage: {
       title: '模型无法删除',
       description: '模型「{name}」仍被以下配置引用。请先打开对应配置并更换模型，再重新删除。',
@@ -3207,7 +3208,7 @@ export default {
     builtinModels: {
       title: '内置模型',
       description: '内置模型对所有空间可见，敏感信息会被隐藏，且不可编辑或删除。',
-      descriptionAdmin: '内置模型对所有空间可见。系统管理员可编辑配置和凭据；删除仍由部署配置管理。',
+      descriptionAdmin: '内置模型对所有空间可见。系统管理员可创建、编辑和删除内置模型；删除前会自动检查所有空间的引用。',
       viewGuide: '查看内置模型管理指南'
     },
     toasts: {
@@ -3656,6 +3657,8 @@ export default {
       dimensionOverrideDesc: '仅在确认该模型支持 dimensions 参数时开启；默认只使用检测到的实际维度。',
       supportsVisionLabel: '支持视觉/多模态',
       supportsVisionDesc: '模型是否支持图片等多模态输入',
+      makeBuiltinLabel: '设为内置模型',
+      makeBuiltinDesc: '内置模型对所有空间可见并可直接使用，仅系统管理员可创建、修改和删除',
       embeddingImageInputLabel: '图片输入',
       embeddingImageInputDesc: '模型能把图片编码到与文本相同的向量空间。目录内的模型自动识别，自定义模型需手动声明',
       contextWindowLabel: '上下文窗口',

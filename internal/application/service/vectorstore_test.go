@@ -964,6 +964,12 @@ func (r *realKBRepo) CountByModelID(_ context.Context, _ uint64, _ string) (int6
 func (r *realKBRepo) ListModelUsages(_ context.Context, _ uint64, _ string) ([]types.ModelUsageResource, error) {
 	return []types.ModelUsageResource{}, nil
 }
+func (r *realKBRepo) CountByModelIDAcrossTenants(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+func (r *realKBRepo) ListModelUsagesAcrossTenants(_ context.Context, _ string) ([]types.ModelUsageResource, error) {
+	return []types.ModelUsageResource{}, nil
+}
 
 // The remaining methods are not called by the tested code paths; declare them
 // so realKBRepo satisfies interfaces.KnowledgeBaseRepository.

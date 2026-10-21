@@ -605,6 +605,17 @@
         </template>
       </section>
 
+      <!-- 系统管理员专属：把新模型登记为全租户共享的内置模型 -->
+      <section v-if="!isEdit && authStore.isSystemAdmin" class="setting-drawer__section">
+        <div class="form-item">
+          <label class="form-label">{{ $t('model.editor.makeBuiltinLabel') }}</label>
+          <div class="vision-toggle">
+            <t-switch v-model="formData.isBuiltin" />
+            <span class="form-desc form-desc--inline">{{ $t('model.editor.makeBuiltinDesc') }}</span>
+          </div>
+        </div>
+      </section>
+
     </t-form>
   </SettingDrawer>
 </template>
@@ -629,6 +640,7 @@ import {
 import { useI18n } from 'vue-i18n'
 import { useUIStore } from '@/stores/ui'
 import { useModelProvidersStore } from '@/stores/modelProviders'
+import { useAuthStore } from '@/stores/auth'
 import {
   credentialLabelForModelType,
   extraFieldLabel,
@@ -695,6 +707,8 @@ interface ModelFormData {
   spec?: ModelSpecOverride | null
   // 自定义 HTTP 请求头（类似 OpenAI Python SDK 的 extra_headers）
   customHeaders?: CustomHeaderItem[]
+  /** 系统管理员专属：新建为全租户共享的内置模型（后端强制 is_builtin 校验） */
+  isBuiltin?: boolean
   /** 第二段密钥（厂商 secret 额外字段，如 LKEAP / 火山引擎 Rerank 的 SecretKey）；创建时写入 app_secret */
   appSecret?: string
 }
@@ -730,6 +744,7 @@ interface Props {
 const { t, locale } = useI18n()
 const uiStore = useUIStore()
 const providersStore = useModelProvidersStore()
+const authStore = useAuthStore()
 
 const props = withDefaults(defineProps<Props>(), {
   visible: false,
@@ -1328,6 +1343,7 @@ const formData = ref<ModelFormData>({
   spec: null,
   customHeaders: [],
   appSecret: '',
+  isBuiltin: false,
 })
 
 const rules = computed(() => ({
@@ -1613,6 +1629,7 @@ const resetForm = () => {
     spec: null,
     customHeaders: [],
     appSecret: '',
+    isBuiltin: false,
   }
   catalogFilled.value = {}
   advancedOpen.value = false

@@ -5156,6 +5156,8 @@ export default {
         dimensionOverrideLabel: 'Custom Output Dimension',
         dimensionOverrideDesc: 'Enable only if the provider documentation says this model accepts a dimensions parameter.',
         supportsVisionLabel: 'Supports Vision / Multimodal',
+        makeBuiltinLabel: 'Make Built-in Model',
+        makeBuiltinDesc: 'Built-in models are visible to and usable by every workspace; only system administrators can create, edit, and delete them',
         supportsVisionDesc: 'Whether the model accepts image and multimodal input',
         embeddingImageInputLabel: 'Image Input',
         embeddingImageInputDesc: 'The model embeds images into the same vector space as text. Catalogued models are detected automatically; declare it for custom models',
@@ -5537,11 +5539,12 @@ export default {
       builtinModels: {
         title: 'Built-in Models',
         description: 'Built-in models are visible to all workspaces. Sensitive information is hidden, and they cannot be edited or deleted.',
-        descriptionAdmin: 'Built-in models are visible to all workspaces. System administrators can edit configuration and credentials; deletion remains deployment-managed.',
+        descriptionAdmin: 'Built-in models are visible to all workspaces. System administrators can create, edit, and delete them; deletion is blocked while any workspace still references the model.',
         viewGuide: 'View Built-in Models Guide'
       },
       builtinTag: 'Built-in',
       confirmDelete: 'Delete model "{name}"?',
+      confirmDeleteBuiltin: 'Delete built-in model "{name}"? It is visible to every workspace, and deleting it affects every workspace that references it.',
       usage: {
         title: 'Model cannot be deleted',
         description: 'Model "{name}" is still referenced by the following settings. Open each configuration and choose another model before deleting it.',

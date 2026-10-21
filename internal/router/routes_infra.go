@@ -26,8 +26,8 @@ func RegisterModelRoutes(
 		// 解析模型的有效接入配置（协议 / 思考等级 / 上下文）— Viewer+
 		models.GET("/catalog/resolve", g.Viewer(), handler.ResolveModelCatalog)
 		models.POST("/catalog/resolve", g.Viewer(), handler.ResolveModelCatalog)
-		// 创建模型 — Admin+
-		models.POST("", g.Admin(), handler.CreateModel)
+		// 创建模型 — Admin+；is_builtin=true 由服务层额外限定为 SystemAdmin。
+		models.POST("", g.AdminOrSystemAdmin(), handler.CreateModel)
 		// 获取模型列表 — Viewer+
 		models.GET("", g.Viewer(), handler.ListModels)
 		// 调试已保存模型会发起真实上游调用并产生费用 — Admin+
@@ -40,8 +40,8 @@ func RegisterModelRoutes(
 		models.PUT("/:id", g.AdminOrSystemAdmin(), handler.UpdateModel)
 		// 只改显示名称与描述 — 与 PUT 相同的权限
 		models.PATCH("/:id", g.AdminOrSystemAdmin(), handler.PatchModel)
-		// 删除模型 — Admin+
-		models.DELETE("/:id", g.Admin(), handler.DeleteModel)
+		// 删除模型 — Admin+；内置模型仍由服务层额外限定为 SystemAdmin。
+		models.DELETE("/:id", g.AdminOrSystemAdmin(), handler.DeleteModel)
 		// Per-field credential subresource (see internal/handler/model_credentials.go) — Admin+
 		models.PUT("/:id/credentials", g.AdminOrSystemAdmin(), credHandler.Put)
 		models.DELETE("/:id/credentials/:field", g.AdminOrSystemAdmin(), credHandler.DeleteField)

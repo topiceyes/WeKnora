@@ -144,6 +144,13 @@ type CustomAgentRepository interface {
 	// Implementations must cap the result at types.ModelUsageListLimit;
 	// callers that need the untruncated size should use CountByModelID.
 	ListModelUsages(ctx context.Context, tenantID uint64, modelID string) ([]types.ModelUsageResource, error)
+	// CountByModelIDAcrossTenants is CountByModelID without the tenant
+	// predicate. Reserved for system-admin operations on built-in models,
+	// which every tenant can reference.
+	CountByModelIDAcrossTenants(ctx context.Context, modelID string) (int64, error)
+	// ListModelUsagesAcrossTenants is ListModelUsages without the tenant
+	// predicate; each resource carries its TenantID. Same cap applies.
+	ListModelUsagesAcrossTenants(ctx context.Context, modelID string) ([]types.ModelUsageResource, error)
 
 	// CountBySandboxConfigID counts agents pointing at a sandbox config.
 	//

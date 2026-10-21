@@ -286,3 +286,63 @@ func TestCustomAgentSandboxConfigReferences(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"analysis-agent"}, names)
 }
+
+// Built-in models are referenceable by every tenant, so deleting one must
+// count usage across all tenants — not just the caller's.
+func TestCountByModelIDAcrossTenants_KnowledgeBase(t *testing.T) {
+	ctx := context.Background()
+	db := setupModelUsageTestDB(t)
+	repo := NewKnowledgeBaseRepository(db)
+	modelID := "builtin-embed"
+
+	kb1 := makeKB(nil)
+	kb1.EmbeddingModelID = modelID
+	require.NoError(t, db.Create(kb1).Error)
+
+	kb2 := makeKB(nil)
+	kb2.ID = uuid.New().String()
+	kb2.TenantID = 2
+	kb2.EmbeddingModelID = modelID
+	require.NoError(t, db.Create(kb2).Error)
+
+	count, err := repo.CountByModelID(ctx, 1, modelID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), count, "scoped count stays tenant-bound")
+
+	count, err = repo.CountByModelIDAcrossTenants(ctx, modelID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), count)
+
+	usages, err := repo.ListModelUsagesAcrossTenants(ctx, modelID)
+	require.NoError(t, err)
+	require.Len(t, usages, 2)
+	tenantIDs := map[uint64]bool{usages[0].TenantID: true, usages[1].TenantID: true}
+	assert.True(t, tenantIDs[1] && tenantIDs[2], "each usage carries its TenantID")
+}
+
+func TestCountByModelIDAcrossTenants_CustomAgent(t *testing.T) {
+	ctx := context.Background()
+	db := setupModelUsageTestDB(t)
+	repo := NewCustomAgentRepository(db)
+	modelID := "builtin-chat"
+
+	for _, tenantID := range []uint64{1, 2, 3} {
+		require.NoError(t, repo.CreateAgent(ctx, &types.CustomAgent{
+			ID:       uuid.New().String(),
+			Name:     "agent",
+			TenantID: tenantID,
+			Config:   types.CustomAgentConfig{ModelID: modelID},
+		}))
+	}
+
+	count, err := repo.CountByModelIDAcrossTenants(ctx, modelID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), count)
+
+	usages, err := repo.ListModelUsagesAcrossTenants(ctx, modelID)
+	require.NoError(t, err)
+	assert.Len(t, usages, 3)
+	for _, u := range usages {
+		assert.NotZero(t, u.TenantID)
+	}
+}

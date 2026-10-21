@@ -239,6 +239,20 @@ func (r *knowledgeBaseRepository) CountByModelID(
 	return count, err
 }
 
+// CountByModelIDAcrossTenants counts active knowledge bases in EVERY tenant
+// that reference modelID. Reserved for system-admin operations on built-in
+// models, which any tenant may reference.
+func (r *knowledgeBaseRepository) CountByModelIDAcrossTenants(
+	ctx context.Context, modelID string,
+) (int64, error) {
+	var count int64
+	query := r.db.WithContext(ctx).
+		Model(&types.KnowledgeBase{})
+	query = scopeKnowledgeBasesByModelID(query, modelID)
+	err := query.Count(&count).Error
+	return count, err
+}
+
 // ListModelUsages returns active knowledge bases that reference modelID. It
 // selects only the columns needed to identify the resource and its bindings;
 // GORM's default scope excludes soft-deleted rows.
@@ -268,6 +282,41 @@ func (r *knowledgeBaseRepository) ListModelUsages(
 			ID:       row.ID,
 			Name:     row.Name,
 			Bindings: bindings,
+		})
+	}
+	return usages, nil
+}
+
+// ListModelUsagesAcrossTenants is ListModelUsages without the tenant
+// predicate. Reserved for system-admin operations on built-in models; each
+// returned resource carries its TenantID so the admin can see which
+// workspaces reference the model.
+func (r *knowledgeBaseRepository) ListModelUsagesAcrossTenants(
+	ctx context.Context, modelID string,
+) ([]types.ModelUsageResource, error) {
+	rows := make([]*types.KnowledgeBase, 0)
+	query := r.db.WithContext(ctx).
+		Model(&types.KnowledgeBase{}).
+		Select(
+			"id", "tenant_id", "name", "embedding_model_id", "summary_model_id",
+			"image_processing_config", "vlm_config", "asr_config", "wiki_config", "auto_tag_config",
+		)
+	query = scopeKnowledgeBasesByModelID(query, modelID)
+	if err := query.Order("name ASC, id ASC").Limit(types.ModelUsageListLimit).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	usages := make([]types.ModelUsageResource, 0, len(rows))
+	for _, row := range rows {
+		bindings := knowledgeBaseModelUsageBindings(row, modelID)
+		if len(bindings) == 0 {
+			continue
+		}
+		usages = append(usages, types.ModelUsageResource{
+			ID:       row.ID,
+			Name:     row.Name,
+			Bindings: bindings,
+			TenantID: row.TenantID,
 		})
 	}
 	return usages, nil

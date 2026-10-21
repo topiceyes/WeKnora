@@ -3121,6 +3121,7 @@ export default {
     copySuffix: ' 사본',
     builtinTag: '기본제공',
     confirmDelete: '모델 "{name}"을(를) 삭제하시겠습니까?',
+    confirmDeleteBuiltin: '기본 제공 모델 "{name}"을(를) 삭제하시겠습니까? 모든 워크스페이스에 표시되며, 삭제하면 이를 참조하는 모든 워크스페이스에 영향을 줍니다.',
     usage: {
       title: '모델을 삭제할 수 없습니다',
       description: '모델 "{name}"이(가) 다음 설정에서 사용 중입니다. 각 설정을 열어 다른 모델로 변경한 후 다시 삭제하세요.',
@@ -3205,7 +3206,7 @@ export default {
     builtinModels: {
       title: '기본 제공 모델',
       description: '기본 제공 모델은 모든 워크스페이스에게 표시됩니다. 민감한 정보는 숨겨지며, 편집하거나 삭제할 수 없습니다.',
-      descriptionAdmin: '기본 제공 모델은 모든 워크스페이스에게 표시됩니다. 시스템 관리자는 구성과 자격 증명을 편집할 수 있으며, 삭제는 배포 구성에서 관리됩니다.',
+      descriptionAdmin: '기본 제공 모델은 모든 워크스페이스에 표시됩니다. 시스템 관리자는 기본 제공 모델을 생성, 편집, 삭제할 수 있으며, 삭제 전 모든 워크스페이스의 참조를 자동으로 확인합니다.',
       viewGuide: '기본 제공 모델 관리 가이드 보기'
     },
     toasts: {
@@ -3653,6 +3654,8 @@ export default {
       dimensionOverrideLabel: '사용자 지정 출력 차원',
       dimensionOverrideDesc: '제공자 문서에서 이 모델이 dimensions 매개변수를 지원한다고 확인한 경우에만 켜세요.',
       supportsVisionLabel: '비전/멀티모달 지원',
+      makeBuiltinLabel: '기본 제공 모델로 설정',
+      makeBuiltinDesc: '기본 제공 모델은 모든 워크스페이스에 표시되고 바로 사용할 수 있으며, 시스템 관리자만 생성, 수정, 삭제할 수 있습니다',
       supportsVisionDesc: '모델의 이미지 등 멀티모달 입력 지원 여부',
       embeddingImageInputLabel: '이미지 입력',
       embeddingImageInputDesc: '모델이 이미지를 텍스트와 같은 벡터 공간에 임베딩할 수 있는지 여부. 카탈로그 모델은 자동으로 인식되며, 사용자 정의 모델은 직접 선언합니다',
