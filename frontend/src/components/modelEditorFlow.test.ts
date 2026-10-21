@@ -86,6 +86,7 @@ async function fixture(options: {
       if (name === 'vue') return require('vue')
       if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key, te: () => false, locale: { value: 'en-US' } }) }
       if (name === '@/stores/ui') return { useUIStore: () => ({}) }
+      if (name === '@/stores/auth') return { useAuthStore: () => ({ isSystemAdmin: false }) }
       if (name === 'tdesign-vue-next') return {
         MessagePlugin: Object.fromEntries(['success', 'error', 'warning', 'info'].map(key => [key, (text: string) => toasts.push(text)])),
       }
