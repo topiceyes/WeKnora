@@ -1575,6 +1575,47 @@ func (h *KnowledgeHandler) ListKnowledgeFolders(c *gin.Context) {
 	})
 }
 
+// ListKnowledgeTree godoc
+// @Summary      获取知识库浏览树（文件夹 + 全部文档）
+// @Description  一次返回知识库的文件夹目录树和全部文档的精简节点列表，供浏览模式的文档树渲染；客户端按 folder_path 把文档挂到文件夹节点下
+// @Tags         知识管理
+// @Accept       json
+// @Produce      json
+// @Param        id   path      string  true  "知识库ID"  extensions(x-agent=knowledge_base_id)
+// @Success      200  {object}  handler.DataResponse{data=types.KnowledgeTree}  "浏览树"
+// @Failure      400  {object}  errors.AppError         "请求参数错误"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @x-agent      {"id":"knowledge.list_tree","risk":"read","root":"data.documents","max_items":5000}
+// @x-agent-hint "Every document of the knowledge base as slim rows plus the folder hierarchy with counts; group documents by folder_path under data.folders to build a tree. Document content is not included; fetch knowledge.get per document."
+// @Router       /knowledge-bases/{id}/knowledge/tree [get]
+func (h *KnowledgeHandler) ListKnowledgeTree(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Same read gate as ListKnowledgeFolders: every viewer of a shared
+	// knowledge base may render the browse-mode tree.
+	_, kbID, effectiveTenantID, _, err := h.validateKnowledgeBaseAccess(c)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	ctx = types.WithExecutionTenant(c.Request.Context(), effectiveTenantID)
+
+	tree, err := h.kgService.ListKnowledgeTree(ctx, kbID)
+	if err != nil {
+		logger.ErrorWithFields(ctx, err, nil)
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Knowledge tree retrieved, kb_id=%s folders=%d documents=%d",
+		secutils.SanitizeForLog(kbID), len(tree.Folders), len(tree.Documents))
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    tree,
+	})
+}
+
 // MoveKnowledgeToFolderRequest is the body schema for POST /knowledge/folder.
 type MoveKnowledgeToFolderRequest struct {
 	// Knowledge base the documents belong to.

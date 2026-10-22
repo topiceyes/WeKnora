@@ -1,11 +1,5 @@
 <script setup lang="ts">
 // @ts-nocheck
-import { marked } from "marked";
-import markedKatex from 'marked-katex-extension';
-import 'katex/dist/katex.min.css';
-
-import hljs from "highlight.js";
-import "highlight.js/styles/github.css";
 import mermaid from "mermaid";
 import { onMounted, ref, nextTick, onUnmounted, watch, computed } from "vue";
 import {
@@ -15,9 +9,9 @@ import {
   KNOWLEDGE_CHUNK_PAGE_SIZE,
 } from "@/api/knowledge-base/index";
 import { MessagePlugin } from "tdesign-vue-next";
-import { sanitizeHTML, safeMarkdownToHTML, createSafeImage, isValidImageURL, hydrateProtectedFileImages, isValidURL } from '@/utils/security';
-import { normalizeSpuriousTablePrefixes } from '@/utils/markdownTableNormalize';
-import { ensureLiteralSingleTildeOnGlobalMarked } from '@/utils/markedLiteralTilde';
+import { hydrateProtectedFileImages, isValidURL } from '@/utils/security';
+import { mergeChunks } from '@/utils/mergedContent';
+import { processMarkdown } from '@/utils/markdownPipeline';
 import { openMermaidFullscreen } from '@/utils/mermaidViewer';
 import { diffWikiLines, type WikiDiffLine } from '@/utils/wikiLineDiff';
 import { useI18n } from 'vue-i18n';
@@ -208,9 +202,6 @@ const showSummarySection = computed(() =>
   || props.details?.summary_status === 'processing'
   || Boolean(props.details?.id && canEditContent.value),
 );
-
-// Mermaid 初始化计数器，用于生成唯一ID
-let mermaidRenderCount = 0;
 
 // 初始化 Mermaid
 mermaid.initialize({
@@ -512,22 +503,6 @@ const traceEntryTitle = computed(() => {
 // detail drawer header link manually.
 defineExpose({ openTimeline });
 
-marked.use({
-  breaks: true,      // 启用单行换行转 <br>
-  gfm: true,         // 启用 GitHub Flavored Markdown
-});
-marked.use(markedKatex({ throwOnError: false, nonStandard: true }));
-ensureLiteralSingleTildeOnGlobalMarked();
-
-const preprocessMathDelimiters = (rawText: string): string => {
-  if (!rawText || typeof rawText !== 'string') {
-    return '';
-  }
-  return rawText
-    .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$')
-    .replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
-};
-const renderer = new marked.Renderer();
 const CHUNK_PAGE_SIZE = KNOWLEDGE_CHUNK_PAGE_SIZE;
 const chunkPage = ref(1);
 const loadedChunkPage = ref(1);
@@ -547,85 +522,7 @@ let url = ref('')
 const viewMode = ref<'chunks' | 'merged' | 'preview'>('merged');
 
 // 合并后的文档内容（在下方通过 computed 定义）
-
-/**
- * 把已合并文本 acc 和下一个 chunk 内容 next 拼接，并去除两者的重叠部分。
- *
- * 不再依赖 start_at / end_at 做位置裁剪，而是用「文本重叠匹配」：在 next 的
- * 开头窗口里找 acc 后缀首次出现的位置，从该位置之后接上。这样能同时兼容：
- *  1. chunker 给拆分表格补写的表头（零宽 start/end，位置上不可见）——表头出现
- *     在重叠行之前，会被自然跳过；
- *  2. HTML 实体编码（&#34; 等）导致的 content 长度与原文区间不一致——比对的是
- *     文本本身，不受长度偏差影响。
- *
- * positionOverlap <= 0 时两段位置上严格相邻或不相交，无可去重重叠；此时进入
- * 文本匹配会因 headSlack 下限 320 在 next 开头窗口内误命中 acc 后缀的真实
- * 内容重复（如同一句话在文档多次出现），把 next 开头整段误判为补写表头删掉，
- * 造成不可逆的内容丢失。直接拼接，补写表头重复交给调用方后处理。
- *
- * @param positionOverlap 由 start/end 估算的重叠量，仅用于界定搜索窗口大小。
- */
-const appendChunkContent = (acc: string, next: string, positionOverlap: number): string => {
-  if (!acc) return next;
-  if (!next) return acc;
-  if (positionOverlap <= 0) return acc + next;
-
-  const MIN_OVERLAP = 12;          // 过短的后缀容易误匹配（如分隔行），忽略
-  const span = Math.max(positionOverlap, 0);
-  // 搜索的后缀最大长度；按位置重叠量放大几倍兜底，并设下限
-  const maxK = Math.min(acc.length, next.length, Math.max(span * 3, 400));
-  // 重叠行之前最多允许多少前缀（补写的表头）被跳过
-  const headSlack = Math.max(span * 2, 320);
-
-  for (let k = maxK; k >= MIN_OVERLAP; k--) {
-    const suffix = acc.slice(acc.length - k);
-    const pos = next.indexOf(suffix);
-    if (pos !== -1 && pos <= headSlack) {
-      return acc + next.slice(pos + k);
-    }
-  }
-  return acc + next;
-};
-
-/**
- * 合并分块内容，还原完整文档。chunks 按 start_at 排序后逐段用文本重叠匹配拼接。
- */
-const mergeChunks = (chunks: any[]): string => {
-  if (!chunks || chunks.length === 0) return '';
-
-  // 按 start_at 排序
-  const sortedChunks = [...chunks].sort((a, b) => {
-    const startA = a.start_at ?? a.chunk_index ?? 0;
-    const startB = b.start_at ?? b.chunk_index ?? 0;
-    return startA - startB;
-  });
-
-  let merged = sortedChunks[0].content || '';
-  let mergedEnd = sortedChunks[0].end_at ?? 0;
-
-  for (let i = 1; i < sortedChunks.length; i++) {
-    const currentChunk = sortedChunks[i];
-    const currentStartAt = currentChunk.start_at ?? 0;
-    const currentEndAt = currentChunk.end_at ?? 0;
-    const currentContent = currentChunk.content || '';
-
-    if (!currentContent) continue;
-
-    // 与上一段有明显间隙（位置不相邻），用空行分隔后整段拼接
-    if (currentStartAt > mergedEnd && mergedEnd > 0) {
-      merged = merged + '\n\n' + currentContent;
-    } else {
-      const positionOverlap = mergedEnd - currentStartAt;
-      merged = appendChunkContent(merged, currentContent, positionOverlap);
-    }
-
-    if (currentEndAt > mergedEnd) {
-      mergedEnd = currentEndAt;
-    }
-  }
-
-  return merged;
-};
+// 拼接实现见 @/utils/mergedContent（与浏览模式阅读器共用）。
 
 onMounted(() => {
   loadTraceDrawerWidth();
@@ -666,57 +563,6 @@ const checkImage = (url) => {
     img.onerror = () => resolve(false);
     img.src = url;
   });
-};
-renderer.image = function ({ href, title, text }) {
-  if (!isValidImageURL(href)) {
-    return `<p>${t('error.invalidImageLink')}</p>`;
-  }
-
-  const safeImage = createSafeImage(href, text || '', title || '');
-  return `<figure>
-                ${safeImage}
-                <figcaption style="text-align: left;">${text || ''}</figcaption>
-            </figure>`;
-};
-
-// 自定义代码块渲染器，只显示语言标签
-renderer.code = function ({ text, lang }) {
-  // 空值校验：防止 text 为 undefined 或 null
-  if (!text || typeof text !== 'string') {
-    text = '';
-  }
-
-  // Mermaid 图表处理
-  if (lang === 'mermaid') {
-    // 生成唯一ID
-    const id = `mermaid-${++mermaidRenderCount}`;
-    // 返回带有 mermaid 类的 div，后续由 mermaid.run() 处理
-    return `<div class="mermaid" id="${id}">${text}</div>`;
-  }
-
-  let detectedLang = lang;
-  let highlighted = '';
-  if (lang && hljs.getLanguage(lang)) {
-    try {
-      highlighted = hljs.highlight(text, { language: lang }).value;
-    } catch (e) {
-      highlighted = hljs.highlightAuto(text).value;
-      detectedLang = hljs.highlightAuto(text).language || lang;
-    }
-  } else {
-    const auto = hljs.highlightAuto(text);
-    highlighted = auto.value;
-    detectedLang = auto.language || lang;
-  }
-  const displayLang = detectedLang || 'Code';
-  return `
-    <div class="code-block-wrapper">
-      <div class="code-block-header">
-        <span class="code-block-lang">${displayLang}</span>
-      </div>
-      <pre class="code-block-pre"><code class="hljs language-${detectedLang || ''}">${highlighted}</code></pre>
-    </div>
-  `;
 };
 // 监听 chunks 变化，自动更新合并内容（已改为 computed 属性）
 const mergedContent = computed(() => {
@@ -896,51 +742,7 @@ const bindMermaidClickEvents = () => {
   });
 };
 
-// 安全地处理 Markdown 内容（使用 marked）
-const processMarkdown = (markdownText) => {
-  if (!markdownText || typeof markdownText !== 'string') return '';
-
-  // 去除 Markdown 头部的 YAML Frontmatter（例如 --- title: xxx ---）
-  let processedText = markdownText.replace(/^\s*---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
-
-  // 先还原原始文本中的 HTML 实体，让它们作为普通字符参与渲染
-  processedText = processedText
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/gi, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&#34;/g, '"')
-    .replace(/&#x22;/gi, '"')
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
-
-  // 处理被 <p> 包裹的表格行，转换为正常的表格行，并在前后补空行
-  processedText = processedText.replace(/<p>\s*(\|[\s\S]*?\|)\s*<\/p>/gi, '\n$1\n');
-
-  // MarkItDown 常在表格前插入空行 + 分隔行，渲染会出现多余空行
-  processedText = normalizeSpuriousTablePrefixes(processedText);
-
-  // 保留表格单元格中的 <br>，不转成换行，避免打散表格；其他区域原样交给 marked 处理
-
-  // 先预处理数学定界符，再做安全预处理
-  const mathSafeText = preprocessMathDelimiters(processedText);
-  const safeMarkdown = safeMarkdownToHTML(mathSafeText);
-
-  // 使用标记渲染
-  // Do not register this renderer globally. DocumentPreview uses the same
-  // `marked` module; registering here made its later Markdown preview reuse
-  // this image validator after the user had opened the chunk view.
-  let html = marked.parse(safeMarkdown, { renderer }) as string;
-
-  // 还原被转义的 <br>
-  html = html.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
-
-  // 最终安全清理
-  let result = sanitizeHTML(html);
-
-  return result;
-};
+// 安全地处理 Markdown 内容：实现见 @/utils/markdownPipeline（与浏览模式共用）。
 const handleClose = () => {
   emit("closeDoc", false);
   const scrollEl = document.querySelector('.doc-main-drawer .t-drawer__body') as HTMLElement | null;

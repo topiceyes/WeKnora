@@ -580,6 +580,51 @@ export function listKnowledgeFolders(kbId: string) {
   return get(`/api/v1/knowledge-bases/${kbId}/knowledge/folders`);
 }
 
+/** Slim document node of the browse-mode tree (no content columns). */
+export interface KnowledgeTreeDocument {
+  id: string;
+  title: string;
+  type: string;
+  file_type: string;
+  file_name: string;
+  folder_path: string;
+  parse_status: string;
+  updated_at: string;
+}
+
+/** Browse-mode tree payload: folder hierarchy plus every document, flat. */
+export interface KnowledgeTree extends KnowledgeFolderTree {
+  documents: KnowledgeTreeDocument[];
+}
+
+export function getKnowledgeTree(kbId: string) {
+  return get(`/api/v1/knowledge-bases/${kbId}/knowledge/tree`);
+}
+
+/**
+ * Fetch every chunk of a document by paging the chunks endpoint at the maximum
+ * server page size. Powers full-document views (browse-mode reader) that need
+ * the complete chunk set for stitching.
+ */
+export async function listAllKnowledgeChunks(id: string): Promise<{ data: any[]; total: number }> {
+  const PAGE_SIZE = 100; // server cap for the chunks endpoint
+  const first: any = await get(`/api/v1/chunks/${id}?page=1&page_size=${PAGE_SIZE}`);
+  // Chunks endpoint returns { success, data: [...], total } — total is top-level.
+  const total = first?.total ?? (first?.data?.length ?? 0);
+  const chunks: any[] = [...(first?.data ?? [])];
+  if (total > chunks.length) {
+    const pages = Math.ceil(total / PAGE_SIZE);
+    const rest = await Promise.all(
+      Array.from({ length: pages - 1 }, (_, i) =>
+        get(`/api/v1/chunks/${id}?page=${i + 2}&page_size=${PAGE_SIZE}`)),
+    );
+    for (const res of rest as any[]) {
+      chunks.push(...(res?.data ?? []));
+    }
+  }
+  return { data: chunks, total };
+}
+
 /**
  * Re-file documents under `folderPath` ('' = knowledge base top level). Folders
  * are derived from the stored paths, so a path that does not exist yet is

@@ -56,6 +56,7 @@ import { useUploadConfirmStore, type UploadConfirmResult } from '@/stores/upload
 import { useUploadTasksStore } from '@/stores/uploadTasks';
 import WikiBrowser from './wiki/WikiBrowser.vue';
 import ImageGallery from './gallery/ImageGallery.vue';
+import BrowseMode from './browse/BrowseMode.vue';
 import { getWikiStats } from '@/api/wiki';
 import {
   isKnowledgeParseInFlight,
@@ -96,7 +97,7 @@ const kbLoading = ref(false);
 const docListLoading = ref(true);
 const isFAQ = computed(() => (kbInfo.value?.type || '') === 'faq');
 const isWiki = computed(() => !!kbInfo.value?.indexing_strategy?.wiki_enabled);
-const validTabs = ['documents', 'wiki', 'graph', 'gallery'] as const
+const validTabs = ['documents', 'browse', 'wiki', 'graph', 'gallery'] as const
 type KbTab = typeof validTabs[number]
 const initTab = validTabs.includes(route.query.tab as any) ? (route.query.tab as KbTab) : 'documents'
 const activeKbTab = ref<KbTab>(initTab);
@@ -121,6 +122,10 @@ const kbViewTabs = computed(() => {
   const tabs: Array<{ key: KbTab; icon: string; label: string; tip: string; indexing?: boolean }> = [
     { key: 'documents', icon: 'file', label: t(`${w}.tabDocuments`), tip: t(`${w}.tabDocumentsTip`) },
   ]
+  // 浏览模式与 Wiki 互斥：wiki 知识库已有 WikiBrowser 作为阅读界面。
+  if (!isWiki.value) {
+    tabs.push({ key: 'browse', icon: 'book-open', label: t(`${w}.tabBrowse`), tip: t(`${w}.tabBrowseTip`) })
+  }
   if (isWiki.value) {
     const indexing = wikiIsIndexing.value
     tabs.push(
@@ -2475,9 +2480,16 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
       <!-- Image Gallery (4th tab) -->
       <ImageGallery v-if="activeKbTab === 'gallery' && kbId" :knowledge-base-id="kbId" @open-source-doc="openSourceDoc" />
 
+      <!-- Browse mode (语雀式阅读，非 wiki 知识库) -->
+      <BrowseMode v-if="activeKbTab === 'browse' && !isWiki && kbId" :kb-id="kbId"
+        :can-download="canDownloadKnowledge" @open-source-doc="openSourceDoc" />
+
       <!-- wiki/graph tabs only exist on wiki KBs; a stale tab (?tab= or one
-           carried over from a previous KB) falls back to documents. -->
-      <template v-if="activeKbTab === 'documents' || (!isWiki && activeKbTab !== 'gallery')">
+           carried over from a previous KB) falls back to documents. Same for
+           ?tab=browse on a wiki KB, where WikiBrowser is the reader. -->
+      <template v-if="activeKbTab === 'documents'
+        || (!isWiki && activeKbTab !== 'gallery' && activeKbTab !== 'browse')
+        || (isWiki && activeKbTab === 'browse')">
         <div class="knowledge-main">
           <KbFolderTree v-if="showFolderTree && !folderTreeCollapsed" :tree="folderTree" :selected-path="selectedFolderPath"
             :loading="folderTreeLoading" :can-edit="canEdit" :root-label="kbInfo?.name"

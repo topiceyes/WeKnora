@@ -274,6 +274,30 @@ func (r *knowledgeRepository) ListKnowledgeFolderCounts(
 	return counts, nil
 }
 
+// ListKnowledgeTreeDocuments returns every knowledge entry of a knowledge base
+// projected to the slim tree columns. Metadata, description and other wide
+// columns are deliberately not selected so the browse-mode tree stays cheap on
+// large knowledge bases. Rows mid-deletion are excluded, matching the document
+// list. Ordering by folder_path then title lets clients build the tree without
+// re-sorting.
+func (r *knowledgeRepository) ListKnowledgeTreeDocuments(
+	ctx context.Context,
+	tenantID uint64,
+	kbID string,
+) ([]*types.KnowledgeTreeDocument, error) {
+	var docs []*types.KnowledgeTreeDocument
+	if err := r.db.WithContext(ctx).
+		Model(&types.Knowledge{}).
+		Select("id, title, type, file_type, file_name, folder_path, parse_status, updated_at").
+		Where("tenant_id = ? AND knowledge_base_id = ? AND parse_status <> ?",
+			tenantID, kbID, types.ParseStatusDeleting).
+		Order("folder_path ASC, title ASC, id ASC").
+		Find(&docs).Error; err != nil {
+		return nil, err
+	}
+	return docs, nil
+}
+
 // UpdateKnowledgeFolderPath files the given knowledge entries under folderPath.
 // Only the display/navigation column is touched: chunks, embeddings and the
 // stored file are unaffected, which is why re-filing needs no re-processing.

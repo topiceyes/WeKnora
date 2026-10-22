@@ -706,6 +706,26 @@ func (s *knowledgeService) ListKnowledgeFolderTree(ctx context.Context,
 	return types.BuildKnowledgeFolderTree(counts), nil
 }
 
+// ListKnowledgeTree returns the folder hierarchy together with every document
+// as a flat slim list, so the browse-mode tree renders from a single request.
+func (s *knowledgeService) ListKnowledgeTree(ctx context.Context,
+	kbID string,
+) (*types.KnowledgeTree, error) {
+	tenantID := ctx.Value(types.TenantIDContextKey).(uint64)
+	counts, err := s.repo.ListKnowledgeFolderCounts(ctx, tenantID, kbID)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := s.repo.ListKnowledgeTreeDocuments(ctx, tenantID, kbID)
+	if err != nil {
+		return nil, err
+	}
+	return &types.KnowledgeTree{
+		KnowledgeFolderTree: types.BuildKnowledgeFolderTree(counts),
+		Documents:           docs,
+	}, nil
+}
+
 // MoveKnowledgeToFolder re-files knowledge entries under folderPath. Since
 // folders are derived from the stored paths, a folder that does not exist yet is
 // created by this call; a folder whose last entry moves away disappears.

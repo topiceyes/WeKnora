@@ -88,6 +88,9 @@ type KnowledgeService interface {
 	// folder_path of every knowledge entry in a knowledge base, with per-folder
 	// document counts. It powers the document sidebar tree.
 	ListKnowledgeFolderTree(ctx context.Context, kbID string) (*types.KnowledgeFolderTree, error)
+	// ListKnowledgeTree returns the folder hierarchy plus every document as a
+	// flat slim list, powering the browse-mode document tree in one request.
+	ListKnowledgeTree(ctx context.Context, kbID string) (*types.KnowledgeTree, error)
 	// MoveKnowledgeToFolder re-files knowledge entries under the given folder
 	// path (empty means the knowledge base top level). Folders are derived from
 	// the stored paths, so a path that does not exist yet is created implicitly.
@@ -284,6 +287,14 @@ type KnowledgeRepository interface {
 		tenantID uint64,
 		kbID string,
 	) ([]*types.KnowledgeFolderCount, error)
+	// ListKnowledgeTreeDocuments returns every knowledge entry of a knowledge
+	// base as a slim row (no metadata/content columns) for the browse-mode
+	// document tree.
+	ListKnowledgeTreeDocuments(
+		ctx context.Context,
+		tenantID uint64,
+		kbID string,
+	) ([]*types.KnowledgeTreeDocument, error)
 	// UpdateKnowledgeFolderPath files the given entries under folderPath.
 	UpdateKnowledgeFolderPath(
 		ctx context.Context,
