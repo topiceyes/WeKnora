@@ -116,16 +116,15 @@ const wikiIndexingTip = computed(() => {
 })
 // The views of this knowledge base, in header order. Wiki and graph only
 // exist on wiki KBs; a stale wiki/graph tab on another KB renders documents,
-// so the header marks documents active then too.
+// so the header marks documents active then too. Browse mode is available on
+// every KB: on wiki KBs it complements the WikiBrowser — the wiki tab reads
+// the AI-generated manual, browse reads/edits the source documents.
 const kbViewTabs = computed(() => {
   const w = 'knowledgeEditor.wikiBrowser'
   const tabs: Array<{ key: KbTab; icon: string; label: string; tip: string; indexing?: boolean }> = [
     { key: 'documents', icon: 'file', label: t(`${w}.tabDocuments`), tip: t(`${w}.tabDocumentsTip`) },
+    { key: 'browse', icon: 'browse', label: t(`${w}.tabBrowse`), tip: t(`${w}.tabBrowseTip`) },
   ]
-  // 浏览模式与 Wiki 互斥：wiki 知识库已有 WikiBrowser 作为阅读界面。
-  if (!isWiki.value) {
-    tabs.push({ key: 'browse', icon: 'book-open', label: t(`${w}.tabBrowse`), tip: t(`${w}.tabBrowseTip`) })
-  }
   if (isWiki.value) {
     const indexing = wikiIsIndexing.value
     tabs.push(
@@ -2480,16 +2479,16 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
       <!-- Image Gallery (4th tab) -->
       <ImageGallery v-if="activeKbTab === 'gallery' && kbId" :knowledge-base-id="kbId" @open-source-doc="openSourceDoc" />
 
-      <!-- Browse mode (语雀式阅读，非 wiki 知识库) -->
-      <BrowseMode v-if="activeKbTab === 'browse' && !isWiki && kbId" :kb-id="kbId"
+      <!-- Browse mode (语雀式阅读/编辑，所有知识库) -->
+      <BrowseMode v-if="activeKbTab === 'browse' && kbId" :kb-id="kbId"
         :can-download="canDownloadKnowledge" :can-edit="canEdit" @open-source-doc="openSourceDoc" />
 
-      <!-- wiki/graph tabs only exist on wiki KBs; a stale tab (?tab= or one
-           carried over from a previous KB) falls back to documents. Same for
-           ?tab=browse on a wiki KB, where WikiBrowser is the reader. -->
+      <!-- wiki/graph tabs render only on wiki KBs; a stale tab (?tab= or one
+           carried over from a previous KB via the shared component instance)
+           falls back to documents. -->
       <template v-if="activeKbTab === 'documents'
-        || (!isWiki && activeKbTab !== 'gallery' && activeKbTab !== 'browse')
-        || (isWiki && activeKbTab === 'browse')">
+        || (activeKbTab !== 'gallery' && activeKbTab !== 'browse'
+          && !(isWiki && (activeKbTab === 'wiki' || activeKbTab === 'graph')))">
         <div class="knowledge-main">
           <KbFolderTree v-if="showFolderTree && !folderTreeCollapsed" :tree="folderTree" :selected-path="selectedFolderPath"
             :loading="folderTreeLoading" :can-edit="canEdit" :root-label="kbInfo?.name"
