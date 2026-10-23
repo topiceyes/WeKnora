@@ -26,13 +26,14 @@ func newKnowledgeContentFixture(t *testing.T) *knowledgeContentFixture {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&types.Knowledge{}))
+	require.NoError(t, db.AutoMigrate(&types.Knowledge{}, &types.KnowledgeContentVersion{}))
 	kb := &types.KnowledgeBase{ID: "kb", TenantID: 7}
 	task := &createKnowledgeTaskEnqueuerStub{}
 	svc := &knowledgeService{
-		repo:      repository.NewKnowledgeRepository(db),
-		kbService: &writeKBLookup{kb: kb},
-		task:      task,
+		repo:               repository.NewKnowledgeRepository(db),
+		kbService:          &writeKBLookup{kb: kb},
+		task:               task,
+		contentVersionRepo: repository.NewKnowledgeContentVersionRepository(db),
 	}
 	base := types.WithCaller(
 		context.Background(),

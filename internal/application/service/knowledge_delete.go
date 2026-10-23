@@ -575,6 +575,12 @@ func (s *knowledgeService) executeKnowledgeDelete(plan *knowledgeDeletePlan, sin
 		if kb != nil && kb.IsWikiEnabled() {
 			s.cleanupWikiOnKnowledgeDelete(ctx, knowledge)
 		}
+		// Best-effort: drop the document's content version history (P3).
+		if s.contentVersionRepo != nil {
+			if err := s.contentVersionRepo.DeleteByKnowledge(ctx, knowledge.ID); err != nil {
+				logger.Warnf(ctx, "Failed to delete content versions for knowledge %s: %v", knowledge.ID, err)
+			}
+		}
 	}
 
 	// 4. Delete all chunks associated with this knowledge

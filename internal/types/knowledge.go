@@ -342,6 +342,31 @@ type KnowledgeContentPayload struct {
 	Content string `json:"content" extensions:"x-agent,x-agent-required,x-agent-max-bytes=800000"`
 }
 
+// KnowledgeMaxContentVersions caps how many content snapshots are kept per
+// document; older rows are pruned on every save.
+const KnowledgeMaxContentVersions = 50
+
+// KnowledgeContentVersion is a full snapshot of a document's markdown content
+// as saved at `version` (the same counter as ManualKnowledgeMetadata.Version).
+// The current state always equals the row with max(version), so "current" is
+// derived from ordering and needs no flag. The original parsed content of
+// file/url documents is never snapshotted — their first online edit produces
+// version 1, and the original file stays the provenance snapshot.
+type KnowledgeContentVersion struct {
+	ID              string    `json:"id"               gorm:"type:varchar(36);primaryKey"`
+	TenantID        uint64    `json:"tenant_id"        gorm:"index"`
+	KnowledgeBaseID string    `json:"knowledge_base_id" gorm:"type:varchar(36);index"`
+	KnowledgeID     string    `json:"knowledge_id"     gorm:"type:varchar(36);uniqueIndex:idx_kcv_knowledge_version"`
+	Version         int       `json:"version"          gorm:"uniqueIndex:idx_kcv_knowledge_version"`
+	Title           string    `json:"title"            gorm:"type:varchar(512)"`
+	Content         string    `json:"content,omitempty" gorm:"type:text"`
+	CreatedBy       string    `json:"created_by"       gorm:"type:varchar(64);default:''"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// TableName returns the table name for KnowledgeContentVersion.
+func (KnowledgeContentVersion) TableName() string { return "knowledge_content_versions" }
+
 // ManualKnowledgePayload represents the payload for manual knowledge operations.
 type ManualKnowledgePayload struct {
 	// Document title.

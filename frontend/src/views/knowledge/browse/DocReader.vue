@@ -24,6 +24,12 @@
             </button>
           </t-tooltip>
           <template v-if="!editing">
+          <t-tooltip v-if="doc.type !== 'faq'" :content="t('knowledgeBase.browse.history.title')" placement="bottom">
+            <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.history.title')"
+              @click="historyOpen = true">
+              <t-icon name="history" size="16px" />
+            </button>
+          </t-tooltip>
           <t-tooltip v-if="canPreviewOriginal" :content="t('knowledgeBase.browse.originalPreview')" placement="bottom">
             <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.originalPreview')"
               @click="previewOpen = true">
@@ -109,6 +115,15 @@
         />
       </div>
     </t-dialog>
+
+    <VersionHistory
+      v-if="doc"
+      v-model:visible="historyOpen"
+      :knowledge-id="doc.id"
+      :kb-id="kbId"
+      :can-edit="canEdit"
+      @restored="onRestored"
+    />
   </div>
 </template>
 
@@ -134,6 +149,7 @@ import { formatStringDate } from '@/utils/index'
 import { resolveKnowledgeDownloadFileName } from '../knowledgeDownloadFileName'
 import DocumentPreview from '@/components/document-preview.vue'
 import RichEditor from './RichEditor.vue'
+import VersionHistory from './VersionHistory.vue'
 import { browseDocIcon } from './docIcon'
 import type { OutlineItem } from './types'
 
@@ -172,6 +188,7 @@ const loading = ref(false)
 const loadError = ref('')
 const downloading = ref(false)
 const previewOpen = ref(false)
+const historyOpen = ref(false)
 const scrollRef = ref<HTMLElement | null>(null)
 const contentRef = ref<HTMLElement | null>(null)
 
@@ -294,16 +311,6 @@ const loadContent = async () => {
   }
 }
 
-watch(() => props.doc?.id, () => {
-  previewOpen.value = false
-  cancelEdit()
-  stopRelearnPolling()
-  emit('outline-change', [])
-  emit('outline-active', -1)
-  if (scrollRef.value) scrollRef.value.scrollTop = 0
-  loadContent()
-}, { immediate: true })
-
 // ---------- 在线编辑 / 重新学习 ----------
 
 const editing = ref(false)
@@ -365,6 +372,20 @@ const saveEdit = async () => {
   }
 }
 
+// 恢复历史版本后：刷新详情与正文渲染，并通知父级刷新文档树（标题/标记可能变化）。
+const onRestored = async () => {
+  const doc = props.doc
+  if (!doc) return
+  try {
+    const resp: any = await getKnowledgeDetails(doc.id)
+    if (resp?.success && resp.data) detail.value = resp.data
+  } catch {
+    // loadContent 仍能按现有 detail 渲染
+  }
+  await loadContent()
+  emit('doc-updated')
+}
+
 const stopRelearnPolling = () => {
   if (relearnTimer) {
     clearInterval(relearnTimer)
@@ -410,6 +431,19 @@ const relearn = async () => {
 onBeforeUnmount(() => {
   stopRelearnPolling()
 })
+
+// 文档切换：重置视图状态并重新加载。必须放在 cancelEdit/stopRelearnPolling
+// 声明之后——immediate 首次执行时 const 尚在 TDZ，提前注册会抛
+// ReferenceError 并吞掉 loadContent。
+watch(() => props.doc?.id, () => {
+  previewOpen.value = false
+  cancelEdit()
+  stopRelearnPolling()
+  emit('outline-change', [])
+  emit('outline-active', -1)
+  if (scrollRef.value) scrollRef.value.scrollTop = 0
+  loadContent()
+}, { immediate: true })
 
 const downloadFile = () => {
   if (!props.doc || downloading.value) return

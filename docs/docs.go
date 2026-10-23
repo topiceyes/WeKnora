@@ -1246,6 +1246,113 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/dingtalk/callback": {
+            "get": {
+                "description": "接收钉钉回调（authCode+state），后端完成换取用户资料与本地登录，随后 302 回前端登录页",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "钉钉扫码登录回调",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "钉钉授权码",
+                        "name": "authCode",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "错误码",
+                        "name": "error",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
+        "/auth/dingtalk/config": {
+            "get": {
+                "description": "返回钉钉登录是否启用以及 client_id（AppKey），供前端决定是否展示钉钉登录入口；不含 AppSecret",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "获取钉钉扫码登录配置",
+                "responses": {
+                    "200": {
+                        "description": "钉钉登录配置",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/dingtalk/start": {
+            "get": {
+                "description": "与 /auth/dingtalk/url 不同，此端点直接 302 重定向到钉钉授权页，\n无需前端 JS 介入，适用于外部平台直接给出一个链接触发登录的场景。",
+                "tags": [
+                    "认证"
+                ],
+                "summary": "发起钉钉扫码登录（直接 302）",
+                "responses": {
+                    "302": {
+                        "description": "Found"
+                    }
+                }
+            }
+        },
+        "/auth/dingtalk/url": {
+            "get": {
+                "description": "根据后端钉钉配置生成扫码登录跳转地址（redirect_uri 取服务端配置）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "获取钉钉扫码登录授权地址",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.OIDCAuthURLResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "钉钉登录未启用",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/invitations/lookup": {
             "post": {
                 "description": "根据邀请链接中的 token 返回邀请上下文（空间名 / 角色 / 过期时间），\n供注册页展示。无认证；token 无效或被撤销返回 410。\n使用 POST + body 而非 GET + path，避免 token 落入访问日志 / 浏览器历史 / tracing。",
@@ -2597,7 +2704,7 @@ const docTemplate = `{
                     "id": "data_source.get_sync_log",
                     "risk": "read"
                 },
-                "x-agent-hint": "Read the current status, counts and errors of a sync_log_id returned by data_source.sync or data_source.list_sync_logs. A started job is not a completed sync."
+                "x-agent-hint": "Read the current status and counts of a sync_log_id returned by data_source.sync or data_source.list_sync_logs. A started job is not a completed sync. Raw upstream errors are omitted; detailed failures remain on the data source settings page."
             }
         },
         "/datasource/types": {
@@ -2710,7 +2817,7 @@ const docTemplate = `{
                     "id": "data_source.get",
                     "risk": "read"
                 },
-                "x-agent-hint": "Read a configured data source and its sync state; credentials and connector configuration are not returned."
+                "x-agent-hint": "Read a configured data source and its sync state; credentials, connector settings and raw upstream errors are omitted. For detailed failures use the data source settings page."
             },
             "put": {
                 "description": "Update an existing data source configuration",
@@ -2854,7 +2961,7 @@ const docTemplate = `{
                     "id": "data_source.list_sync_logs",
                     "risk": "read"
                 },
-                "x-agent-hint": "Read recent sync results, counts and errors. Use limit and offset for older records."
+                "x-agent-hint": "Read recent sync status and counts. Use limit and offset for older records. Raw upstream errors are omitted; detailed failures remain on the data source settings page."
             }
         },
         "/datasource/{id}/pause": {
@@ -7056,6 +7163,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/knowledge-bases/{id}/knowledge/content-images": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "上传在线编辑器中粘贴/选择的一张图片，返回稳定引用（resource:// 或 provider URL），保存内容时自动绑定到文档",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "上传编辑器内容图片",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_base_id",
+                        "description": "知识库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "图片文件（png/jpg/jpeg/gif/webp/bmp/svg/avif，最大10MB）",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "data.url 为可写入 Markdown 的图片引用",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.DataResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "文件缺失或非法",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/knowledge-bases/{id}/knowledge/file": {
             "post": {
                 "security": [
@@ -7376,6 +7543,72 @@ const docTemplate = `{
                     "target": "knowledge_base.get"
                 },
                 "x-agent-hint": "Creates a Markdown document. Send the full content, and status draft to keep it out of search or publish to index it."
+            }
+        },
+        "/knowledge-bases/{id}/knowledge/tree": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "一次返回知识库的文件夹目录树和全部文档的精简节点列表，供浏览模式的文档树渲染；客户端按 folder_path 把文档挂到文件夹节点下",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "获取知识库浏览树（文件夹 + 全部文档）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_base_id",
+                        "description": "知识库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "浏览树",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeTree"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                },
+                "x-agent": {
+                    "id": "knowledge.list_tree",
+                    "max_items": 500,
+                    "risk": "read",
+                    "root": "data.documents"
+                },
+                "x-agent-hint": "Every document of the knowledge base as slim rows plus the folder hierarchy with counts; group documents by folder_path under data.folders to build a tree. Document content is not included; fetch knowledge.get per document."
             }
         },
         "/knowledge-bases/{id}/knowledge/url": {
@@ -9318,6 +9551,303 @@ const docTemplate = `{
                 }
             }
         },
+        "/knowledge/{id}/content": {
+            "put": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "保存浏览模式下的在线编辑 Markdown 到知识元数据（任意类型），标记 index_stale，不触发索引重建",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "保存在线编辑内容",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_id",
+                        "description": "知识ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "编辑后的标题与内容",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeContentPayload"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "更新后的知识",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.Knowledge"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge/{id}/content-versions": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "返回文档的内容快照列表（新→旧，不含正文），供浏览模式版本历史抽屉使用",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "知识内容版本列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_id",
+                        "description": "知识ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "版本列表",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeContentVersion"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge/{id}/content-versions/{version}": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "返回指定版本快照（含正文），供版本历史预览使用",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "获取知识内容的某个版本",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_id",
+                        "description": "知识ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "x-agent": "content_version",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "版本快照",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeContentVersion"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "版本号非法",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识或版本不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge/{id}/content-versions/{version}/restore": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "把指定版本快照的标题和正文保存为新的当前版本（恢复前的当前状态会自动成为新快照）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "恢复知识内容到指定版本",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_id",
+                        "description": "知识ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "x-agent": "content_version",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "恢复后的知识",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.Knowledge"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "该版本已是当前版本或正在处理中",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识或版本不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/knowledge/{id}/download": {
             "get": {
                 "security": [
@@ -9406,6 +9936,77 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/knowledge/{id}/relearn": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "从已编辑的元数据内容重建索引（分块+向量化），解除 index_stale 状态，使用异步任务方式处理",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "重新学习知识",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "x-agent": "knowledge_id",
+                        "description": "知识ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "重新学习任务已提交",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.Knowledge"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "没有可学习的编辑内容或正在处理中",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识不存在",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -19728,6 +20329,62 @@ const docTemplate = `{
                 }
             }
         },
+        "/system/admin/spaces/{id}/knowledge-bases": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "平台系统管理员只读查看任意空间的知识库。空间 ID 取自 URL 路径而非请求上下文，\n这是唯一一个刻意跨空间的知识库列表接口。写入操作不在此暴露。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间管理"
+                ],
+                "summary": "获取指定空间的知识库列表（系统管理员）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "知识库列表",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "空间 ID 非法",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "需要系统管理员",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/system/admin/tenants/apply-default-storage-quota": {
             "post": {
                 "description": "Reads the current value of ` + "`" + `tenant.default_storage_quota_gb` + "`" + `\n(3-tier resolver: DB \u003e ENV \u003e default) and writes that many\nGiB into storage_quota for every row in tenants. Bypasses\nthe per-workspace PUT whitelist, which forbids storage_quota\nedits by Owners. SystemAdmin only.\nIdempotent — running twice with the same setting is a no-op.",
@@ -19999,6 +20656,148 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handler.GetDeploymentCapabilitiesResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/system/dingtalk/departments": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "读取本地部门表（每日通讯录同步时全量替换），不实时调钉钉。\n返回扁平列表（前端按 parent_id 组树）+ 最近同步时间；表为空表示从未同步过。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理-钉钉"
+                ],
+                "summary": "钉钉组织架构（部门树）",
+                "responses": {
+                    "200": {
+                        "description": "{success:true, data:{departments:[{dept_id,name,parent_id}], synced_at}}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/dingtalk/identities": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "分页返回钉钉身份与本地账号的绑定关系；keyword 匹配昵称/手机号/邮箱/用户名",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理-钉钉"
+                ],
+                "summary": "钉钉身份绑定列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码（从 1 起）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "每页数量（最大 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按昵称/手机号/邮箱/用户名模糊筛选",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/dingtalk/sync": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "立即执行一次全量通讯录对账（补绑定/更新资料/离职禁用）；已有同步进行中时返回 409",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理-钉钉"
+                ],
+                "summary": "手动触发钉钉通讯录同步",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/dingtalk/sync/runs": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "分页返回同步运行记录（按开始时间倒序）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理-钉钉"
+                ],
+                "summary": "钉钉通讯录同步历史",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码（从 1 起）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "每页数量（最大 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -24762,6 +25561,13 @@ const docTemplate = `{
                     "description": "Iteration number (0-indexed)",
                     "type": "integer"
                 },
+                "progress": {
+                    "description": "Progress is user-facing commentary from a non-terminal round. Thought stays intact for model replay.",
+                    "type": "string"
+                },
+                "progress_event_id": {
+                    "type": "string"
+                },
                 "reasoning_content": {
                     "description": "ReasoningContent stores the OpenAI-protocol reasoning_content emitted by the\nmodel in this round. Persisted on AgentStep so cross-turn replay can put it\nback on the assistant message — required by MiMo / DeepSeek V3.2+ thinking\nmode, ignored by providers that don't recognize the field.",
                     "type": "string"
@@ -26194,7 +27000,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "max_completion_tokens": {
-                    "description": "Maximum completion tokens. Quick-answer uses this for the RAG answer.\nSmart-reasoning ReAct rounds send this value as-is (zero becomes\nDefaultMaxCompletionTokens at call time: 4096, or 24576 with a sandbox).",
+                    "description": "Maximum completion tokens. Quick-answer uses this for the RAG answer.\nSmart-reasoning ReAct rounds send this value as-is (zero becomes\nDefaultMaxCompletionTokens at call time: 24576 for smart reasoning).",
                     "type": "integer"
                 },
                 "max_iterations": {
@@ -28921,6 +29727,55 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types.KnowledgeContentPayload": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "Full replacement Markdown content (not a diff).",
+                    "type": "string",
+                    "x-agent": true,
+                    "x-agent-max-bytes": "800000",
+                    "x-agent-required": true
+                },
+                "title": {
+                    "description": "Optional new title; empty keeps the current one.",
+                    "type": "string",
+                    "x-agent": true
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.KnowledgeContentVersion": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "knowledge_base_id": {
+                    "type": "string"
+                },
+                "knowledge_id": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_types.KnowledgeFolderNode": {
             "type": "object",
             "properties": {
@@ -29223,6 +30078,76 @@ const docTemplate = `{
                 "updated_at": {
                     "description": "Last updated time",
                     "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.KnowledgeTree": {
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeTreeDocument"
+                    }
+                },
+                "folders": {
+                    "description": "Folders are the top-level folders, sorted by name.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeFolderNode"
+                    }
+                },
+                "root_document_count": {
+                    "description": "RootDocumentCount counts entries that live at the knowledge base root\n(folder_path = \"\"), i.e. documents that were not uploaded as part of a\nfolder.",
+                    "type": "integer",
+                    "x-agent": true
+                },
+                "total_document_count": {
+                    "description": "TotalDocumentCount counts every entry in the knowledge base, matching\nthe unfiltered document list total.",
+                    "type": "integer",
+                    "x-agent": true
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.KnowledgeTreeDocument": {
+            "type": "object",
+            "properties": {
+                "file_name": {
+                    "type": "string",
+                    "x-agent": true
+                },
+                "file_type": {
+                    "type": "string",
+                    "x-agent": true
+                },
+                "folder_path": {
+                    "type": "string",
+                    "x-agent": "folder_path"
+                },
+                "id": {
+                    "type": "string",
+                    "x-agent": "knowledge_id"
+                },
+                "index_stale": {
+                    "description": "IndexStale mirrors metadata.index_stale (edited content not yet relearnt)\nwithout dragging the whole metadata column into the tree query.",
+                    "type": "boolean",
+                    "x-agent": true
+                },
+                "parse_status": {
+                    "type": "string",
+                    "x-agent": true
+                },
+                "title": {
+                    "type": "string",
+                    "x-agent": true
+                },
+                "type": {
+                    "type": "string",
+                    "x-agent": "knowledge_type"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "x-agent": true
                 }
             }
         },
@@ -29952,6 +30877,10 @@ const docTemplate = `{
                     "description": "Channel indicates the source channel of this message (e.g., \"web\", \"api\", \"im\")",
                     "type": "string"
                 },
+                "collaboration_status": {
+                    "description": "CollaborationStatus is projected from durable collaboration state at read\ntime, including completed tasks after the transient stream has expired.",
+                    "type": "object"
+                },
                 "content": {
                     "description": "Message text content",
                     "type": "string",
@@ -29964,6 +30893,12 @@ const docTemplate = `{
                     "type": "string",
                     "x-agent": true,
                     "x-agent-response": true
+                },
+                "delegated_prompts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView"
+                    }
                 },
                 "deleted_at": {
                     "description": "Soft delete timestamp",
@@ -30017,12 +30952,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "pending_prompt": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView"
+                },
+                "prompt_history": {
                     "description": "PendingPrompt is the prompt an awaiting_input message waits on. The\nmessage list fills it in for the prompt's owner; it is never stored.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView"
-                        }
-                    ]
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView"
+                    }
                 },
                 "request_id": {
                     "description": "Request identifier for tracking API requests",
@@ -31320,7 +32257,13 @@ const docTemplate = `{
         "github_com_Tencent_WeKnora_internal_types.PendingPromptView": {
             "type": "object",
             "properties": {
+                "close_reason": {
+                    "type": "string"
+                },
                 "created_at": {
+                    "type": "string"
+                },
+                "delegated_task": {
                     "type": "string"
                 },
                 "expires_at": {
@@ -31334,6 +32277,12 @@ const docTemplate = `{
                 },
                 "request": {
                     "type": "object"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "status": {
+                    "type": "string"
                 },
                 "tool_call_id": {
                     "type": "string"
@@ -36045,6 +36994,10 @@ const docTemplate = `{
                 },
                 "display_name": {
                     "type": "string"
+                },
+                "is_builtin": {
+                    "description": "IsBuiltin requests a platform-wide built-in model (visible to all\ntenants). Honored only for system administrators; the service rejects\nthe request with 403 otherwise.",
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"

@@ -1344,6 +1344,12 @@ definitions:
       iteration:
         description: Iteration number (0-indexed)
         type: integer
+      progress:
+        description: Progress is user-facing commentary from a non-terminal round.
+          Thought stays intact for model replay.
+        type: string
+      progress_event_id:
+        type: string
       reasoning_content:
         description: |-
           ReasoningContent stores the OpenAI-protocol reasoning_content emitted by the
@@ -2554,7 +2560,7 @@ definitions:
         description: |-
           Maximum completion tokens. Quick-answer uses this for the RAG answer.
           Smart-reasoning ReAct rounds send this value as-is (zero becomes
-          DefaultMaxCompletionTokens at call time: 4096, or 24576 with a sandbox).
+          DefaultMaxCompletionTokens at call time: 24576 for smart reasoning).
         type: integer
       max_iterations:
         description: |-
@@ -4715,6 +4721,40 @@ definitions:
       source_tenant_id:
         type: integer
     type: object
+  github_com_Tencent_WeKnora_internal_types.KnowledgeContentPayload:
+    properties:
+      content:
+        description: Full replacement Markdown content (not a diff).
+        type: string
+        x-agent: true
+        x-agent-max-bytes: "800000"
+        x-agent-required: true
+      title:
+        description: Optional new title; empty keeps the current one.
+        type: string
+        x-agent: true
+    type: object
+  github_com_Tencent_WeKnora_internal_types.KnowledgeContentVersion:
+    properties:
+      content:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      id:
+        type: string
+      knowledge_base_id:
+        type: string
+      knowledge_id:
+        type: string
+      tenant_id:
+        type: integer
+      title:
+        type: string
+      version:
+        type: integer
+    type: object
   github_com_Tencent_WeKnora_internal_types.KnowledgeFolderNode:
     properties:
       children:
@@ -4956,6 +4996,64 @@ definitions:
       updated_at:
         description: Last updated time
         type: string
+    type: object
+  github_com_Tencent_WeKnora_internal_types.KnowledgeTree:
+    properties:
+      documents:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeTreeDocument'
+        type: array
+      folders:
+        description: Folders are the top-level folders, sorted by name.
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeFolderNode'
+        type: array
+      root_document_count:
+        description: |-
+          RootDocumentCount counts entries that live at the knowledge base root
+          (folder_path = ""), i.e. documents that were not uploaded as part of a
+          folder.
+        type: integer
+        x-agent: true
+      total_document_count:
+        description: |-
+          TotalDocumentCount counts every entry in the knowledge base, matching
+          the unfiltered document list total.
+        type: integer
+        x-agent: true
+    type: object
+  github_com_Tencent_WeKnora_internal_types.KnowledgeTreeDocument:
+    properties:
+      file_name:
+        type: string
+        x-agent: true
+      file_type:
+        type: string
+        x-agent: true
+      folder_path:
+        type: string
+        x-agent: folder_path
+      id:
+        type: string
+        x-agent: knowledge_id
+      index_stale:
+        description: |-
+          IndexStale mirrors metadata.index_stale (edited content not yet relearnt)
+          without dragging the whole metadata column into the tree query.
+        type: boolean
+        x-agent: true
+      parse_status:
+        type: string
+        x-agent: true
+      title:
+        type: string
+        x-agent: true
+      type:
+        type: string
+        x-agent: knowledge_type
+      updated_at:
+        type: string
+        x-agent: true
     type: object
   github_com_Tencent_WeKnora_internal_types.ListJoinRequestsResponse:
     properties:
@@ -5551,6 +5649,11 @@ definitions:
         description: Channel indicates the source channel of this message (e.g., "web",
           "api", "im")
         type: string
+      collaboration_status:
+        description: |-
+          CollaborationStatus is projected from durable collaboration state at read
+          time, including completed tasks after the transient stream has expired.
+        type: object
       content:
         description: Message text content
         type: string
@@ -5562,6 +5665,10 @@ definitions:
         type: string
         x-agent: true
         x-agent-response: true
+      delegated_prompts:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView'
+        type: array
       deleted_at:
         allOf:
         - $ref: '#/definitions/gorm.DeletedAt'
@@ -5606,11 +5713,14 @@ definitions:
           turn. It is useful for reproducibility and suggestion generation.
         type: string
       pending_prompt:
-        allOf:
-        - $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView'
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView'
+      prompt_history:
         description: |-
           PendingPrompt is the prompt an awaiting_input message waits on. The
           message list fills it in for the prompt's owner; it is never stored.
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.PendingPromptView'
+        type: array
       request_id:
         description: Request identifier for tracking API requests
         type: string
@@ -6597,7 +6707,11 @@ definitions:
     type: object
   github_com_Tencent_WeKnora_internal_types.PendingPromptView:
     properties:
+      close_reason:
+        type: string
       created_at:
+        type: string
+      delegated_task:
         type: string
       expires_at:
         type: string
@@ -6607,6 +6721,10 @@ definitions:
         type: string
       request:
         type: object
+      response:
+        type: object
+      status:
+        type: string
       tool_call_id:
         type: string
     type: object
@@ -10356,6 +10474,12 @@ definitions:
         type: string
       display_name:
         type: string
+      is_builtin:
+        description: |-
+          IsBuiltin requests a platform-wide built-in model (visible to all
+          tenants). Honored only for system administrators; the service rejects
+          the request with 403 otherwise.
+        type: boolean
       name:
         type: string
       parameters:
@@ -14689,6 +14813,78 @@ paths:
       summary: 获取认证配置
       tags:
       - 认证
+  /auth/dingtalk/callback:
+    get:
+      consumes:
+      - application/json
+      description: 接收钉钉回调（authCode+state），后端完成换取用户资料与本地登录，随后 302 回前端登录页
+      parameters:
+      - description: 钉钉授权码
+        in: query
+        name: authCode
+        type: string
+      - description: 状态
+        in: query
+        name: state
+        type: string
+      - description: 错误码
+        in: query
+        name: error
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Found
+      summary: 钉钉扫码登录回调
+      tags:
+      - 认证
+  /auth/dingtalk/config:
+    get:
+      consumes:
+      - application/json
+      description: 返回钉钉登录是否启用以及 client_id（AppKey），供前端决定是否展示钉钉登录入口；不含 AppSecret
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 钉钉登录配置
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 获取钉钉扫码登录配置
+      tags:
+      - 认证
+  /auth/dingtalk/start:
+    get:
+      description: |-
+        与 /auth/dingtalk/url 不同，此端点直接 302 重定向到钉钉授权页，
+        无需前端 JS 介入，适用于外部平台直接给出一个链接触发登录的场景。
+      responses:
+        "302":
+          description: Found
+      summary: 发起钉钉扫码登录（直接 302）
+      tags:
+      - 认证
+  /auth/dingtalk/url:
+    get:
+      consumes:
+      - application/json
+      description: 根据后端钉钉配置生成扫码登录跳转地址（redirect_uri 取服务端配置）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.OIDCAuthURLResponse'
+        "403":
+          description: 钉钉登录未启用
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      summary: 获取钉钉扫码登录授权地址
+      tags:
+      - 认证
   /auth/invitations/lookup:
     post:
       consumes:
@@ -15599,8 +15795,9 @@ paths:
       x-agent:
         id: data_source.get
         risk: read
-      x-agent-hint: Read a configured data source and its sync state; credentials
-        and connector configuration are not returned.
+      x-agent-hint: Read a configured data source and its sync state; credentials,
+        connector settings and raw upstream errors are omitted. For detailed failures
+        use the data source settings page.
     put:
       consumes:
       - application/json
@@ -15679,8 +15876,9 @@ paths:
       x-agent:
         id: data_source.list_sync_logs
         risk: read
-      x-agent-hint: Read recent sync results, counts and errors. Use limit and offset
-        for older records.
+      x-agent-hint: Read recent sync status and counts. Use limit and offset for older
+        records. Raw upstream errors are omitted; detailed failures remain on the
+        data source settings page.
   /datasource/{id}/pause:
     post:
       description: Pause a data source's scheduled syncs
@@ -15966,9 +16164,10 @@ paths:
       x-agent:
         id: data_source.get_sync_log
         risk: read
-      x-agent-hint: Read the current status, counts and errors of a sync_log_id returned
-        by data_source.sync or data_source.list_sync_logs. A started job is not a
-        completed sync.
+      x-agent-hint: Read the current status and counts of a sync_log_id returned by
+        data_source.sync or data_source.list_sync_logs. A started job is not a completed
+        sync. Raw upstream errors are omitted; detailed failures remain on the data
+        source settings page.
   /datasource/types:
     get:
       description: Get list of available data source connectors
@@ -18385,6 +18584,44 @@ paths:
       summary: 批量下载知识文件
       tags:
       - 知识管理
+  /knowledge-bases/{id}/knowledge/content-images:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传在线编辑器中粘贴/选择的一张图片，返回稳定引用（resource:// 或 provider URL），保存内容时自动绑定到文档
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_base_id
+      - description: 图片文件（png/jpg/jpeg/gif/webp/bmp/svg/avif，最大10MB）
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: data.url 为可写入 Markdown 的图片引用
+          schema:
+            $ref: '#/definitions/internal_handler.DataResponse'
+        "400":
+          description: 文件缺失或非法
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 上传编辑器内容图片
+      tags:
+      - 知识管理
   /knowledge-bases/{id}/knowledge/file:
     post:
       consumes:
@@ -18588,6 +18825,48 @@ paths:
         target: knowledge_base.get
       x-agent-hint: Creates a Markdown document. Send the full content, and status
         draft to keep it out of search or publish to index it.
+  /knowledge-bases/{id}/knowledge/tree:
+    get:
+      consumes:
+      - application/json
+      description: 一次返回知识库的文件夹目录树和全部文档的精简节点列表，供浏览模式的文档树渲染；客户端按 folder_path 把文档挂到文件夹节点下
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_base_id
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 浏览树
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeTree'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 获取知识库浏览树（文件夹 + 全部文档）
+      tags:
+      - 知识管理
+      x-agent:
+        id: knowledge.list_tree
+        max_items: 500
+        risk: read
+        root: data.documents
+      x-agent-hint: Every document of the knowledge base as slim rows plus the folder
+        hierarchy with counts; group documents by folder_path under data.folders to
+        build a tree. Document content is not included; fetch knowledge.get per document.
   /knowledge-bases/{id}/knowledge/url:
     post:
       consumes:
@@ -19475,6 +19754,184 @@ paths:
         label: title
         risk: write
         target: knowledge.get
+  /knowledge/{id}/content:
+    put:
+      consumes:
+      - application/json
+      description: 保存浏览模式下的在线编辑 Markdown 到知识元数据（任意类型），标记 index_stale，不触发索引重建
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_id
+      - description: 编辑后的标题与内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeContentPayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新后的知识
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.Knowledge'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 保存在线编辑内容
+      tags:
+      - 知识管理
+  /knowledge/{id}/content-versions:
+    get:
+      description: 返回文档的内容快照列表（新→旧，不含正文），供浏览模式版本历史抽屉使用
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_id
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 版本列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeContentVersion'
+                  type: array
+              type: object
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 知识内容版本列表
+      tags:
+      - 知识管理
+  /knowledge/{id}/content-versions/{version}:
+    get:
+      description: 返回指定版本快照（含正文），供版本历史预览使用
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_id
+      - description: 版本号
+        in: path
+        name: version
+        required: true
+        type: integer
+        x-agent: content_version
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 版本快照
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KnowledgeContentVersion'
+              type: object
+        "400":
+          description: 版本号非法
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识或版本不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 获取知识内容的某个版本
+      tags:
+      - 知识管理
+  /knowledge/{id}/content-versions/{version}/restore:
+    post:
+      description: 把指定版本快照的标题和正文保存为新的当前版本（恢复前的当前状态会自动成为新快照）
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_id
+      - description: 版本号
+        in: path
+        name: version
+        required: true
+        type: integer
+        x-agent: content_version
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 恢复后的知识
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.Knowledge'
+              type: object
+        "400":
+          description: 该版本已是当前版本或正在处理中
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识或版本不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 恢复知识内容到指定版本
+      tags:
+      - 知识管理
   /knowledge/{id}/download:
     get:
       consumes:
@@ -19532,6 +19989,48 @@ paths:
       - Bearer: []
       - ApiKeyAuth: []
       summary: 预览知识文件
+      tags:
+      - 知识管理
+  /knowledge/{id}/relearn:
+    post:
+      consumes:
+      - application/json
+      description: 从已编辑的元数据内容重建索引（分块+向量化），解除 index_stale 状态，使用异步任务方式处理
+      parameters:
+      - description: 知识ID
+        in: path
+        name: id
+        required: true
+        type: string
+        x-agent: knowledge_id
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 重新学习任务已提交
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.Knowledge'
+              type: object
+        "400":
+          description: 没有可学习的编辑内容或正在处理中
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      - ApiKeyAuth: []
+      summary: 重新学习知识
       tags:
       - 知识管理
   /knowledge/{id}/reparse:
@@ -26671,6 +27170,44 @@ paths:
       summary: Update a system setting value
       tags:
       - System Admin
+  /system/admin/spaces/{id}/knowledge-bases:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        平台系统管理员只读查看任意空间的知识库。空间 ID 取自 URL 路径而非请求上下文，
+        这是唯一一个刻意跨空间的知识库列表接口。写入操作不在此暴露。
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 知识库列表
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 空间 ID 非法
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 需要系统管理员
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 获取指定空间的知识库列表（系统管理员）
+      tags:
+      - 空间管理
   /system/admin/tenants/apply-default-storage-quota:
     post:
       description: |-
@@ -26882,6 +27419,99 @@ paths:
       summary: 获取部署能力清单
       tags:
       - 系统
+  /system/dingtalk/departments:
+    get:
+      description: |-
+        读取本地部门表（每日通讯录同步时全量替换），不实时调钉钉。
+        返回扁平列表（前端按 parent_id 组树）+ 最近同步时间；表为空表示从未同步过。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: '{success:true, data:{departments:[{dept_id,name,parent_id}],
+            synced_at}}'
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 钉钉组织架构（部门树）
+      tags:
+      - 系统管理-钉钉
+  /system/dingtalk/identities:
+    get:
+      description: 分页返回钉钉身份与本地账号的绑定关系；keyword 匹配昵称/手机号/邮箱/用户名
+      parameters:
+      - default: 1
+        description: 页码（从 1 起）
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量（最大 100）
+        in: query
+        name: page_size
+        type: integer
+      - description: 按昵称/手机号/邮箱/用户名模糊筛选
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 钉钉身份绑定列表
+      tags:
+      - 系统管理-钉钉
+  /system/dingtalk/sync:
+    post:
+      description: 立即执行一次全量通讯录对账（补绑定/更新资料/离职禁用）；已有同步进行中时返回 409
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 手动触发钉钉通讯录同步
+      tags:
+      - 系统管理-钉钉
+  /system/dingtalk/sync/runs:
+    get:
+      description: 分页返回同步运行记录（按开始时间倒序）
+      parameters:
+      - default: 1
+        description: 页码（从 1 起）
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量（最大 100）
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 钉钉通讯录同步历史
+      tags:
+      - 系统管理-钉钉
   /system/docreader/reconnect:
     post:
       consumes:

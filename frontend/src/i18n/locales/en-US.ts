@@ -767,6 +767,17 @@ export default {
       relearnStarted: 'Relearn task submitted; the badge clears when it finishes',
       relearnFailed: 'Failed to submit, please try again',
       learning: 'Learning…',
+      history: {
+        title: 'Version history',
+        empty: 'No versions yet',
+        current: 'Current',
+        unknownUser: 'Unknown user',
+        restore: 'Restore',
+        restoreConfirm: 'Restore to v{ver}? The current content will be saved as a new version first',
+        restoreSuccess: 'Restored to v{ver}',
+        restoreFailed: 'Restore failed, please try again',
+        loadFailed: 'Failed to load, please try again',
+      },
       editor: {
         undo: 'Undo',
         redo: 'Redo',

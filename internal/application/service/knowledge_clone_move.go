@@ -1432,8 +1432,24 @@ func (s *knowledgeService) moveKnowledgeReuseVectors(
 	if err := s.repo.UpdateKnowledgeForTransfer(ctx, &before, knowledge); err != nil {
 		return err
 	}
+	s.syncContentVersionsKB(ctx, knowledge, targetKB.ID)
 
 	return nil
+}
+
+// syncContentVersionsKB re-scopes the document's P3 content-version snapshots
+// after an in-place move; best-effort because the move itself already
+// committed when this runs.
+func (s *knowledgeService) syncContentVersionsKB(ctx context.Context,
+	knowledge *types.Knowledge, targetKBID string,
+) {
+	if s.contentVersionRepo == nil {
+		return
+	}
+	if err := s.contentVersionRepo.UpdateKnowledgeBaseID(ctx, knowledge.ID, targetKBID); err != nil {
+		logger.Warnf(ctx, "Failed to move content versions for knowledge %s to KB %s: %v",
+			knowledge.ID, targetKBID, err)
+	}
 }
 
 // moveKnowledgeReparse moves knowledge to target KB and re-parses it with target KB's configuration.
@@ -1473,6 +1489,7 @@ func (s *knowledgeService) moveKnowledgeReparse(
 	if err := s.repo.UpdateKnowledgeForTransfer(ctx, &before, knowledge); err != nil {
 		return err
 	}
+	s.syncContentVersionsKB(ctx, knowledge, targetKB.ID)
 	if err := s.cleanupMovedSourceWiki(ctx, knowledge, sourceKB, targetKB); err != nil {
 		return err
 	}

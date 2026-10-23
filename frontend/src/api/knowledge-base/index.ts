@@ -681,6 +681,32 @@ export function uploadContentImage(kbId: string, file: File) {
   return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/content-images`, formData);
 }
 
+// P3 版本历史：内容快照（列表项不含正文）
+export interface KnowledgeContentVersionSummary {
+  id: string;
+  knowledge_id: string;
+  version: number;
+  title: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface KnowledgeContentVersion extends KnowledgeContentVersionSummary {
+  content: string;
+}
+
+export function listKnowledgeContentVersions(id: string) {
+  return get(`/api/v1/knowledge/${id}/content-versions`);
+}
+
+export function getKnowledgeContentVersion(id: string, version: number) {
+  return get(`/api/v1/knowledge/${id}/content-versions/${version}`);
+}
+
+export function restoreKnowledgeContentVersion(id: string, version: number) {
+  return post(`/api/v1/knowledge/${id}/content-versions/${version}/restore`);
+}
+
 export function cancelKnowledgeParse(id: string) {
   return post(`/api/v1/knowledge/${id}/cancel-parse`);
 }

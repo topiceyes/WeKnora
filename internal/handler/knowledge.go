@@ -1586,7 +1586,7 @@ func (h *KnowledgeHandler) ListKnowledgeFolders(c *gin.Context) {
 // @Failure      400  {object}  errors.AppError         "请求参数错误"
 // @Security     Bearer
 // @Security     ApiKeyAuth
-// @x-agent      {"id":"knowledge.list_tree","risk":"read","root":"data.documents","max_items":5000}
+// @x-agent      {"id":"knowledge.list_tree","risk":"read","root":"data.documents","max_items":500}
 // @x-agent-hint "Every document of the knowledge base as slim rows plus the folder hierarchy with counts; group documents by folder_path under data.folders to build a tree. Document content is not included; fetch knowledge.get per document."
 // @Router       /knowledge-bases/{id}/knowledge/tree [get]
 func (h *KnowledgeHandler) ListKnowledgeTree(c *gin.Context) {
@@ -2676,6 +2676,144 @@ func (h *KnowledgeHandler) RelearnKnowledge(c *gin.Context) {
 		"success": true,
 		"data":    knowledge,
 	})
+}
+
+// ListKnowledgeContentVersions godoc
+// @Summary      知识内容版本列表
+// @Description  返回文档的内容快照列表（新→旧，不含正文），供浏览模式版本历史抽屉使用
+// @Tags         知识管理
+// @Produce      json
+// @Param        id  path  string  true  "知识ID"  extensions(x-agent=knowledge_id)
+// @Success      200  {object}  handler.DataResponse{data=[]types.KnowledgeContentVersion}  "版本列表"
+// @Failure      403  {object}  errors.AppError  "权限不足"
+// @Failure      404  {object}  errors.AppError  "知识不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/content-versions [get]
+func (h *KnowledgeHandler) ListKnowledgeContentVersions(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleViewer)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	versions, err := h.kgService.ListKnowledgeContentVersions(effCtx, id)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"knowledge_id": id})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": versions})
+}
+
+// GetKnowledgeContentVersion godoc
+// @Summary      获取知识内容的某个版本
+// @Description  返回指定版本快照（含正文），供版本历史预览使用
+// @Tags         知识管理
+// @Produce      json
+// @Param        id       path  string  true  "知识ID"  extensions(x-agent=knowledge_id)
+// @Param        version  path  int     true  "版本号"  extensions(x-agent=content_version)
+// @Success      200  {object}  handler.DataResponse{data=types.KnowledgeContentVersion}  "版本快照"
+// @Failure      400  {object}  errors.AppError  "版本号非法"
+// @Failure      403  {object}  errors.AppError  "权限不足"
+// @Failure      404  {object}  errors.AppError  "知识或版本不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/content-versions/{version} [get]
+func (h *KnowledgeHandler) GetKnowledgeContentVersion(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+	version, err := strconv.Atoi(c.Param("version"))
+	if err != nil || version <= 0 {
+		c.Error(errors.NewBadRequestError("Invalid version number"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleViewer)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	row, err := h.kgService.GetKnowledgeContentVersion(effCtx, id, version)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"knowledge_id": id, "version": version})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": row})
+}
+
+// RestoreKnowledgeContentVersion godoc
+// @Summary      恢复知识内容到指定版本
+// @Description  把指定版本快照的标题和正文保存为新的当前版本（恢复前的当前状态会自动成为新快照）
+// @Tags         知识管理
+// @Produce      json
+// @Param        id       path  string  true  "知识ID"  extensions(x-agent=knowledge_id)
+// @Param        version  path  int     true  "版本号"  extensions(x-agent=content_version)
+// @Success      200  {object}  handler.DataResponse{data=types.Knowledge}  "恢复后的知识"
+// @Failure      400  {object}  errors.AppError  "该版本已是当前版本或正在处理中"
+// @Failure      403  {object}  errors.AppError  "权限不足"
+// @Failure      404  {object}  errors.AppError  "知识或版本不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/content-versions/{version}/restore [post]
+func (h *KnowledgeHandler) RestoreKnowledgeContentVersion(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+	version, err := strconv.Atoi(c.Param("version"))
+	if err != nil || version <= 0 {
+		c.Error(errors.NewBadRequestError("Invalid version number"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleEditor)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	knowledge, err := h.kgService.RestoreKnowledgeContentVersion(effCtx, id, version)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"knowledge_id": id, "version": version})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Knowledge content restored to version %d, knowledge ID: %s", version, id)
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": knowledge})
 }
 
 // UploadContentImage godoc

@@ -133,6 +133,25 @@ type KnowledgeService interface {
 	// RelearnKnowledge rebuilds the index from the edited metadata content
 	// (the manual "relearn" trigger resolving index_stale).
 	RelearnKnowledge(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
+	// ListKnowledgeContentVersions returns the saved content snapshots of a
+	// document, newest first, without the content payload.
+	ListKnowledgeContentVersions(
+		ctx context.Context,
+		knowledgeID string,
+	) ([]*types.KnowledgeContentVersion, error)
+	// GetKnowledgeContentVersion returns one snapshot including its content.
+	GetKnowledgeContentVersion(
+		ctx context.Context,
+		knowledgeID string,
+		version int,
+	) (*types.KnowledgeContentVersion, error)
+	// RestoreKnowledgeContentVersion saves the snapshot's content as the new
+	// current version (the pre-restore state is itself snapshotted).
+	RestoreKnowledgeContentVersion(
+		ctx context.Context,
+		knowledgeID string,
+		version int,
+	) (*types.Knowledge, error)
 	// UploadContentImage stores one online-editor image for the KB and returns
 	// its stable serving reference (resource:// or provider URL).
 	UploadContentImage(ctx context.Context, kbID string, file *multipart.FileHeader) (string, error)
@@ -254,6 +273,44 @@ type KnowledgeService interface {
 	SearchKnowledge(ctx context.Context, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, int64, error)
 	// SearchKnowledgeForScopes searches knowledge within the given (tenant_id, kb_id) scopes (e.g. for shared agent context).
 	SearchKnowledgeForScopes(ctx context.Context, scopes []types.KnowledgeSearchScope, keyword string, offset, limit int, fileTypes []string) ([]*types.Knowledge, bool, int64, error)
+}
+
+// KnowledgeContentVersionRepository persists per-document content snapshots
+// (P3 version history).
+type KnowledgeContentVersionRepository interface {
+	// CreateSnapshot inserts one snapshot (idempotent on (knowledge_id,
+	// version) conflict — used by creation paths where the knowledge row is
+	// persisted separately).
+	CreateSnapshot(ctx context.Context, version *types.KnowledgeContentVersion) error
+	// CreateWithKnowledgeUpdate inserts the snapshot and saves the knowledge
+	// row in ONE transaction; a duplicate (knowledge_id, version) rolls the
+	// whole save back with ErrKnowledgeContentVersionConflict.
+	CreateWithKnowledgeUpdate(
+		ctx context.Context,
+		knowledge *types.Knowledge,
+		version *types.KnowledgeContentVersion,
+	) error
+	// ListByKnowledge returns newest-first slim rows (no content), scoped to
+	// the knowledge base.
+	ListByKnowledge(
+		ctx context.Context,
+		kbID, knowledgeID string,
+		limit int,
+	) ([]*types.KnowledgeContentVersion, error)
+	// GetByVersion returns one full snapshot; ErrKnowledgeContentVersionNotFound
+	// when absent.
+	GetByVersion(
+		ctx context.Context,
+		kbID, knowledgeID string,
+		version int,
+	) (*types.KnowledgeContentVersion, error)
+	// Prune deletes all but the newest `keep` versions of a document.
+	Prune(ctx context.Context, knowledgeID string, keep int) error
+	// DeleteByKnowledge removes every snapshot of a document (delete cleanup).
+	DeleteByKnowledge(ctx context.Context, knowledgeID string) error
+	// UpdateKnowledgeBaseID re-scopes a document's snapshots after an in-place
+	// move to another knowledge base.
+	UpdateKnowledgeBaseID(ctx context.Context, knowledgeID, kbID string) error
 }
 
 // KnowledgeRepository defines the interface for knowledge repositories.

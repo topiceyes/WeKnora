@@ -384,8 +384,9 @@ func (r *knowledgeRepository) RenameKnowledgeFolderPath(
 	return affected, nil
 }
 
-// UpdateKnowledge updates knowledge
-func (r *knowledgeRepository) UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) error {
+// saveKnowledgeRow persists the whole in-memory knowledge struct on db (which
+// may be a transaction handle), applying the standard omit rules.
+func saveKnowledgeRow(db *gorm.DB, knowledge *types.Knowledge) error {
 	knowledge.ErrorMessage = common.CleanInvalidUTF8(knowledge.ErrorMessage)
 	omit := omitFieldsOnUpdate
 	// Legacy/unit-test schemas created before custom_metadata should continue
@@ -393,8 +394,12 @@ func (r *knowledgeRepository) UpdateKnowledge(ctx context.Context, knowledge *ty
 	if knowledge.CustomMetadata == nil {
 		omit = append(append([]string{}, omitFieldsOnUpdate...), "custom_metadata")
 	}
-	err := r.db.WithContext(ctx).Omit(omit...).Save(knowledge).Error
-	return err
+	return db.Omit(omit...).Save(knowledge).Error
+}
+
+// UpdateKnowledge updates knowledge
+func (r *knowledgeRepository) UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) error {
+	return saveKnowledgeRow(r.db.WithContext(ctx), knowledge)
 }
 
 // UpdateKnowledgeBatch updates knowledge items in batch

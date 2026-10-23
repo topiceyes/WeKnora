@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	errors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/gin-gonic/gin"
@@ -57,14 +57,14 @@ func (h *KnowledgeBaseHandler) ListKnowledgeBasesByTenantForAdmin(c *gin.Context
 	// matched the route, so it's a 400 rather than a 404.
 	tenantID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil || tenantID == 0 {
-		_ = c.Error(apperrors.NewValidationError("workspace id must be a positive integer"))
+		_ = c.Error(errors.NewValidationError("workspace id must be a positive integer"))
 		return
 	}
 
 	kbs, err := h.service.ListKnowledgeBasesByTenantID(ctx, tenantID)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{"target_tenant_id": tenantID})
-		c.Error(apperrors.NewInternalServerError(err.Error()))
+		c.Error(errors.NewInternalServerError(err.Error()))
 		return
 	}
 

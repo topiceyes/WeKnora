@@ -7815,6 +7815,17 @@ export default {
       relearnStarted: '已提交重新学习任务，完成后自动解除',
       relearnFailed: '提交失败，请稍后重试',
       learning: '学习中…',
+      history: {
+        title: '版本历史',
+        empty: '暂无历史版本',
+        current: '当前',
+        unknownUser: '未知用户',
+        restore: '恢复',
+        restoreConfirm: '确定恢复到 v{ver} 吗？当前内容会先保存为新版本',
+        restoreSuccess: '已恢复到 v{ver}',
+        restoreFailed: '恢复失败，请稍后重试',
+        loadFailed: '加载失败，请稍后重试',
+      },
       editor: {
         undo: '撤销',
         redo: '重做',

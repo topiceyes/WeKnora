@@ -823,6 +823,16 @@ func (s *knowledgeService) CreateKnowledgeFromManual(ctx context.Context,
 		logger.Errorf(ctx, "Failed to create manual knowledge record: %v", err)
 		return nil, err
 	}
+	// Snapshot the initial content as version 1 so the version history is
+	// complete from creation on (best-effort: a missing v1 degrades history
+	// but never blocks creation). Nil repo = hand-built test fixture.
+	if s.contentVersionRepo != nil {
+		if err := s.contentVersionRepo.CreateSnapshot(ctx,
+			buildContentVersionSnapshot(ctx, knowledge, 1, cleanContent)); err != nil {
+			logger.Warnf(ctx, "Failed to snapshot initial manual content, knowledge ID: %s, error: %v",
+				knowledge.ID, err)
+		}
+	}
 	// Set tag relations
 	if err := s.setAndAttachKnowledgeTags(ctx, tenantID, kbID, knowledge, payload.TagIDs); err != nil {
 		logger.Errorf(ctx, "Failed to set knowledge tags, knowledge ID: %s, error: %v", knowledge.ID, err)
@@ -1074,7 +1084,7 @@ func (s *knowledgeService) UpdateManualKnowledge(ctx context.Context,
 		existing.Description = ""
 		existing.ProcessedAt = nil
 
-		if err := s.repo.UpdateKnowledge(ctx, existing); err != nil {
+		if err := s.saveWithContentVersion(ctx, existing, version, cleanContent); err != nil {
 			logger.Errorf(ctx, "Failed to persist manual draft: %v", err)
 			return nil, err
 		}
@@ -1095,7 +1105,7 @@ func (s *knowledgeService) UpdateManualKnowledge(ctx context.Context,
 		return nil, err
 	}
 
-	if err := s.repo.UpdateKnowledge(ctx, existing); err != nil {
+	if err := s.saveWithContentVersion(ctx, existing, version, cleanContent); err != nil {
 		logger.Errorf(ctx, "Failed to persist manual knowledge before indexing: %v", err)
 		return nil, err
 	}

@@ -767,6 +767,17 @@ export default {
       relearnStarted: '再学習タスクを送信しました。完了すると自動で解除されます',
       relearnFailed: '送信に失敗しました。しばらくしてから再試行してください',
       learning: '学習中…',
+      history: {
+        title: 'バージョン履歴',
+        empty: '履歴はまだありません',
+        current: '現在',
+        unknownUser: '不明なユーザー',
+        restore: '復元',
+        restoreConfirm: 'v{ver} に復元しますか？現在の内容は先に新しいバージョンとして保存されます',
+        restoreSuccess: 'v{ver} に復元しました',
+        restoreFailed: '復元に失敗しました。しばらくしてから再試行してください',
+        loadFailed: '読み込みに失敗しました。しばらくしてから再試行してください',
+      },
       editor: {
         undo: '元に戻す',
         redo: 'やり直し',

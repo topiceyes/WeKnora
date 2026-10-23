@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
+	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,7 +26,9 @@ func (h *SystemHandler) ListSystemSettingSummaries(c *gin.Context) {
 		return
 	}
 	key := strings.TrimSpace(c.Query("key"))
-	result := service.SummarizeSystemSettings(rows, key)
+	// Typed explicitly (not :=) so the @Success annotation's types package
+	// import has a code reference — swag resolves comment types via imports.
+	var result []types.SystemSettingSummary = service.SummarizeSystemSettings(rows, key)
 	if key != "" && len(result) == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Unknown setting key"})
 		return

@@ -78,8 +78,11 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 	}
 	tenantID := existing.TenantID
 
+	// Only a prior EDITED content bumps the counter: file/url docs carry
+	// pipeline metadata (process_overrides etc.) whose ManualMetadata()
+	// normalizes Version to 1 despite there being no content snapshot yet.
 	version := 1
-	if meta, err := existing.ManualMetadata(); err == nil && meta != nil {
+	if meta, err := existing.ManualMetadata(); err == nil && meta != nil && meta.Content != "" {
 		version = meta.Version + 1
 	}
 
@@ -104,7 +107,7 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 	}
 	existing.UpdatedAt = time.Now()
 
-	if err := s.repo.UpdateKnowledge(ctx, existing); err != nil {
+	if err := s.saveWithContentVersion(ctx, existing, version, cleanContent); err != nil {
 		logger.Errorf(ctx, "Failed to persist edited content: %v", err)
 		return nil, err
 	}

@@ -7814,6 +7814,17 @@ export default {
       relearnStarted: '재학습 작업을 제출했습니다. 완료되면 자동으로 해제됩니다',
       relearnFailed: '제출에 실패했습니다. 잠시 후 다시 시도하세요',
       learning: '학습 중…',
+      history: {
+        title: '버전 기록',
+        empty: '버전 기록이 없습니다',
+        current: '현재',
+        unknownUser: '알 수 없는 사용자',
+        restore: '복원',
+        restoreConfirm: 'v{ver}로 복원하시겠습니까? 현재 내용은 먼저 새 버전으로 저장됩니다',
+        restoreSuccess: 'v{ver}로 복원했습니다',
+        restoreFailed: '복원에 실패했습니다. 잠시 후 다시 시도하세요',
+        loadFailed: '불러오기에 실패했습니다. 잠시 후 다시 시도하세요',
+      },
       editor: {
         undo: '실행 취소',
         redo: '다시 실행',
