@@ -316,12 +316,30 @@ func (k *Knowledge) BeforeCreate(tx *gorm.DB) (err error) {
 }
 
 // ManualKnowledgeMetadata stores metadata for manual Markdown knowledge content.
+// Since the browse-mode editor (P2) any knowledge type can carry this metadata:
+// file/url documents gain an editable markdown copy on first online edit while
+// the original file stays frozen as the provenance snapshot.
 type ManualKnowledgeMetadata struct {
 	Content   string `json:"content"`
 	Format    string `json:"format"`
 	Status    string `json:"status"`
 	Version   int    `json:"version"`
 	UpdatedAt string `json:"updated_at"`
+	// IndexStale marks that Content was edited after the last successful index
+	// build: the reader already serves the fresh text while search still
+	// returns the old chunks, until a relearn run rebuilds the index.
+	IndexStale bool `json:"index_stale,omitempty"`
+}
+
+// KnowledgeContentPayload is the body of PUT /knowledge/{id}/content — the
+// online-editing save operation shared by all knowledge types. Unlike
+// ManualKnowledgePayload it carries no status: saving never triggers indexing;
+// POST /knowledge/{id}/relearn is the explicit re-index trigger.
+type KnowledgeContentPayload struct {
+	// Optional new title; empty keeps the current one.
+	Title string `json:"title" extensions:"x-agent"`
+	// Full replacement Markdown content (not a diff).
+	Content string `json:"content" extensions:"x-agent,x-agent-required,x-agent-max-bytes=800000"`
 }
 
 // ManualKnowledgePayload represents the payload for manual knowledge operations.
@@ -463,6 +481,72 @@ func (k *Knowledge) GetLastFAQImportResult() (*FAQImportResult, error) {
 // IsManual returns true if the knowledge item is manual Markdown knowledge.
 func (k *Knowledge) IsManual() bool {
 	return k != nil && k.Type == KnowledgeTypeManual
+}
+
+// HasEditedContent reports whether the knowledge carries an editable markdown
+// copy in metadata. Manual knowledge always does; file/url knowledge gains one
+// on the first online edit. Reparse/relearn must prefer this copy over the
+// stored original file, otherwise an edit would be silently rolled back.
+func (k *Knowledge) HasEditedContent() bool {
+	if k == nil {
+		return false
+	}
+	if k.IsManual() {
+		return true
+	}
+	meta, err := k.ManualMetadata()
+	return err == nil && meta != nil && meta.Content != ""
+}
+
+// SetContentMetadata merges the editable content fields into the existing
+// metadata map, preserving unrelated keys (process_overrides, the transfer
+// recovery marker, ...). Unlike SetManualMetadata — which rewrites the whole
+// document for manual knowledge — this is safe for file/url knowledge whose
+// metadata carries pipeline-owned keys.
+func (k *Knowledge) SetContentMetadata(content string, version int, indexStale bool) error {
+	metadataMap, err := k.Metadata.Map()
+	if err != nil {
+		return err
+	}
+	if metadataMap == nil {
+		metadataMap = map[string]any{}
+	}
+	if version <= 0 {
+		version = 1
+	}
+	metadataMap["content"] = content
+	metadataMap["format"] = ManualKnowledgeFormatMarkdown
+	metadataMap["version"] = version
+	metadataMap["updated_at"] = time.Now().UTC().Format(time.RFC3339)
+	metadataMap["index_stale"] = indexStale
+	bytes, err := json.Marshal(metadataMap)
+	if err != nil {
+		return err
+	}
+	k.Metadata = JSON(bytes)
+	return nil
+}
+
+// ClearIndexStale flips the index_stale flag off, keeping every other
+// metadata key. Called when the edited content is (re)submitted for indexing.
+func (k *Knowledge) ClearIndexStale() error {
+	metadataMap, err := k.Metadata.Map()
+	if err != nil {
+		return err
+	}
+	if metadataMap == nil {
+		return nil
+	}
+	if _, ok := metadataMap["index_stale"]; !ok {
+		return nil
+	}
+	metadataMap["index_stale"] = false
+	bytes, err := json.Marshal(metadataMap)
+	if err != nil {
+		return err
+	}
+	k.Metadata = JSON(bytes)
+	return nil
 }
 
 // EnsureManualDefaults sets default values for manual knowledge entries.

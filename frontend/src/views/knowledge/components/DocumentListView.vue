@@ -33,6 +33,8 @@ interface KnowledgeItem {
   isMore?: boolean;
   stalled_minutes?: number;
   stall_state?: string;
+  /** 完整知识条目的 metadata；在线编辑后带 index_stale 标记。 */
+  metadata?: Record<string, any> | string;
 }
 
 const props = defineProps<{
@@ -193,6 +195,18 @@ const statusByRow = computed(() => {
   for (const item of props.items) map.set(item.id, computeStatus(item));
   return map;
 });
+
+// 正文被在线编辑过但尚未「重新学习」：列表在状态旁补一个待重建徽标。
+const isIndexStale = (item: KnowledgeItem): boolean => {
+  const meta = item.metadata;
+  if (!meta) return false;
+  if (typeof meta === 'object') return meta.index_stale === true;
+  try {
+    return JSON.parse(meta)?.index_stale === true;
+  } catch {
+    return false;
+  }
+};
 
 const allSelected = computed(() => {
   return props.items.length > 0 && props.items.every(i => props.selectedIds.has(i.id));
@@ -375,6 +389,10 @@ const handleAction = (action: 'download' | 'edit' | 'reparse' | 'cancel-parse' |
             </t-tag>
             <span v-else class="row-muted">--</span>
           </template>
+          <t-tag v-if="isIndexStale(item)" size="small" theme="warning" variant="light-outline"
+            class="row-stale-tag" :title="t('knowledgeBase.browse.staleDot')">
+            {{ t('knowledgeBase.browse.staleBadge') }}
+          </t-tag>
         </div>
 
         <div class="cell cell-actions" role="cell" v-if="canEdit" @click.stop>
@@ -743,6 +761,10 @@ const handleAction = (action: 'download' | 'edit' | 'reparse' | 'cancel-parse' |
   &.status-warning { color: var(--td-warning-color); }
   &.status-primary { color: var(--td-brand-color); }
   &.status-default { color: var(--td-text-color-placeholder); }
+}
+.row-stale-tag {
+  margin-left: 6px;
+  flex: 0 0 auto;
 }
 .row-title-line { display: flex; align-items: center; min-width: 0; }
 .row-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; width: 100%; }

@@ -77,6 +77,10 @@
             :content="t('knowledgeBase.browse.parseFailed')" placement="top">
             <t-icon name="error-circle" class="browse-tree-row__status is-failed" />
           </t-tooltip>
+          <t-tooltip v-if="row.kind === 'doc' && row.doc.index_stale"
+            :content="t('knowledgeBase.browse.staleDot')" placement="top">
+            <span class="browse-tree-row__stale-dot" aria-hidden="true" />
+          </t-tooltip>
         </div>
       </template>
     </div>
@@ -388,5 +392,13 @@ watch(
   &.is-failed {
     color: var(--td-error-color);
   }
+}
+
+.browse-tree-row__stale-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-warning-color);
 }
 </style>

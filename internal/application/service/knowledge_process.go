@@ -2842,15 +2842,18 @@ func (s *knowledgeService) reparseKnowledge(
 	reparseEff := ResolveProcessConfig(kb, processOverrides)
 
 	var manualContent string
-	if existing.IsManual() {
+	// HasEditedContent covers manual knowledge AND file/url documents whose
+	// parsed text was edited online: both reparse from the metadata content so
+	// the reparse never silently rolls edits back to the original parse.
+	if existing.HasEditedContent() {
 		meta, metaErr := existing.ManualMetadata()
 		if metaErr != nil || meta == nil {
-			logger.Errorf(ctx, "Failed to get manual metadata for reparse: %v", metaErr)
-			return nil, werrors.NewBadRequestError("无法获取手工知识内容")
+			logger.Errorf(ctx, "Failed to get edited content for reparse: %v", metaErr)
+			return nil, werrors.NewBadRequestError("无法获取已编辑的内容")
 		}
 		manualContent = meta.Content
 	} else {
-		// Cleanup synchronously; manual knowledge is cleaned up by its worker.
+		// Cleanup synchronously; edited content is cleaned up by its worker.
 		logger.Infof(ctx, "Cleaning up existing resources for knowledge: %s", knowledgeID)
 		if err := s.cleanupKnowledgeResources(ctx, existing); err != nil {
 			logger.ErrorWithFields(ctx, err, map[string]interface{}{
@@ -2901,8 +2904,8 @@ func (s *knowledgeService) reparseKnowledge(
 			map[string]any{"title": existing.Title, "type": existing.Type, "attempt": reparseAttempt})
 	}
 
-	// For manual knowledge, use async manual processing (cleanup + re-indexing in worker)
-	if existing.IsManual() {
+	// For edited content, use async manual processing (cleanup + re-indexing in worker)
+	if existing.HasEditedContent() {
 		resetKnowledgeForReparse(existing, kb)
 
 		if err := s.repo.UpdateKnowledge(ctx, existing); err != nil {

@@ -286,9 +286,16 @@ func (r *knowledgeRepository) ListKnowledgeTreeDocuments(
 	kbID string,
 ) ([]*types.KnowledgeTreeDocument, error) {
 	var docs []*types.KnowledgeTreeDocument
+	// index_stale lives inside the metadata JSON document; extract just that
+	// flag so the tree can badge edited-but-not-relearnt rows without selecting
+	// the wide metadata column (manual content can be 200k runes).
+	staleExpr := "COALESCE(metadata->>'index_stale', 'false')::boolean"
+	if r.db.Dialector.Name() != "postgres" {
+		staleExpr = "COALESCE(metadata->>'$.index_stale', 'false') = 'true'"
+	}
 	if err := r.db.WithContext(ctx).
 		Model(&types.Knowledge{}).
-		Select("id, title, type, file_type, file_name, folder_path, parse_status, updated_at").
+		Select("id, title, type, file_type, file_name, folder_path, parse_status, updated_at, "+staleExpr+" AS index_stale").
 		Where("tenant_id = ? AND knowledge_base_id = ? AND parse_status <> ?",
 			tenantID, kbID, types.ParseStatusDeleting).
 		Order("folder_path ASC, title ASC, id ASC").

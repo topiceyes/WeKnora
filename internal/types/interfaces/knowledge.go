@@ -123,6 +123,19 @@ type KnowledgeService interface {
 		knowledgeID string,
 		payload *types.ManualKnowledgePayload,
 	) (*types.Knowledge, error)
+	// UpdateKnowledgeContent saves online-edited markdown into the knowledge
+	// metadata (any type) and flags index_stale without touching the index.
+	UpdateKnowledgeContent(
+		ctx context.Context,
+		knowledgeID string,
+		payload *types.KnowledgeContentPayload,
+	) (*types.Knowledge, error)
+	// RelearnKnowledge rebuilds the index from the edited metadata content
+	// (the manual "relearn" trigger resolving index_stale).
+	RelearnKnowledge(ctx context.Context, knowledgeID string) (*types.Knowledge, error)
+	// UploadContentImage stores one online-editor image for the KB and returns
+	// its stable serving reference (resource:// or provider URL).
+	UploadContentImage(ctx context.Context, kbID string, file *multipart.FileHeader) (string, error)
 	// ReparseKnowledge deletes existing document content and re-parses the knowledge asynchronously.
 	// When processOverrides is non-nil, it is validated and persisted to the knowledge metadata
 	// before re-parsing, letting callers adjust parse config on reparse; nil keeps stored overrides.

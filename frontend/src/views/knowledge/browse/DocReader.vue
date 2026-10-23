@@ -17,6 +17,13 @@
           </span>
         </div>
         <div class="doc-reader__actions">
+          <t-tooltip v-if="canEditNow && !editing" :content="t('knowledgeBase.browse.edit')" placement="bottom">
+            <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.edit')"
+              @click="startEdit">
+              <t-icon name="edit" size="16px" />
+            </button>
+          </t-tooltip>
+          <template v-if="!editing">
           <t-tooltip v-if="canPreviewOriginal" :content="t('knowledgeBase.browse.originalPreview')" placement="bottom">
             <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.originalPreview')"
               @click="previewOpen = true">
@@ -35,10 +42,32 @@
               <t-icon :name="downloading ? 'loading' : 'download'" size="16px" />
             </button>
           </t-tooltip>
+          </template>
         </div>
       </header>
 
-      <div ref="scrollRef" class="doc-reader__scroll" @scroll.passive="onScroll">
+      <div v-if="indexStale && !editing" class="doc-reader__stale">
+        <t-icon name="notification-filled" size="14px" />
+        <span class="doc-reader__stale-text">{{ t('knowledgeBase.browse.staleBanner') }}</span>
+        <t-button v-if="canEdit" size="small" theme="warning" variant="outline" :loading="relearning" @click="relearn">
+          {{ relearning ? t('knowledgeBase.browse.learning') : t('knowledgeBase.browse.relearn') }}
+        </t-button>
+      </div>
+
+      <div v-if="editing" class="doc-reader__edit">
+        <t-input v-model="editTitle" class="doc-reader__edit-title" :maxlength="200" clearable />
+        <RichEditor v-model="editContent" :kb-id="kbId" class="doc-reader__edit-editor" />
+        <div class="doc-reader__edit-actions">
+          <t-button variant="outline" :disabled="saving" @click="cancelEdit">
+            {{ t('knowledgeBase.browse.cancel') }}
+          </t-button>
+          <t-button theme="primary" :loading="saving" @click="saveEdit">
+            {{ t('knowledgeBase.browse.save') }}
+          </t-button>
+        </div>
+      </div>
+
+      <div v-else ref="scrollRef" class="doc-reader__scroll" @scroll.passive="onScroll">
         <div v-if="loading" class="doc-reader__state">
           <t-skeleton animation="gradient" :row-col="skeletonRows" />
         </div>
@@ -84,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import mermaid from 'mermaid'
@@ -92,6 +121,8 @@ import {
   downKnowledgeDetails,
   getKnowledgeDetails,
   listAllKnowledgeChunks,
+  relearnKnowledge,
+  updateKnowledgeContent,
   type KnowledgeTreeDocument,
 } from '@/api/knowledge-base'
 import { mergeChunks } from '@/utils/mergedContent'
@@ -102,6 +133,7 @@ import { resolveFilePreviewExt, isKnownPreviewableExt } from '@/utils/filePrevie
 import { formatStringDate } from '@/utils/index'
 import { resolveKnowledgeDownloadFileName } from '../knowledgeDownloadFileName'
 import DocumentPreview from '@/components/document-preview.vue'
+import RichEditor from './RichEditor.vue'
 import { browseDocIcon } from './docIcon'
 import type { OutlineItem } from './types'
 
@@ -109,14 +141,19 @@ const props = withDefaults(defineProps<{
   doc: KnowledgeTreeDocument | null
   kbId: string
   canDownload?: boolean
+  /** 当前用户对该知识库有编辑权限（Editor+），控制编辑/重新学习入口。 */
+  canEdit?: boolean
 }>(), {
   canDownload: false,
+  canEdit: false,
 })
 
 const emit = defineEmits<{
   'open-source-doc': [knowledgeId: string]
   'outline-change': [items: OutlineItem[]]
   'outline-active': [index: number]
+  /** 保存或重新学习改变了文档（updated_at / index_stale / parse_status），树需要刷新。 */
+  'doc-updated': []
 }>()
 
 const { t } = useI18n()
@@ -192,19 +229,24 @@ const statusIcon = computed(() => {
 
 const renderedHtml = computed(() => processMarkdown(markdown.value))
 
-// manual 文档的全文存在 knowledge.metadata.content 里（可能是对象或 JSON 字符串）。
-const parseManualContent = (metadata: any): string => {
-  if (!metadata) return ''
+// manual 文档的全文存在 knowledge.metadata.content 里；file/url 文档被在线
+// 编辑后也会把编辑文本写进同一字段（metadata 可能是对象或 JSON 字符串）。
+const parseMetadataObject = (metadata: any): Record<string, any> | null => {
+  if (!metadata) return null
   try {
     const parsed = typeof metadata === 'string' ? JSON.parse(metadata) : metadata
-    if (parsed && typeof parsed === 'object') {
-      return parsed.content || ''
-    }
+    if (parsed && typeof parsed === 'object') return parsed
   } catch (error) {
-    console.warn('[DocReader] Failed to parse manual metadata:', error)
+    console.warn('[DocReader] Failed to parse metadata:', error)
   }
-  return ''
+  return null
 }
+
+// 正文已编辑但尚未重新学习：阅读器展示新文本，AI 检索仍是旧索引。
+const indexStale = computed(() => parseMetadataObject(detail.value?.metadata)?.index_stale === true)
+
+const isInFlightStatus = (status?: string) =>
+  status === 'pending' || status === 'processing' || status === 'finalizing'
 
 let loadGeneration = 0
 
@@ -224,11 +266,16 @@ const loadContent = async () => {
       throw new Error(result?.message || t('knowledgeBase.browse.loadFailed'))
     }
     detail.value = data
-    if ((data.type || doc.type) === 'manual') {
-      markdown.value = parseManualContent(data.metadata)
+    // 编辑内容（metadata.content）优先：manual 文档天然如此，file/url 文档
+    // 编辑后也以它为准；未编辑的 file/url 仍回退到分片拼接。
+    const edited = parseMetadataObject(data.metadata)?.content || ''
+    if (edited) {
+      markdown.value = edited
+    } else if ((data.type || doc.type) === 'manual') {
+      markdown.value = ''
     } else {
       const status = data.parse_status || doc.parse_status
-      if (status === 'pending' || status === 'processing' || status === 'failed') {
+      if (isInFlightStatus(status) || status === 'failed') {
         markdown.value = ''
       } else {
         const chunks = await listAllKnowledgeChunks(doc.id)
@@ -249,11 +296,120 @@ const loadContent = async () => {
 
 watch(() => props.doc?.id, () => {
   previewOpen.value = false
+  cancelEdit()
+  stopRelearnPolling()
   emit('outline-change', [])
   emit('outline-active', -1)
   if (scrollRef.value) scrollRef.value.scrollTop = 0
   loadContent()
 }, { immediate: true })
+
+// ---------- 在线编辑 / 重新学习 ----------
+
+const editing = ref(false)
+const editTitle = ref('')
+const editContent = ref('')
+const saving = ref(false)
+const relearning = ref(false)
+let relearnTimer: ReturnType<typeof setInterval> | null = null
+
+// 编辑入口只对「有权限 + 有正文 + 不在解析中」的文档开放；解析中的文档保存会
+// 与 worker 抢写，后端同样会拒绝。
+const canEditNow = computed(() => {
+  if (!props.canEdit || !props.doc) return false
+  // FAQ 是问答对结构不是 Markdown 文档，走 FAQ 管理编辑（后端同样拒绝）。
+  if ((detail.value?.type || props.doc.type) === 'faq') return false
+  if (loading.value || loadError.value || !markdown.value) return false
+  const status = detail.value?.parse_status || props.doc.parse_status
+  return !isInFlightStatus(status)
+})
+
+const startEdit = () => {
+  if (!canEditNow.value) return
+  editTitle.value = detail.value?.title || props.doc?.title || ''
+  editContent.value = markdown.value
+  editing.value = true
+}
+
+const cancelEdit = () => {
+  editing.value = false
+  editContent.value = ''
+  editTitle.value = ''
+}
+
+const saveEdit = async () => {
+  const doc = props.doc
+  if (!doc || saving.value) return
+  if (!editContent.value.trim()) return
+  saving.value = true
+  try {
+    const title = editTitle.value.trim()
+    const result: any = await updateKnowledgeContent(doc.id, {
+      title: title || undefined,
+      content: editContent.value,
+    })
+    const data = result?.data
+    if (!result?.success || !data) {
+      throw new Error(result?.message || t('knowledgeBase.browse.saveFailed'))
+    }
+    detail.value = data
+    markdown.value = parseMetadataObject(data.metadata)?.content || editContent.value
+    editing.value = false
+    MessagePlugin.success(t('knowledgeBase.browse.saveSuccess'))
+    emit('doc-updated')
+  } catch (error: any) {
+    console.error('[DocReader] save failed', error)
+    MessagePlugin.error(error?.message || t('knowledgeBase.browse.saveFailed'))
+  } finally {
+    saving.value = false
+  }
+}
+
+const stopRelearnPolling = () => {
+  if (relearnTimer) {
+    clearInterval(relearnTimer)
+    relearnTimer = null
+  }
+  relearning.value = false
+}
+
+const relearn = async () => {
+  const doc = props.doc
+  if (!doc || relearning.value) return
+  relearning.value = true
+  try {
+    const result: any = await relearnKnowledge(doc.id)
+    if (!result?.success) {
+      throw new Error(result?.message || t('knowledgeBase.browse.relearnFailed'))
+    }
+    if (result.data) detail.value = result.data
+    MessagePlugin.success(t('knowledgeBase.browse.relearnStarted'))
+    emit('doc-updated')
+    // 轮询解析状态直到落定：index_stale 解除、树的状态图标随之刷新。
+    relearnTimer = setInterval(async () => {
+      try {
+        const resp: any = await getKnowledgeDetails(doc.id)
+        const data = resp?.data
+        if (!resp?.success || !data) return
+        detail.value = data
+        if (!isInFlightStatus(data.parse_status)) {
+          stopRelearnPolling()
+          emit('doc-updated')
+        }
+      } catch {
+        // 单次轮询失败忽略，下一周期继续
+      }
+    }, 2500)
+  } catch (error: any) {
+    console.error('[DocReader] relearn failed', error)
+    MessagePlugin.error(error?.message || t('knowledgeBase.browse.relearnFailed'))
+    relearning.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  stopRelearnPolling()
+})
 
 const downloadFile = () => {
   if (!props.doc || downloading.value) return
@@ -467,6 +623,51 @@ defineExpose({ scrollToHeading })
     cursor: not-allowed;
     opacity: 0.6;
   }
+}
+
+.doc-reader__stale {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--td-warning-color-light);
+  border-radius: var(--app-radius-sm);
+  background: var(--td-warning-color-light);
+  color: var(--td-warning-color);
+  font-size: var(--app-text-sm);
+}
+
+.doc-reader__stale-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-reader__edit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.doc-reader__edit-title {
+  flex-shrink: 0;
+  max-width: 760px;
+}
+
+.doc-reader__edit-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.doc-reader__edit-actions {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .doc-reader__scroll {

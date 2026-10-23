@@ -12,9 +12,11 @@
       :doc="selectedDoc"
       :kb-id="kbId"
       :can-download="canDownload"
+      :can-edit="canEdit"
       @open-source-doc="(id) => emit('open-source-doc', id)"
       @outline-change="(items) => (outlineItems = items)"
       @outline-active="(index) => (outlineActive = index)"
+      @doc-updated="loadTree"
     />
     <DocOutline
       v-model:collapsed="outlineCollapsed"
@@ -37,8 +39,11 @@ import type { OutlineItem } from './types'
 const props = withDefaults(defineProps<{
   kbId: string
   canDownload?: boolean
+  /** Editor+ 权限：控制阅读器里的编辑/重新学习入口。 */
+  canEdit?: boolean
 }>(), {
   canDownload: false,
+  canEdit: false,
 })
 
 const emit = defineEmits<{

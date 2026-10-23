@@ -589,6 +589,8 @@ export interface KnowledgeTreeDocument {
   file_name: string;
   folder_path: string;
   parse_status: string;
+  /** 正文被编辑过且尚未重新学习（AI 索引滞后）。 */
+  index_stale?: boolean;
   updated_at: string;
 }
 
@@ -660,6 +662,23 @@ export function updateManualKnowledge(
 
 export function reparseKnowledge(id: string, data?: { process_config?: KnowledgeProcessOverrides }) {
   return post(`/api/v1/knowledge/${id}/reparse`, data);
+}
+
+// 保存在线编辑的 Markdown 内容（任意类型文档），标记 index_stale，不触发索引重建
+export function updateKnowledgeContent(id: string, data: { title?: string; content: string }) {
+  return put(`/api/v1/knowledge/${id}/content`, data);
+}
+
+// 手动触发「重新学习」：从已编辑内容重建索引，解除 index_stale
+export function relearnKnowledge(id: string) {
+  return post(`/api/v1/knowledge/${id}/relearn`);
+}
+
+// 上传在线编辑器中的内容图片，返回可写入 Markdown 的稳定引用（resource:// 等）
+export function uploadContentImage(kbId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return postUpload(`/api/v1/knowledge-bases/${kbId}/knowledge/content-images`, formData);
 }
 
 export function cancelKnowledgeParse(id: string) {

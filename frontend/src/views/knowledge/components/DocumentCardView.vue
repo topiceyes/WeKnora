@@ -116,6 +116,18 @@ const CANCELABLE_PARSE_STATUSES = new Set(['pending', 'processing', 'finalizing'
 const isParseInFlight = (status?: string): boolean =>
   CANCELABLE_PARSE_STATUSES.has(String(status ?? ''));
 
+// 正文被在线编辑过但尚未「重新学习」时，在卡片标题旁显示一个提醒点。
+const isIndexStale = (item: KnowledgeCard): boolean => {
+  const meta = item.metadata;
+  if (!meta) return false;
+  if (typeof meta === 'object') return meta.index_stale === true;
+  try {
+    return JSON.parse(meta)?.index_stale === true;
+  } catch {
+    return false;
+  }
+};
+
 const isTraceMenuVisible = (item: KnowledgeCard): boolean => {
   if (!item?.id) return false;
   if (isParseInFlight(item.parse_status)) return true;
@@ -379,6 +391,9 @@ const handleAction = (action: 'download' | 'edit' | 'view-trace' | 'reparse' | '
           </div>
           <button type="button" class="card-content-title" :title="item.file_name"
             @click.stop="onCardClick(item)">{{ item.file_name }}</button>
+          <t-tooltip v-if="isIndexStale(item)" :content="t('knowledgeBase.browse.staleDot')" placement="top">
+            <span class="card-stale-dot" :aria-label="t('knowledgeBase.browse.staleBadge')" />
+          </t-tooltip>
           <div v-if="(canEdit || canDownload) && batchMode" class="card-nav-check" @click.stop>
             <t-checkbox
               class="card-select-checkbox"
@@ -742,6 +757,14 @@ const handleAction = (action: 'download' | 'edit' | 'view-trace' | 'reparse' | '
     line-height: 18px;
     text-align: left;
     cursor: pointer;
+  }
+  .card-stale-dot {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    margin-top: 6px;
+    border-radius: var(--app-radius-pill);
+    background: var(--td-warning-color);
   }
   .more-wrap {
     flex-shrink: 0;

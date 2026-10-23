@@ -2568,6 +2568,174 @@ func (h *KnowledgeHandler) UpdateManualKnowledge(c *gin.Context) {
 	})
 }
 
+// UpdateKnowledgeContent godoc
+// @Summary      保存在线编辑内容
+// @Description  保存浏览模式下的在线编辑 Markdown 到知识元数据（任意类型），标记 index_stale，不触发索引重建
+// @Tags         知识管理
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                        true  "知识ID"  extensions(x-agent=knowledge_id)
+// @Param        request  body      types.KnowledgeContentPayload true  "编辑后的标题与内容"
+// @Success      200      {object}  handler.DataResponse{data=types.Knowledge}  "更新后的知识"
+// @Failure      400      {object}  errors.AppError  "请求参数错误"
+// @Failure      403      {object}  errors.AppError  "权限不足"
+// @Failure      404      {object}  errors.AppError  "知识不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/content [put]
+func (h *KnowledgeHandler) UpdateKnowledgeContent(c *gin.Context) {
+	ctx := c.Request.Context()
+	logger.Info(ctx, "Start updating knowledge content")
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		logger.Error(ctx, "Knowledge ID is empty")
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleEditor)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	var req types.KnowledgeContentPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error(ctx, "Failed to parse knowledge content update request", err)
+		c.Error(errors.NewBadRequestError(err.Error()))
+		return
+	}
+
+	knowledge, err := h.kgService.UpdateKnowledgeContent(effCtx, id, &req)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"knowledge_id": id,
+		})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Knowledge content updated successfully, knowledge ID: %s", id)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    knowledge,
+	})
+}
+
+// RelearnKnowledge godoc
+// @Summary      重新学习知识
+// @Description  从已编辑的元数据内容重建索引（分块+向量化），解除 index_stale 状态，使用异步任务方式处理
+// @Tags         知识管理
+// @Accept       json
+// @Produce      json
+// @Param        id  path  string  true  "知识ID"  extensions(x-agent=knowledge_id)
+// @Success      200  {object}  handler.DataResponse{data=types.Knowledge}  "重新学习任务已提交"
+// @Failure      400  {object}  errors.AppError  "没有可学习的编辑内容或正在处理中"
+// @Failure      403  {object}  errors.AppError  "权限不足"
+// @Failure      404  {object}  errors.AppError  "知识不存在"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge/{id}/relearn [post]
+func (h *KnowledgeHandler) RelearnKnowledge(c *gin.Context) {
+	ctx := c.Request.Context()
+	logger.Info(ctx, "Start relearn knowledge")
+
+	id := secutils.SanitizeForLog(c.Param("id"))
+	if id == "" {
+		logger.Error(ctx, "Knowledge ID is empty")
+		c.Error(errors.NewBadRequestError("Knowledge ID cannot be empty"))
+		return
+	}
+
+	_, effCtx, err := h.resolveKnowledgeAndValidateKBAccess(c, id, types.OrgRoleEditor)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	knowledge, err := h.kgService.RelearnKnowledge(effCtx, id)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{
+			"knowledge_id": id,
+		})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Relearn task submitted successfully, knowledge ID: %s", id)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    knowledge,
+	})
+}
+
+// UploadContentImage godoc
+// @Summary      上传编辑器内容图片
+// @Description  上传在线编辑器中粘贴/选择的一张图片，返回稳定引用（resource:// 或 provider URL），保存内容时自动绑定到文档
+// @Tags         知识管理
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        id    path      string  true  "知识库ID"  extensions(x-agent=knowledge_base_id)
+// @Param        file  formData  file    true  "图片文件（png/jpg/jpeg/gif/webp/bmp/svg/avif，最大10MB）"
+// @Success      200   {object}  handler.DataResponse  "data.url 为可写入 Markdown 的图片引用"
+// @Failure      400   {object}  errors.AppError  "文件缺失或非法"
+// @Failure      403   {object}  errors.AppError  "权限不足"
+// @Security     Bearer
+// @Security     ApiKeyAuth
+// @Router       /knowledge-bases/{id}/knowledge/content-images [post]
+func (h *KnowledgeHandler) UploadContentImage(c *gin.Context) {
+	ctx := c.Request.Context()
+	logger.Info(ctx, "Start uploading content image")
+
+	_, kbID, effectiveTenantID, permission, err := h.validateKnowledgeBaseWriteAccessWithKBID(c, c.Param("id"))
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	if permission != types.OrgRoleAdmin && permission != types.OrgRoleEditor {
+		c.Error(errors.NewForbiddenError("No permission to modify knowledge"))
+		return
+	}
+	if err := h.requireKBOwnershipOrAdmin(c, kbID); err != nil {
+		c.Error(err)
+		return
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		logger.Error(ctx, "Content image upload missing file field", err)
+		c.Error(errors.NewBadRequestError("请选择要上传的图片"))
+		return
+	}
+
+	ctx = types.WithExecutionTenant(c.Request.Context(), effectiveTenantID)
+	url, err := h.kgService.UploadContentImage(ctx, kbID, fileHeader)
+	if err != nil {
+		if appErr, ok := errors.IsAppError(err); ok {
+			c.Error(appErr)
+			return
+		}
+		logger.ErrorWithFields(ctx, err, map[string]interface{}{"kb_id": kbID})
+		c.Error(errors.NewInternalServerError(err.Error()))
+		return
+	}
+
+	logger.Infof(ctx, "Content image uploaded successfully, kb ID: %s", kbID)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    gin.H{"url": url},
+	})
+}
+
 // ReparseKnowledgeRequest is the optional body of POST /knowledge/{id}/reparse.
 type ReparseKnowledgeRequest struct {
 	// ProcessConfig overrides the processing options stored at upload time.

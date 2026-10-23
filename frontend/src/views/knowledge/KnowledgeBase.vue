@@ -2482,7 +2482,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
 
       <!-- Browse mode (语雀式阅读，非 wiki 知识库) -->
       <BrowseMode v-if="activeKbTab === 'browse' && !isWiki && kbId" :kb-id="kbId"
-        :can-download="canDownloadKnowledge" @open-source-doc="openSourceDoc" />
+        :can-download="canDownloadKnowledge" :can-edit="canEdit" @open-source-doc="openSourceDoc" />
 
       <!-- wiki/graph tabs only exist on wiki KBs; a stale tab (?tab= or one
            carried over from a previous KB) falls back to documents. Same for
