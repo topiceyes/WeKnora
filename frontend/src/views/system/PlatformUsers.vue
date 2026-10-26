@@ -272,10 +272,15 @@ const syncFromOrgTab = async () => {
   syncTriggering.value = true
   try {
     const resp = await triggerDingTalkSync()
-    if (resp.success) {
-      MessagePlugin.success(t('platformUsers.syncDone', { total: resp.data?.total_remote ?? 0, updated: resp.data?.updated_count ?? 0 }))
-      departments.value = [] // 同步后部门树已更新，强制下次重新拉取
-      await loadOrg()
+    if (resp.success && resp.data) {
+      const done = await waitSyncRunDone(resp.data.id)
+      if (done?.status === 'success') {
+        MessagePlugin.success(t('platformUsers.syncDone', { total: done.total_remote, updated: done.updated_count }))
+        departments.value = [] // 同步后部门树已更新，强制下次重新拉取
+        await loadOrg()
+      } else {
+        MessagePlugin.error(t('platformUsers.syncFailed'))
+      }
     } else {
       MessagePlugin.error(t('platformUsers.syncFailed'))
     }
@@ -344,13 +349,40 @@ const loadRuns = async () => {
   }
 }
 
+// 手动触发的同步已改异步（后端立即返回 running 记录）：前端每 3s 轮询
+// 该 run 的终态。必须如此——全量对账要走几百次钉钉 API，30s 的 axios
+// 默认超时会把请求 ctx 掐掉，同步随之中断（生产实测三轮 manual 全部
+// context canceled）。轮询上限 10 分钟，超时按失败提示，后端有自己的
+// 30min 兜底会落定终态，下次进页面能看到真实结果。
+const SYNC_POLL_INTERVAL_MS = 3000
+const SYNC_POLL_CAP_MS = 10 * 60 * 1000
+const waitSyncRunDone = async (runId: number): Promise<DingTalkSyncRun | null> => {
+  const deadline = Date.now() + SYNC_POLL_CAP_MS
+  for (;;) {
+    await new Promise((r) => setTimeout(r, SYNC_POLL_INTERVAL_MS))
+    try {
+      const resp = await listDingTalkSyncRuns(1, 20)
+      const run = (resp.data?.runs ?? []).find((r) => r.id === runId)
+      if (run && run.status !== 'running') return run
+    } catch {
+      // 单次轮询失败不中断，等到上限为止
+    }
+    if (Date.now() > deadline) return null
+  }
+}
+
 const triggerSync = async () => {
   syncTriggering.value = true
   try {
     const resp = await triggerDingTalkSync()
     if (resp.success && resp.data) {
-      MessagePlugin.success(t('platformUsers.syncDone', { total: resp.data.total_remote, updated: resp.data.updated_count }))
-      departments.value = [] // 同步后部门树已更新，组织 tab 下次进入重新拉取
+      const done = await waitSyncRunDone(resp.data.id)
+      if (done?.status === 'success') {
+        MessagePlugin.success(t('platformUsers.syncDone', { total: done.total_remote, updated: done.updated_count }))
+        departments.value = [] // 同步后部门树已更新，组织 tab 下次进入重新拉取
+      } else {
+        MessagePlugin.error(t('platformUsers.syncFailed'))
+      }
     } else {
       MessagePlugin.error(t('platformUsers.syncFailed'))
     }

@@ -29,7 +29,7 @@ func NewDingTalkAdminHandler(sync *dingtalkauth.SyncService, repo *dingtalkauth.
 
 // TriggerDingTalkSync godoc
 // @Summary      手动触发钉钉通讯录同步
-// @Description  立即执行一次全量通讯录对账（补绑定/更新资料/离职禁用）；已有同步进行中时返回 409
+// @Description  异步启动一次全量通讯录对账（补绑定/更新资料/离职禁用/全员快照），立即返回 running 状态的 run 记录，调用方轮询 /system/dingtalk/sync/runs 获取终态；已有同步进行中时返回 409
 // @Tags         系统管理-钉钉
 // @Produce      json
 // @Success      200  {object}  map[string]interface{}
@@ -37,7 +37,7 @@ func NewDingTalkAdminHandler(sync *dingtalkauth.SyncService, repo *dingtalkauth.
 // @Router       /system/dingtalk/sync [post]
 func (h *DingTalkAdminHandler) TriggerDingTalkSync(c *gin.Context) {
 	ctx := c.Request.Context()
-	run, err := h.sync.RunFullSync(ctx, dingtalkauth.SyncTriggerManual)
+	run, err := h.sync.StartFullSync(ctx, dingtalkauth.SyncTriggerManual)
 	if err != nil {
 		if errors.Is(err, dingtalkauth.ErrSyncAlreadyRunning) {
 			c.Error(apperrors.NewConflictError("已有钉钉通讯录同步进行中"))

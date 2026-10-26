@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -543,5 +544,45 @@ func TestSyncWritesContactsSnapshot(t *testing.T) {
 	}
 	if _, err := repo.GetByDingUserID(ctx, "corp-1", "ding-bound"); err != nil {
 		t.Fatalf("bound identity must survive: %v", err)
+	}
+}
+
+func TestStartFullSyncAsync(t *testing.T) {
+	ctx := context.Background()
+	client := &mockContactClient{
+		deptTree: []SubDepartment{},
+		users: map[int64][]DeptUserDetail{
+			1: {{UserID: "ding-async", Name: "异步"}},
+		},
+	}
+	svc, repo, _, _ := setupSync(t, client)
+
+	// 模拟生产事故场景：HTTP 客户端 30s 超时断开 → 请求 ctx 取消。
+	// 同步必须不受拖累跑完（WithoutCancel 脱离请求生命周期）。
+	reqCtx, cancelReq := context.WithCancel(ctx)
+	run, err := svc.StartFullSync(reqCtx, SyncTriggerManual)
+	cancelReq() // 客户端断开
+	if err != nil {
+		t.Fatalf("StartFullSync: %v", err)
+	}
+	if run.Status != SyncStatusRunning {
+		t.Fatalf("fresh run must be running, got %q", run.Status)
+	}
+	// 并发保护同步生效：进行中再触发 → 409。
+	if _, err := svc.StartFullSync(ctx, SyncTriggerManual); !errors.Is(err, ErrSyncAlreadyRunning) {
+		t.Fatalf("second trigger must get ErrSyncAlreadyRunning, got %v", err)
+	}
+
+	// 后台执行最终落终态与快照（脱离请求 ctx 不被取消是本次修复的核心）。
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		contacts, err := repo.ListContacts(ctx)
+		if err == nil && len(contacts) == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("async sync did not populate contacts snapshot in time")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

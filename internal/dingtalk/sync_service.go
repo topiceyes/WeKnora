@@ -96,6 +96,35 @@ func (s *SyncService) RunFullSync(ctx context.Context, triggerType string) (*Syn
 		defer cancel()
 	}
 
+	run, err := s.createSyncRun(ctx, triggerType)
+	if err != nil {
+		return nil, err
+	}
+	return s.executeSync(ctx, run)
+}
+
+// StartFullSync 异步触发全量同步：前奏（并发保护 + 建 run 记录）在调用方
+// ctx 内同步完成，409/建记录失败的语义立即返回；执行体在脱离请求生命周期的
+// goroutine 里跑。手动触发的 HTTP 请求 30s 超时/断开不应杀掉同步——生产曾
+// 因此三轮 manual 全部 context canceled、快照始终为空。
+func (s *SyncService) StartFullSync(ctx context.Context, triggerType string) (*SyncRun, error) {
+	run, err := s.createSyncRun(ctx, triggerType)
+	if err != nil {
+		return nil, err
+	}
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		runCtx, cancel := context.WithTimeout(bg, syncRunTimeout)
+		defer cancel()
+		if _, err := s.executeSync(runCtx, run); err != nil {
+			logger.Warnf(bg, "DingTalk sync: async run %d failed: %v", run.ID, err)
+		}
+	}()
+	return run, nil
+}
+
+// createSyncRun 前奏：并发互斥（409）+ 僵尸 running 清理 + 建 run 记录。
+func (s *SyncService) createSyncRun(ctx context.Context, triggerType string) (*SyncRun, error) {
 	running, err := s.repo.HasRunningSync(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("check running sync: %w", err)
@@ -111,7 +140,12 @@ func (s *SyncService) RunFullSync(ctx context.Context, triggerType string) (*Syn
 	if err != nil {
 		return nil, fmt.Errorf("create sync run: %w", err)
 	}
+	return run, nil
+}
 
+// executeSync 执行体（run 已由 createSyncRun 建立）：拉取远端全员 → 部门树
+// 与全员快照落库 → 资料对账 → 离职禁用 → 落终态计数。ctx 的超时由调用方保证。
+func (s *SyncService) executeSync(ctx context.Context, run *SyncRun) (*SyncRun, error) {
 	remote, deptTree, err := s.fetchRemoteUsers(ctx)
 	if err != nil {
 		// 拉取失败：整轮 failed，不做任何禁用。

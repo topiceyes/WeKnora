@@ -27601,7 +27601,8 @@ paths:
       - 系统管理-钉钉
   /system/dingtalk/sync:
     post:
-      description: 立即执行一次全量通讯录对账（补绑定/更新资料/离职禁用）；已有同步进行中时返回 409
+      description: 异步启动一次全量通讯录对账（补绑定/更新资料/离职禁用/全员快照），立即返回 running 状态的 run 记录，调用方轮询
+        /system/dingtalk/sync/runs 获取终态；已有同步进行中时返回 409
       produces:
       - application/json
       responses:
