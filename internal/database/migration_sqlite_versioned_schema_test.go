@@ -41,6 +41,7 @@ var versionedSQLiteTables = []string{
 	"dingtalk_sync_runs",         // 000900
 	"dingtalk_departments",       // 000901 (fork, 原 000037)
 	"knowledge_content_versions", // 000902 (fork, 浏览模式 P3 版本历史)
+	"dingtalk_contacts",          // 000903 (fork, 钉钉通讯录全员快照)
 	"agent_prompts",
 	"agent_run_suspensions",
 	"agent_collaborations",
@@ -81,10 +82,10 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-// 902 = upstream 000041 (agent_collaborations) + fork 迁移（900 号段：
-// 000900/000901 钉钉、000902 版本历史）。fork 迁移固定在 900+，上游新增迁移
-// 不再改变本常量——只有 fork 自己加迁移时才需要更新。
-const expectedSQLiteMigrationVersion = 902
+// 903 = upstream 000041 (agent_collaborations) + fork 迁移（900 号段：
+// 000900/000901 钉钉、000902 版本历史、000903 钉钉通讯录快照）。fork 迁移固定
+// 在 900+，上游新增迁移不再改变本常量——只有 fork 自己加迁移时才需要更新。
+const expectedSQLiteMigrationVersion = 903
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
