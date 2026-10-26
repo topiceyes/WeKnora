@@ -477,3 +477,71 @@ func TestSchedulerValidatesCronExpression(t *testing.T) {
 		s.Stop()
 	}
 }
+
+// TestSyncWritesContactsSnapshot 同步把全员快照（含未绑定的人）落
+// dingtalk_contacts：首次同步全员落库；第二次同步离职者的快照行消失，
+// 已绑定用户的 identity 语义不受影响。
+func TestSyncWritesContactsSnapshot(t *testing.T) {
+	ctx := context.Background()
+	client := &mockContactClient{
+		deptTree: []SubDepartment{{DeptID: 100, Name: "技术部", ParentID: 1}},
+		users: map[int64][]DeptUserDetail{
+			1:   {{UserID: "ding-bound", UnionID: "union-bound", Name: "已绑定", DeptIDList: []int64{100}}},
+			100: {{UserID: "ding-stranger", UnionID: "union-stranger", Name: "陌生人", JobNumber: "0007", DeptIDList: []int64{100}}},
+		},
+	}
+	svc, repo, userRepo, _ := setupSync(t, client)
+	seedSyncUser(t, repo, userRepo, "u-1", "u1", "u1@c.com")
+	bind(t, repo, "ding-bound", "u-1", "已绑定")
+
+	run, err := svc.RunFullSync(ctx, SyncTriggerManual)
+	if err != nil {
+		t.Fatalf("RunFullSync: %v", err)
+	}
+	if run.TotalRemote != 2 {
+		t.Fatalf("total_remote = %d, want 2", run.TotalRemote)
+	}
+
+	contacts, err := repo.ListContacts(ctx)
+	if err != nil {
+		t.Fatalf("ListContacts: %v", err)
+	}
+	if len(contacts) != 2 {
+		t.Fatalf("snapshot should cover bound AND unbound users, got %d rows", len(contacts))
+	}
+	byID := map[string]Contact{}
+	for _, c := range contacts {
+		byID[c.DingUserID] = c
+	}
+	stranger, ok := byID["ding-stranger"]
+	if !ok {
+		t.Fatal("unbound user missing from contacts snapshot")
+	}
+	if stranger.Name != "陌生人" || stranger.JobNumber != "0007" || len(stranger.DeptIDList) != 1 {
+		t.Fatalf("stranger snapshot content wrong: %+v", stranger)
+	}
+	// 未绑定的人进快照但不建 identity（同步不为陌生人建号的语义不变）。
+	if _, err := repo.GetByDingUserID(ctx, "corp-1", "ding-stranger"); !errors.Is(err, ErrIdentityNotFound) {
+		t.Fatalf("unbound user must not get identity row, got %v", err)
+	}
+	syncedAt, err := repo.ContactsSyncedAt(ctx)
+	if err != nil || syncedAt == nil {
+		t.Fatalf("ContactsSyncedAt: %v %v", syncedAt, err)
+	}
+
+	// 第二次同步：陌生人离职 → 快照行消失；已绑定者的 identity 保留。
+	client.users[100] = []DeptUserDetail{}
+	if _, err := svc.RunFullSync(ctx, SyncTriggerManual); err != nil {
+		t.Fatalf("second RunFullSync: %v", err)
+	}
+	contacts, err = repo.ListContacts(ctx)
+	if err != nil || len(contacts) != 1 {
+		t.Fatalf("after departure: %v n=%d", err, len(contacts))
+	}
+	if contacts[0].DingUserID != "ding-bound" {
+		t.Fatalf("wrong survivor: %+v", contacts[0])
+	}
+	if _, err := repo.GetByDingUserID(ctx, "corp-1", "ding-bound"); err != nil {
+		t.Fatalf("bound identity must survive: %v", err)
+	}
+}

@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 
+	"github.com/Tencent/WeKnora/internal/dingtalk"
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
@@ -26,6 +27,11 @@ type UserService interface {
 	// auth.default_tenant_mode). The response reuses OIDCCallbackResponse so
 	// the frontend callback handling is shared with the OIDC flow.
 	LoginWithDingTalk(ctx context.Context, authCode string, provisioning types.TenantProvisioningMode) (*types.OIDCCallbackResponse, error)
+	// EnsureDingTalkUser resolves a DingTalk profile to a local account for
+	// org batch import (same merge rules as login: binding by real
+	// ding_user_id, then union_id with "union:" placeholder upgrade in place,
+	// then email merge, else auto-provision). Returns (user, created, err).
+	EnsureDingTalkUser(ctx context.Context, profile *dingtalk.DingTalkUserProfile, provisioning types.TenantProvisioningMode) (*types.User, bool, error)
 	// GetUserByID gets a user by ID
 	GetUserByID(ctx context.Context, id string) (*types.User, error)
 	// GetUsersByIDs batch-fetches users by id, returning a map keyed by

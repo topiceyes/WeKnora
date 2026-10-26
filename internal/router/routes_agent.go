@@ -222,6 +222,26 @@ func RegisterOrganizationRoutes(r *gin.RouterGroup, orgHandler *handler.Organiza
 	g.apiKeyRoute(r, http.MethodPost, "/shared-agents/disabled", apiKeyManageSpaces(apiKeyFullAccess()), g.Admin(), orgHandler.SetSharedAgentDisabledByMe)
 }
 
+// RegisterOrganizationDingTalkRoutes 注册组织级钉钉通讯录浏览/批量导入端点
+// （二开 fork 新增）。h 为 nil（dingtalk_auth.enable 关闭，container 不构造）
+// 时跳过注册，与 RegisterDingTalkAdminRoutes 的 nil-skip 惯例一致。
+// 与 /organizations 主组同款 apiKeyManageSpaces 能力策略 + Admin() 闸门；
+// service 层另有 IsTenantOrgAdmin 双重校验。
+func RegisterOrganizationDingTalkRoutes(r *gin.RouterGroup, h *handler.OrgDingTalkHandler, g *rbacGuards) {
+	if h == nil {
+		return
+	}
+	orgs := g.apiKeyGroup(r.Group("/organizations"), apiKeyManageSpaces(apiKeyFullAccess()))
+	{
+		// 钉钉部门树（本地快照）— Admin+
+		orgs.GET("/:id/dingtalk/departments", g.Admin(), h.ListDepartments)
+		// 钉钉通讯录快照（可按部门/关键词过滤，逐行标注本地状态）— Admin+
+		orgs.GET("/:id/dingtalk/contacts", g.Admin(), h.ListContacts)
+		// 批量导入（未注册者自动建号）— Admin+
+		orgs.POST("/:id/dingtalk/import", g.Admin(), h.ImportMembers)
+	}
+}
+
 // RegisterEmbedPublicRoutes registers anonymous embed endpoints secured by publish tokens.
 func RegisterEmbedPublicRoutes(
 	r *gin.Engine,

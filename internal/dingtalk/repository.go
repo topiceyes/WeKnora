@@ -186,6 +186,97 @@ func (r *Repository) ListDepartments(ctx context.Context) ([]Department, error) 
 }
 
 // ---------------------------------------------------------------------------
+// Contact 通讯录全员快照
+// ---------------------------------------------------------------------------
+
+// ReplaceContacts 全量替换某企业的通讯录快照（事务内 delete + insert）。
+// 与 ReplaceDepartments 同理：人员量级几百行，整批替换最简单也最正确——
+// 离职/调岗在下一次同步后自然消失或更新。调用方（sync）负责在拉取成功后
+// 才调到这里，接口异常返回空集不会误清。remote 是 fetchRemoteUsers 按
+// dingUserID 去重后的 map。
+func (r *Repository) ReplaceContacts(ctx context.Context, corpID string, remote map[string]*DeptUserDetail) error {
+	if len(remote) == 0 {
+		return r.db.WithContext(ctx).
+			Where("corp_id = ?", corpID).
+			Delete(&Contact{}).Error
+	}
+	now := time.Now()
+	rows := make([]Contact, 0, len(remote))
+	for dingUserID, du := range remote {
+		rows = append(rows, Contact{
+			CorpID:       corpID,
+			DingUserID:   dingUserID,
+			UnionID:      du.UnionID,
+			Name:         du.Name,
+			Mobile:       du.Mobile,
+			Email:        du.Email,
+			Title:        du.Title,
+			JobNumber:    du.JobNumber,
+			DeptIDList:   Int64List(du.DeptIDList),
+			LastSyncedAt: now,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		})
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("corp_id = ?", corpID).Delete(&Contact{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&rows).Error
+	})
+}
+
+// ListContacts 全量读快照（不过滤 corp_id，与 ListDepartments 同理）。
+// 部门/关键词过滤在 service 层用 Go 做，避开 PG 与 sqlite 的 jsonb 方言差异。
+func (r *Repository) ListContacts(ctx context.Context) ([]Contact, error) {
+	var out []Contact
+	err := r.db.WithContext(ctx).
+		Order("ding_user_id ASC").
+		Find(&out).Error
+	return out, err
+}
+
+// ContactsSyncedAt 返回快照最近同步时间（全量替换语义下全表同一时刻，
+// 取任意一行即可），空表返回 nil。
+func (r *Repository) ContactsSyncedAt(ctx context.Context) (*time.Time, error) {
+	// 不用 MAX 聚合：sqlite 会把 DATETIME 的 MAX 当字符串返回，驱动扫不进
+	// 时间类型；取最新一行是方言无关的写法。Find 空表不报错。
+	var c Contact
+	err := r.db.WithContext(ctx).
+		Select("last_synced_at").
+		Order("last_synced_at DESC").
+		Limit(1).
+		Find(&c).Error
+	if err != nil {
+		return nil, err
+	}
+	if c.LastSyncedAt.IsZero() {
+		return nil, nil
+	}
+	return &c.LastSyncedAt, nil
+}
+
+// IdentityWithTenant 绑定 + 本地账号所属空间/用户名的投影，
+// 供组织浏览器逐行标状态与导入时查成员关系。
+type IdentityWithTenant struct {
+	Identity
+	UserTenantID uint64 `gorm:"column:user_tenant_id"`
+	Username     string `gorm:"column:username"`
+}
+
+// ListIdentitiesWithTenant 返回某企业所有绑定记录连同用户的 tenant_id/username。
+func (r *Repository) ListIdentitiesWithTenant(ctx context.Context, corpID string) ([]*IdentityWithTenant, error) {
+	var out []*IdentityWithTenant
+	err := r.db.WithContext(ctx).
+		Table("user_dingtalk_identities AS i").
+		Select("i.*, u.tenant_id AS user_tenant_id, u.username AS username").
+		Joins("JOIN users u ON u.id = i.user_id").
+		Where("i.corp_id = ? AND i.deleted_at IS NULL AND u.deleted_at IS NULL", corpID).
+		Scan(&out).Error
+	return out, err
+}
+
+// ---------------------------------------------------------------------------
 // SyncRun 同步记录
 // ---------------------------------------------------------------------------
 

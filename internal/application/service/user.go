@@ -692,6 +692,91 @@ func (s *userService) mergeDingTalkUser(
 	return user, true, nil
 }
 
+// EnsureDingTalkUser 把钉钉用户资料解析成本地账号（组织批量导入的建号入口，
+// 合并规则与 mergeDingTalkUser 一致，查找顺序适配导入路径持有真实
+// ding_user_id 的事实）：
+//  1. 绑定表按 ding_user_id 命中 → 取绑定的本地账号；
+//  2. 按 unionId 命中 → 取绑定账号；命中的是 "union:" 占位记录且本次持有
+//     真实 userid 时，走主键 Update 原地升级（绝不用 BindToUser/Upsert：
+//     占位 ding_user_id 被替换后 Upsert 的匹配键会 miss，user_id 唯一
+//     索引会拒掉新行——与 sync 的 repairPlaceholder 同一写法）；
+//  3. 未命中则按邮箱找既有账号 → 命中则建立绑定（账号合并）；
+//  4. 都未命中 → provisionDingTalkUser 自动注册（随机密码、仅钉钉登录、
+//     建个人空间、绑定身份、可选默认空间 viewer）。
+//
+// 返回值为 (本地用户, 是否新建, 错误)。
+func (s *userService) EnsureDingTalkUser(
+	ctx context.Context,
+	profile *dingtalk.DingTalkUserProfile,
+	provisioning types.TenantProvisioningMode,
+) (*types.User, bool, error) {
+	if profile == nil || strings.TrimSpace(profile.DingUserID) == "" {
+		return nil, false, errors.New("dingtalk profile with real ding_user_id is required")
+	}
+	if s.dingtalkRepo == nil {
+		return nil, false, errors.New("DingTalk integration is disabled")
+	}
+
+	email := strings.TrimSpace(profile.Email)
+	if email == "" {
+		email = profile.UnionID + "@dingtalk.local"
+	}
+
+	identity, err := s.dingtalkRepo.GetByDingUserID(ctx, profile.CorpID, profile.DingUserID)
+	switch {
+	case err == nil && identity != nil:
+		user, uerr := s.userRepo.GetUserByID(ctx, identity.UserID)
+		if uerr != nil {
+			return nil, false, fmt.Errorf("failed to load dingtalk-bound user: %w", uerr)
+		}
+		return user, false, nil
+	case err != nil && !errors.Is(err, dingtalk.ErrIdentityNotFound):
+		return nil, false, fmt.Errorf("failed to query dingtalk identity: %w", err)
+	}
+
+	if profile.UnionID != "" {
+		identity, err = s.dingtalkRepo.GetByUnionID(ctx, profile.CorpID, profile.UnionID)
+		switch {
+		case err == nil && identity != nil:
+			user, uerr := s.userRepo.GetUserByID(ctx, identity.UserID)
+			if uerr != nil {
+				return nil, false, fmt.Errorf("failed to load dingtalk-bound user: %w", uerr)
+			}
+			if strings.HasPrefix(identity.DingUserID, "union:") {
+				identity.DingUserID = profile.DingUserID
+				identity.Nick = profile.Nick
+				identity.Mobile = profile.Mobile
+				identity.Email = email
+				identity.JobNumber = profile.JobNumber
+				if uerr := s.dingtalkRepo.Update(ctx, identity); uerr != nil {
+					return nil, false, fmt.Errorf("failed to upgrade placeholder dingtalk identity: %w", uerr)
+				}
+			}
+			return user, false, nil
+		case err != nil && !errors.Is(err, dingtalk.ErrIdentityNotFound):
+			return nil, false, fmt.Errorf("failed to query dingtalk identity: %w", err)
+		}
+	}
+
+	user, err := s.userRepo.GetUserByEmail(ctx, email)
+	if err != nil && !isUserLookupNotFound(err) {
+		return nil, false, fmt.Errorf("failed to query user by email: %w", err)
+	}
+	if err == nil && user != nil {
+		if berr := s.dingtalkRepo.BindToUser(ctx, profile.CorpID, profile.DingUserID,
+			profile.UnionID, user.ID, profile.Nick, profile.Mobile, email); berr != nil {
+			return nil, false, fmt.Errorf("failed to bind dingtalk identity: %w", berr)
+		}
+		return user, false, nil
+	}
+
+	user, err = s.provisionDingTalkUser(ctx, profile, email, provisioning)
+	if err != nil {
+		return nil, false, err
+	}
+	return user, true, nil
+}
+
 // provisionDingTalkUser 为首次钉钉登录自动创建本地账号（结构照抄
 // provisionOIDCUser）。注册后额外建立钉钉身份绑定；若配置了
 // dingtalk_auth.default_tenant_id，再把新账号加为该空间的 viewer（best-effort，

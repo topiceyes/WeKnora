@@ -79,6 +79,42 @@ const (
 	SyncStatusFailed  = "failed"
 )
 
+// Contact 钉钉通讯录全员快照（dingtalk_contacts）的 GORM model。
+// 每日同步全量替换，覆盖全员（含未注册者）——与 Identity 表只覆盖已绑定
+// 账号不同。供共享空间「从钉钉组织架构添加」浏览挑选；导入时才建号并回填
+// identity。ding_user_id 只存真实企业内部 userid，永不存 "union:" 占位。
+type Contact struct {
+	CorpID       string    `gorm:"column:corp_id;size:128;primaryKey"       json:"corp_id"`
+	DingUserID   string    `gorm:"column:ding_user_id;size:128;primaryKey"  json:"ding_user_id"`
+	UnionID      string    `gorm:"column:union_id;size:128"                 json:"union_id"`
+	Name         string    `gorm:"column:name;size:255"                     json:"name"`
+	Mobile       string    `gorm:"column:mobile;size:64"                    json:"mobile"`
+	Email        string    `gorm:"column:email;size:255"                    json:"email"`
+	Title        string    `gorm:"column:title;size:255"                    json:"title"`
+	JobNumber    string    `gorm:"column:job_number;size:64"                json:"job_number"`
+	DeptIDList   Int64List `gorm:"column:dept_id_list;type:jsonb"           json:"dept_id_list"`
+	LastSyncedAt time.Time `gorm:"column:last_synced_at"                    json:"last_synced_at"`
+	CreatedAt    time.Time `gorm:"column:created_at"                        json:"created_at"`
+	UpdatedAt    time.Time `gorm:"column:updated_at"                        json:"updated_at"`
+}
+
+// TableName 通讯录快照表名。
+func (Contact) TableName() string { return "dingtalk_contacts" }
+
+// ToProfile 从快照行构造登录编排同形的用户资料，供导入时建号复用
+// （provisionDingTalkUser 路径）。Title 不在 DingTalkUserProfile 里，丢弃。
+func (c *Contact) ToProfile() *DingTalkUserProfile {
+	return &DingTalkUserProfile{
+		UnionID:    c.UnionID,
+		DingUserID: c.DingUserID,
+		CorpID:     c.CorpID,
+		Nick:       c.Name,
+		Mobile:     c.Mobile,
+		Email:      c.Email,
+		JobNumber:  c.JobNumber,
+	}
+}
+
 // Int64List JSONB 部门 id 列表，实现 driver.Valuer / sql.Scanner 兼容 PG 与 SQLite。
 type Int64List []int64
 

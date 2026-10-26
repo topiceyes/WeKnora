@@ -783,3 +783,98 @@ export async function inviteMember(
     return { success: false, message: error.message || 'Failed to invite member' }
   }
 }
+
+// ---------------------------------------------------------------------------
+// 从钉钉组织架构批量添加成员（dingtalk_auth.enable 时可用）
+// ---------------------------------------------------------------------------
+
+/** 钉钉部门平铺行（本地每日同步快照，根部门不落库） */
+export interface OrgDingTalkDepartment {
+  dept_id: number
+  name: string
+  parent_id: number
+}
+
+/** 钉钉联系人（本地通讯录快照 + 本组织内状态标注） */
+export interface OrgDingTalkContact {
+  corp_id: string
+  ding_user_id: string
+  union_id: string
+  name: string
+  mobile: string
+  email: string
+  title: string
+  job_number: string
+  dept_id_list: number[]
+  /** unregistered=无本地账号（导入时自动建号）/ registered=已注册未加入 / already_member=已加入 */
+  state: 'unregistered' | 'registered' | 'already_member'
+  user_id?: string
+  username?: string
+}
+
+/** 批量导入的逐项结果（部分成功是设计，HTTP 恒 200） */
+export interface OrgDingTalkImportResultItem {
+  ding_user_id: string
+  name: string
+  status: 'added' | 'already_member' | 'error'
+  user_id?: string
+  tenant_id?: number
+  error?: string
+}
+
+export interface OrgDingTalkImportResponse {
+  results: OrgDingTalkImportResultItem[]
+  summary: { added: number; already_member: number; failed: number }
+}
+
+/**
+ * List locally synced DingTalk departments for the org import dialog
+ * (org admin only). Root dept is not persisted; frontend renders a virtual root.
+ */
+export async function listOrgDingTalkDepartments(
+  orgId: string
+): Promise<ApiResponse<{ departments: OrgDingTalkDepartment[]; synced_at?: string }>> {
+  try {
+    const response = await get(`/api/v1/organizations/${orgId}/dingtalk/departments`)
+    return response as unknown as ApiResponse<{ departments: OrgDingTalkDepartment[]; synced_at?: string }>
+  } catch (error: any) {
+    return { success: false, message: error.message || 'Failed to list DingTalk departments' }
+  }
+}
+
+/**
+ * List DingTalk contacts from the local snapshot (org admin only).
+ * deptId 0/1 = whole company (root never appears in dept_id_list).
+ */
+export async function listOrgDingTalkContacts(
+  orgId: string,
+  params: { deptId?: number; keyword?: string } = {}
+): Promise<ApiResponse<{ contacts: OrgDingTalkContact[]; synced_at?: string }>> {
+  const query = new URLSearchParams()
+  if (params.deptId) query.set('dept_id', String(params.deptId))
+  if (params.keyword) query.set('keyword', params.keyword)
+  const qs = query.toString()
+  try {
+    const response = await get(`/api/v1/organizations/${orgId}/dingtalk/contacts${qs ? `?${qs}` : ''}`)
+    return response as unknown as ApiResponse<{ contacts: OrgDingTalkContact[]; synced_at?: string }>
+  } catch (error: any) {
+    return { success: false, message: error.message || 'Failed to list DingTalk contacts' }
+  }
+}
+
+/**
+ * Batch-import DingTalk contacts as organization members (org admin only).
+ * Unregistered contacts get auto-provisioned accounts (DingTalk-scan-only login).
+ * Per-item outcomes in data.results; the HTTP status stays 200 for partial success.
+ */
+export async function importOrgDingTalkMembers(
+  orgId: string,
+  req: { ding_user_ids: string[]; role: 'viewer' | 'editor' | 'admin' }
+): Promise<ApiResponse<OrgDingTalkImportResponse>> {
+  try {
+    const response = await post(`/api/v1/organizations/${orgId}/dingtalk/import`, req)
+    return response as unknown as ApiResponse<OrgDingTalkImportResponse>
+  } catch (error: any) {
+    return { success: false, message: error.message || 'Failed to import DingTalk members' }
+  }
+}

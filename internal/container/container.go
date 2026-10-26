@@ -684,6 +684,9 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	// 时构建 SyncService 并提供管理 handler（未启用时返回 nil，路由层
 	// nil-skip）；sync_enable 时额外启动每日 cron 调度器。
 	must(container.Provide(wireDingTalkSync))
+	// 组织级钉钉通讯录浏览/批量导入（二开 fork 新增）：同样在
+	// dingtalk_auth.enable 时构建，未启用 nil-skip。
+	must(container.Provide(wireDingTalkOrgImport))
 	must(container.Provide(router.NewRouter))
 	if redisAvailable {
 		must(container.Invoke(router.RunAsynqServer))
@@ -2203,4 +2206,25 @@ func wireDingTalkSync(
 		}
 	}
 	return handler.NewDingTalkAdminHandler(syncService, repo)
+}
+
+// wireDingTalkOrgImport 构建组织级钉钉通讯录浏览/批量导入 handler
+// （二开 fork 新增）。未启用 dingtalk_auth 时返回 nil，路由层
+// RegisterOrganizationDingTalkRoutes 会 nil-skip。复用 dingtalk 绑定表
+// repo（快照方法在同一仓储上）；UserService 提供 EnsureDingTalkUser
+// 建号能力（其钉钉依赖由 wireDingTalkLogin 先行注入——dig 保证
+// Invoke(wireDingTalkLogin) 先于本 Provide 的消费方构建）。
+func wireDingTalkOrgImport(
+	cfg *config.Config,
+	db *gorm.DB,
+	us interfaces.UserService,
+	orgService interfaces.OrganizationService,
+	systemSettingSvc interfaces.SystemSettingService,
+) *handler.OrgDingTalkHandler {
+	if cfg == nil || cfg.DingTalkAuth == nil || !cfg.DingTalkAuth.Enable {
+		return nil
+	}
+	repo := dingtalkauth.NewRepository(db)
+	importSvc := service.NewDingTalkOrgImportService(repo, us, orgService, cfg.DingTalkAuth.CorpID)
+	return handler.NewOrgDingTalkHandler(importSvc, cfg, systemSettingSvc)
 }

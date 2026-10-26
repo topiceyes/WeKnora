@@ -381,6 +381,20 @@
                   </div>
                 </template>
               </t-popup>
+              <!-- 从钉钉组织架构批量导入（dingtalk_auth 启用 + 管理员才可见） -->
+              <t-button
+                v-if="dingtalkImportEnabled"
+                theme="primary"
+                variant="outline"
+                shape="square"
+                size="small"
+                class="members-list-add-btn"
+                :title="$t('organization.dingtalkImport.button')"
+                :aria-label="$t('organization.dingtalkImport.button')"
+                @click="dingtalkImportVisible = true"
+              >
+                <template #icon><t-icon name="usergroup-add" /></template>
+              </t-button>
             </div>
           </div>
 
@@ -745,6 +759,13 @@
         {{ isCreateMode ? $t('common.create') : $t('common.save') }}
       </t-button>
     </template>
+    <!-- 从钉钉组织架构批量添加成员（独立于「添加成员」popup 的入口） -->
+    <DingTalkImportDialog
+      v-if="props.orgId"
+      v-model:visible="dingtalkImportVisible"
+      :org-id="props.orgId"
+      @done="fetchMembers"
+    />
   </SettingsModalShell>
 </template>
 
@@ -770,6 +791,8 @@ import {
 } from '@/api/organization'
 import { useOrganizationStore } from '@/stores/organization'
 import { useAuthStore } from '@/stores/auth'
+import { getDingTalkConfig } from '@/api/auth'
+import DingTalkImportDialog from './DingTalkImportDialog.vue'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import agentIconSrc from '@/assets/img/agent.svg'
 import agentIconActiveSrc from '@/assets/img/agent-green.svg'
@@ -907,6 +930,25 @@ const addMemberRoleOptions = computed(() => [
   { label: t('organization.role.editor'), value: 'editor' },
   { label: t('organization.role.admin'), value: 'admin' },
 ])
+
+// 从钉钉组织架构批量导入：入口可见性 = 管理员 ∩ 钉钉集成启用。
+// dingtalkEnabled 在弹窗打开时拉一次 /auth/dingtalk/config（公开端点）。
+const dingtalkImportVisible = ref(false)
+const dingtalkEnabled = ref(false)
+let dingtalkConfigLoaded = false
+const dingtalkImportEnabled = computed(
+  () => isAdmin.value && dingtalkEnabled.value && !!props.orgId && !isCreateMode.value
+)
+const ensureDingTalkConfig = async () => {
+  if (dingtalkConfigLoaded) return
+  dingtalkConfigLoaded = true
+  try {
+    const resp = await getDingTalkConfig()
+    dingtalkEnabled.value = !!(resp.success && resp.enabled)
+  } catch {
+    dingtalkEnabled.value = false
+  }
+}
 
 // 空间搜索结果选项。成员单位是空间，只按空间名搜索，因此直接展示空间名；
 // 空间名缺失时回退到空间 ID。
@@ -1814,6 +1856,7 @@ watch(() => props.visible, (newVal) => {
       fetchOrgDetail()
       fetchMembers()
       fetchSharedKBs()
+      ensureDingTalkConfig()
     }
   } else {
     unlockBackgroundScroll()

@@ -515,6 +515,7 @@ func TestOrganizationRoutesDeclareManageSpacesCapability(t *testing.T) {
 	v1 := gin.New().Group("/api/v1")
 
 	RegisterOrganizationRoutes(v1, &handler.OrganizationHandler{}, g)
+	RegisterOrganizationDingTalkRoutes(v1, &handler.OrgDingTalkHandler{}, g)
 
 	cases := []struct {
 		method string
@@ -528,6 +529,9 @@ func TestOrganizationRoutesDeclareManageSpacesCapability(t *testing.T) {
 		{http.MethodPost, "/api/v1/organizations/:id/invite-code"},
 		{http.MethodGet, "/api/v1/organizations/:id/members"},
 		{http.MethodPut, "/api/v1/organizations/:id/members/:tenant_id"},
+		{http.MethodGet, "/api/v1/organizations/:id/dingtalk/departments"},
+		{http.MethodGet, "/api/v1/organizations/:id/dingtalk/contacts"},
+		{http.MethodPost, "/api/v1/organizations/:id/dingtalk/import"},
 		{http.MethodGet, "/api/v1/shared-knowledge-bases"},
 		{http.MethodGet, "/api/v1/shared-agents"},
 		{http.MethodPost, "/api/v1/shared-agents/disabled"},

@@ -15358,6 +15358,159 @@
                 }
             }
         },
+        "/organizations/{id}/dingtalk/contacts": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回本地每日同步的钉钉通讯录快照，逐行标注 state（unregistered/registered/already_member）；dept_id 为 0 或 1 时不过滤部门（全公司）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "组织管理"
+                ],
+                "summary": "钉钉通讯录快照（组织级）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "组织ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "部门ID（0/1=全公司）",
+                        "name": "dept_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "关键词（姓名/手机号/邮箱/工号）",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{success:true, data:{contacts:[DingTalkContactView], synced_at}}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/dingtalk/departments": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回本地每日同步的钉钉部门平铺列表（根部门不落库，前端虚拟「全公司」根节点），供组织成员管理的钉钉导入对话框渲染部门树",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "组织管理"
+                ],
+                "summary": "钉钉部门树（组织级）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "组织ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{success:true, data:{departments:[{dept_id,name,parent_id}], synced_at}}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
+        "/organizations/{id}/dingtalk/import": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "按 ding_user_ids 批量导入：已绑定账号直接拉入；未注册的自动建号（仅钉钉登录）后拉入；已是成员的跳过。逐项结果含 added/already_member/error",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "组织管理"
+                ],
+                "summary": "从钉钉组织架构批量导入成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "组织ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "导入信息（ding_user_ids 1-500 条，role viewer/editor/admin）",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.importOrgDingTalkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{success:true, data:{results:[{ding_user_id,name,status,user_id,tenant_id,error}], summary:{added,already_member,failed}}}",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/organizations/{id}/invite": {
             "post": {
                 "security": [
@@ -41046,6 +41199,24 @@
                 },
                 "sort_order": {
                     "type": "string"
+                }
+            }
+        },
+        "internal_handler.importOrgDingTalkRequest": {
+            "type": "object",
+            "required": [
+                "ding_user_ids",
+                "role"
+            ],
+            "properties": {
+                "ding_user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.OrgMemberRole"
                 }
             }
         },

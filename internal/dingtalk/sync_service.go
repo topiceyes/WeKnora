@@ -127,6 +127,13 @@ func (s *SyncService) RunFullSync(ctx context.Context, triggerType string) (*Syn
 		logger.Warnf(ctx, "DingTalk sync: persist departments failed: %v", err)
 	}
 
+	// 全员快照落库（dingtalk_contacts，含未绑定的人）——共享空间「从钉钉
+	// 组织架构添加」的浏览/导入数据源。与部门树同理 warn-only；只有拉取
+	// 成功后才走到这里，接口异常不会误清快照。
+	if err := s.repo.ReplaceContacts(ctx, s.corpID, remote); err != nil {
+		logger.Warnf(ctx, "DingTalk sync: persist contacts snapshot failed: %v", err)
+	}
+
 	created, updated := s.upsertRemoteUsers(ctx, remote)
 	deactivated, reconcileErr := s.reconcileDeparted(ctx, remote)
 

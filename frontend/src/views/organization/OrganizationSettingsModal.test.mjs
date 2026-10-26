@@ -35,3 +35,14 @@ test('organization settings lock and restore background scrolling', () => {
   assert.match(shellSource, /\.settings-overlay\s*\{[\s\S]*?overscroll-behavior: none;/)
   assert.match(source, /\.content-wrapper\s*\{[\s\S]*?overscroll-behavior: contain;/)
 })
+
+test('dingtalk import button is a separate admin-only entry wired to the dialog', () => {
+  // 独立按钮（不与现有添加成员 popup 合并），管理员 + 钉钉启用才可见
+  assert.match(source, /v-if="dingtalkImportEnabled"/)
+  assert.match(source, /const dingtalkImportEnabled = computed\(\s*\(\) => isAdmin\.value && dingtalkEnabled\.value && !!props\.orgId && !isCreateMode\.value\s*\)/)
+  // 弹窗打开时拉一次公开配置 /auth/dingtalk/config 决定可见性
+  assert.match(source, /getDingTalkConfig\(\)/)
+  assert.match(source, /fetchSharedKBs\(\)\s*\n\s*ensureDingTalkConfig\(\)/)
+  // 对话框挂载并回传刷新成员列表
+  assert.match(source, /<DingTalkImportDialog[\s\S]*?v-model:visible="dingtalkImportVisible"[\s\S]*?:org-id="props\.orgId"[\s\S]*?@done="fetchMembers"/)
+})

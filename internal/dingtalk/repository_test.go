@@ -18,7 +18,7 @@ func setupRepo(t *testing.T) *Repository {
 	// users 表手动建（只含本测试需要的字段）
 	if err := db.Exec(`CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(36) PRIMARY KEY,
-		username VARCHAR(100), email VARCHAR(255),
+		username VARCHAR(100), email VARCHAR(255), tenant_id INTEGER,
 		is_active BOOLEAN, is_system_admin BOOLEAN,
 		can_access_all_tenants BOOLEAN, deleted_at DATETIME)`).Error; err != nil {
 		t.Fatalf("create users: %v", err)
@@ -37,6 +37,9 @@ func setupRepo(t *testing.T) *Repository {
 	}
 	if err := db.AutoMigrate(&Department{}); err != nil {
 		t.Fatalf("migrate departments: %v", err)
+	}
+	if err := db.AutoMigrate(&Contact{}); err != nil {
+		t.Fatalf("migrate contacts: %v", err)
 	}
 	return NewRepository(db)
 }
@@ -264,5 +267,100 @@ func TestStaleRunningRunNotBlocking(t *testing.T) {
 	}
 	if runs[0].Status != SyncStatusFailed || runs[0].FinishedAt == nil || runs[0].ErrorMessage == "" {
 		t.Fatalf("stale run not failed-out: %+v", runs[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Contact 通讯录全员快照
+// ---------------------------------------------------------------------------
+
+func TestReplaceContactsFullReplace(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+
+	first := map[string]*DeptUserDetail{
+		"ding-1": {UserID: "ding-1", UnionID: "union-1", Name: "甲", Email: "a@c.com", DeptIDList: []int64{100}},
+		"ding-2": {UserID: "ding-2", UnionID: "union-2", Name: "乙", JobNumber: "0002", DeptIDList: []int64{100, 200}},
+	}
+	if err := r.ReplaceContacts(ctx, "corp-1", first); err != nil {
+		t.Fatalf("ReplaceContacts first: %v", err)
+	}
+	contacts, err := r.ListContacts(ctx)
+	if err != nil || len(contacts) != 2 {
+		t.Fatalf("ListContacts: %v n=%d", err, len(contacts))
+	}
+	if len(contacts[1].DeptIDList) != 2 {
+		t.Fatalf("dept_id_list round-trip broken: %+v", contacts[1].DeptIDList)
+	}
+
+	// 第二次全量替换：ding-2 离职消失，ding-1 资料更新。
+	second := map[string]*DeptUserDetail{
+		"ding-1": {UserID: "ding-1", UnionID: "union-1", Name: "甲改", Email: "a@c.com", DeptIDList: []int64{200}},
+	}
+	if err := r.ReplaceContacts(ctx, "corp-1", second); err != nil {
+		t.Fatalf("ReplaceContacts second: %v", err)
+	}
+	contacts, err = r.ListContacts(ctx)
+	if err != nil || len(contacts) != 1 {
+		t.Fatalf("after replace: %v n=%d", err, len(contacts))
+	}
+	if contacts[0].Name != "甲改" || len(contacts[0].DeptIDList) != 1 || contacts[0].DeptIDList[0] != 200 {
+		t.Fatalf("updated contact wrong: %+v", contacts[0])
+	}
+}
+
+func TestContactsSyncedAt(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+
+	ts, err := r.ContactsSyncedAt(ctx)
+	if err != nil {
+		t.Fatalf("ContactsSyncedAt empty: %v", err)
+	}
+	if ts != nil {
+		t.Fatalf("empty table should give nil synced_at, got %v", ts)
+	}
+
+	if err := r.ReplaceContacts(ctx, "corp-1", map[string]*DeptUserDetail{
+		"ding-1": {UserID: "ding-1", Name: "甲"},
+	}); err != nil {
+		t.Fatalf("ReplaceContacts: %v", err)
+	}
+	ts, err = r.ContactsSyncedAt(ctx)
+	if err != nil || ts == nil {
+		t.Fatalf("ContactsSyncedAt: %v ts=%v", err, ts)
+	}
+}
+
+func TestListIdentitiesWithTenant(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+
+	seedUser(t, r, "u-1", "zhangsan", "zs@c.com", true)
+	seedUser(t, r, "u-2", "lisi", "ls@c.com", true)
+	if err := r.db.Exec("UPDATE users SET tenant_id = ? WHERE id = ?", 1001, "u-1").Error; err != nil {
+		t.Fatalf("set tenant_id: %v", err)
+	}
+	if err := r.BindToUser(ctx, "corp-1", "ding-1", "union-1", "u-1", "张三", "", "zs@c.com"); err != nil {
+		t.Fatalf("BindToUser ding-1: %v", err)
+	}
+	if err := r.BindToUser(ctx, "corp-1", "ding-2", "union-2", "u-2", "李四", "", "ls@c.com"); err != nil {
+		t.Fatalf("BindToUser ding-2: %v", err)
+	}
+	// 软删的绑定不应出现。
+	if err := r.db.Exec("UPDATE user_dingtalk_identities SET deleted_at = ? WHERE ding_user_id = ?",
+		time.Now(), "ding-2").Error; err != nil {
+		t.Fatalf("soft delete identity: %v", err)
+	}
+
+	rows, err := r.ListIdentitiesWithTenant(ctx, "corp-1")
+	if err != nil {
+		t.Fatalf("ListIdentitiesWithTenant: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want 1 row (soft-deleted excluded), got %d", len(rows))
+	}
+	if rows[0].UserID != "u-1" || rows[0].UserTenantID != 1001 || rows[0].Username != "zhangsan" {
+		t.Fatalf("row projection wrong: %+v", rows[0])
 	}
 }

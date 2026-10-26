@@ -27,6 +27,8 @@ var ValidInviteCodeValidityDays = map[int]bool{0: true, 1: true, 7: true, 30: tr
 var (
 	ErrOrgNotFound           = errors.New("organization not found")
 	ErrOrgPermissionDenied   = errors.New("permission denied for this organization")
+	// ErrInvalidDingTalkImportBatch 批量导入的 ding_user_ids 为空或超上限。
+	ErrInvalidDingTalkImportBatch = errors.New("invalid dingtalk import batch size")
 	ErrCannotRemoveOwner     = errors.New("cannot remove organization owner tenant")
 	ErrCannotChangeOwnerRole = errors.New("cannot change organization owner tenant role")
 	ErrTenantNotInOrg        = errors.New("tenant is not a member of this organization")

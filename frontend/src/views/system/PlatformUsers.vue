@@ -162,6 +162,7 @@ import {
   type DingTalkIdentityRow,
   type DingTalkSyncRun,
 } from '@/api/system'
+import { buildDeptTree, type DeptNode } from '@/utils/dingtalkDept'
 
 const { t } = useI18n()
 
@@ -206,12 +207,6 @@ const fetchAllIdentities = async (keyword?: string): Promise<DingTalkIdentityRow
 // ---------------------------------------------------------------------------
 // 组织架构
 // ---------------------------------------------------------------------------
-interface DeptNode {
-  dept_id: number
-  name: string
-  parent_id: number
-  depth: number
-}
 
 const orgLoading = ref(false)
 const orgError = ref('')
@@ -222,34 +217,7 @@ const identitiesLoading = ref(false)
 const identityKeyword = ref('')
 const selectedDept = ref<number>(1)
 
-const orgTree = computed<DeptNode[]>(() => {
-  // 根部门（dept_id=1，钉钉默认的公司节点）作为树顶，其余按 parent_id 深度优先展开。
-  const byParent = new Map<number, number[]>()
-  for (const d of departments.value) {
-    const list = byParent.get(d.parent_id) ?? []
-    list.push(d.dept_id)
-    byParent.set(d.parent_id, list)
-  }
-  const names = new Map(departments.value.map((d) => [d.dept_id, d.name]))
-  const out: DeptNode[] = [{ dept_id: 1, name: t('platformUsers.companyRoot'), parent_id: 0, depth: 0 }]
-  const placed = new Set([1])
-  const walk = (parent: number, depth: number) => {
-    for (const id of byParent.get(parent) ?? []) {
-      out.push({ dept_id: id, name: names.get(id) || `#${id}`, parent_id: parent, depth })
-      placed.add(id)
-      walk(id, depth + 1)
-    }
-  }
-  walk(1, 1)
-  // 孤儿部门（parent 不在可见列表内，如应用通讯录权限被范围限定）直接
-  // 挂到根下，避免整棵子树不可见。
-  for (const d of departments.value) {
-    if (!placed.has(d.dept_id)) {
-      out.push({ dept_id: d.dept_id, name: d.name, parent_id: 1, depth: 1 })
-    }
-  }
-  return out
-})
+const orgTree = computed<DeptNode[]>(() => buildDeptTree(departments.value, t('platformUsers.companyRoot')))
 
 const deptNamesById = computed(() => new Map(departments.value.map((d) => [d.dept_id, d.name])))
 
