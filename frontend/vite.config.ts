@@ -111,7 +111,21 @@ export default defineConfig({
       },
       output: {
         manualChunks(id) {
+          // Vite 的 __vitePreload 辅助函数若被 Rollup 分进 vendor-mermaid，
+          // 任何含动态 import 的 chunk（如 KnowledgeBase）都会为拿这个
+          // helper 而静态引入 2.7MB 的 vendor-mermaid——钉到独立小 chunk。
+          if (id.includes('vite/preload-helper')) return 'preload-helper'
           if (!id.includes('node_modules')) return
+          // 这些库被首屏（tdesign/应用代码）和 mermaid 同时使用。不显式
+          // 分组时 Rollup 会把它们并入 vendor-mermaid，反向把 2.8MB 的
+          // vendor-mermaid 拖进首屏静态依赖——首屏 chunk 拆分因此失效。
+          if (
+            /[\\/](dayjs|dompurify|lodash-es|es-toolkit|uuid|stylis|internmap|ts-dedent|@braintree|@iconify)[\\/]/.test(
+              id,
+            )
+          ) {
+            return 'vendor-shared'
+          }
           if (id.includes('mermaid') || id.includes('/dagre') || id.includes('cytoscape')) {
             return 'vendor-mermaid'
           }

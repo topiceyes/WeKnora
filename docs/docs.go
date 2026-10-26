@@ -29730,6 +29730,12 @@ const docTemplate = `{
         "github_com_Tencent_WeKnora_internal_types.KnowledgeContentPayload": {
             "type": "object",
             "properties": {
+                "base_version": {
+                    "description": "BaseVersion is the optimistic-concurrency guard: the metadata.version the\neditor loaded (0 when the document had no edited content yet). A mismatch\nwith the persisted version fails with HTTP 409 and error.details\ncurrent_version, so the client can offer \"load latest\" vs \"overwrite\".\nnil skips the check (restore flow, plain API callers).",
+                    "type": "integer",
+                    "minimum": 0,
+                    "x-agent": true
+                },
                 "content": {
                     "description": "Full replacement Markdown content (not a diff).",
                     "type": "string",
@@ -29754,6 +29760,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "created_by": {
+                    "type": "string"
+                },
+                "creator_name": {
+                    "description": "CreatorName is resolved from CreatedBy at read time for display; it is\nnever persisted (gorm:\"-\"). API-key saves store CreatedBy = \"\" and stay\nnameless — the UI falls back to its \"unknown user\" label.",
                     "type": "string"
                 },
                 "id": {

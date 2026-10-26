@@ -2716,7 +2716,45 @@ func (h *KnowledgeHandler) ListKnowledgeContentVersions(c *gin.Context) {
 		return
 	}
 
+	enrichContentVersionCreatorNames(ctx, h.userSvc, versions)
+
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": versions})
+}
+
+// enrichContentVersionCreatorNames 把版本列表里的 created_by（用户 ID）批量解析
+// 成展示名，照搬 enrichKBCreatorNames：失败只 Warnf，不影响列表本身。
+func enrichContentVersionCreatorNames(ctx context.Context, userSvc interfaces.UserService, versions []*types.KnowledgeContentVersion) {
+	if userSvc == nil || len(versions) == 0 {
+		return
+	}
+	idSet := make(map[string]struct{}, len(versions))
+	for _, v := range versions {
+		if v.CreatedBy != "" {
+			idSet[v.CreatedBy] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	users, err := userSvc.GetUsersByIDs(ctx, ids)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve content version creator names: %v", err)
+		return
+	}
+	for _, v := range versions {
+		if v.CreatedBy == "" {
+			continue
+		}
+		u, ok := users[v.CreatedBy]
+		if !ok || u == nil {
+			continue
+		}
+		v.CreatorName = pickUserDisplayName(u)
+	}
 }
 
 // GetKnowledgeContentVersion godoc

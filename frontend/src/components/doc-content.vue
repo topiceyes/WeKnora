@@ -1,6 +1,5 @@
 <script setup lang="ts">
 // @ts-nocheck
-import mermaid from "mermaid";
 import { onMounted, ref, nextTick, onUnmounted, watch, computed } from "vue";
 import {
   downKnowledgeDetails, deleteGeneratedQuestion, getChunkByIdOnly, previewKnowledgeFile,
@@ -13,6 +12,7 @@ import { hydrateProtectedFileImages, isValidURL } from '@/utils/security';
 import { mergeChunks } from '@/utils/mergedContent';
 import { processMarkdown } from '@/utils/markdownPipeline';
 import { openMermaidFullscreen } from '@/utils/mermaidViewer';
+import { runMermaidOnDivs } from '@/utils/mermaidShared';
 import { diffWikiLines, type WikiDiffLine } from '@/utils/wikiLineDiff';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -203,34 +203,8 @@ const showSummarySection = computed(() =>
   || Boolean(props.details?.id && canEditContent.value),
 );
 
-// 初始化 Mermaid
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'strict',
-  fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif',
-  flowchart: {
-    useMaxWidth: true,
-    htmlLabels: true,
-    curve: 'basis'
-  },
-  sequence: {
-    useMaxWidth: true,
-    diagramMarginX: 8,
-    diagramMarginY: 8,
-    actorMargin: 50,
-    width: 150,
-    height: 65
-  },
-  gantt: {
-    useMaxWidth: true,
-    leftPadding: 75,
-    gridLineStartPadding: 35,
-    barHeight: 20,
-    barGap: 4,
-    topPadding: 50
-  }
-});
+// Mermaid 改经 mermaidShared 动态加载渲染（runMermaidOnDivs 内部完成初始化，
+// 主题/明暗变量统一管理），组件不再静态引入 vendor-mermaid 大包。
 const props = defineProps(["visible", "details", "knowledgeType", "sourceInfo", "canEditKB", "canDownloadKB", "parse_status", "kbId"]);
 const emit = defineEmits(["closeDoc", "getDoc", "questionDeleted", "summaryStateChange"]);
 const assistant = useAssistantStore();
@@ -695,13 +669,8 @@ watch(summaryStatusRefreshing, (refreshing) => {
 // 渲染 Mermaid 图表的函数
 const renderMermaidDiagrams = async () => {
   try {
-    const mermaidElements = getMarkdownRenderRoot()?.querySelectorAll('.mermaid');
-    console.log('[Mermaid] Found mermaid elements:', mermaidElements?.length);
-    if (mermaidElements && mermaidElements.length > 0) {
-      await mermaid.run({
-        nodes: mermaidElements
-      });
-      console.log('[Mermaid] Rendering complete');
+    const els = await runMermaidOnDivs(getMarkdownRenderRoot());
+    if (els.length > 0) {
       // 渲染完成后绑定点击事件
       nextTick(() => {
         bindMermaidClickEvents();

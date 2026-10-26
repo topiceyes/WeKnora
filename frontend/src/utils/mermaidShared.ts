@@ -290,3 +290,23 @@ export async function enhanceMarkdownContainer(
   await renderMermaidInContainer(rootElement)
   syncMermaidExpandButtons(rootElement)
 }
+
+// 渲染 root 下所有 .mermaid 占位 div（DocReader / doc-content 的阅读管线
+// 输出，markdownPipeline 把 ```mermaid fence 转成 <div class="mermaid">）。
+// 返回渲染后的节点列表，调用方可继续绑定点击全屏等交互。mermaid 经动态
+// import 加载——调用方（浏览模式）不在模块图中静态引入 vendor-mermaid。
+export const runMermaidOnDivs = async (
+  rootElement: HTMLElement | null | undefined,
+): Promise<HTMLElement[]> => {
+  const els = rootElement?.querySelectorAll<HTMLElement>('.mermaid')
+  if (!els || els.length === 0) return []
+  const mermaid = await getMermaid()
+  ensureMermaidInitialized()
+  await initPromise
+  try {
+    await mermaid.run({ nodes: els })
+  } catch (e) {
+    console.error('Mermaid rendering error:', e)
+  }
+  return Array.from(els)
+}

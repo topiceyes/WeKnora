@@ -4723,6 +4723,16 @@ definitions:
     type: object
   github_com_Tencent_WeKnora_internal_types.KnowledgeContentPayload:
     properties:
+      base_version:
+        description: |-
+          BaseVersion is the optimistic-concurrency guard: the metadata.version the
+          editor loaded (0 when the document had no edited content yet). A mismatch
+          with the persisted version fails with HTTP 409 and error.details
+          current_version, so the client can offer "load latest" vs "overwrite".
+          nil skips the check (restore flow, plain API callers).
+        minimum: 0
+        type: integer
+        x-agent: true
       content:
         description: Full replacement Markdown content (not a diff).
         type: string
@@ -4741,6 +4751,12 @@ definitions:
       created_at:
         type: string
       created_by:
+        type: string
+      creator_name:
+        description: |-
+          CreatorName is resolved from CreatedBy at read time for display; it is
+          never persisted (gorm:"-"). API-key saves store CreatedBy = "" and stay
+          nameless — the UI falls back to its "unknown user" label.
         type: string
       id:
         type: string

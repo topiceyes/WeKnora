@@ -56,7 +56,15 @@ func (s *knowledgeService) saveWithContentVersion(ctx context.Context,
 	err := s.contentVersionRepo.CreateWithKnowledgeUpdate(ctx, k, snapshot)
 	if err != nil {
 		if errors.Is(err, repository.ErrKnowledgeContentVersionConflict) {
-			return werrors.NewBadRequestError("保存冲突，请刷新后重试")
+			// Two saves raced past the CAS check and picked the same next
+			// version: the winner committed exactly `version`, so that is the
+			// current version to report. Loser rolls back entirely; the client
+			// can offer load-latest vs overwrite from these details.
+			return werrors.NewConflictError("文档已被他人修改，请加载最新内容后再保存").
+				WithDetails(map[string]any{
+					"reason":          "version_conflict",
+					"current_version": version,
+				})
 		}
 		return err
 	}

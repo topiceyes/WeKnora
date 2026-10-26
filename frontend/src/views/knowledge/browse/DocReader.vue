@@ -128,10 +128,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { MessagePlugin } from 'tdesign-vue-next'
-import mermaid from 'mermaid'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import {
   downKnowledgeDetails,
   getKnowledgeDetails,
@@ -144,14 +143,18 @@ import { mergeChunks } from '@/utils/mergedContent'
 import { processMarkdown } from '@/utils/markdownPipeline'
 import { hydrateProtectedFileImages } from '@/utils/security'
 import { openMermaidFullscreen } from '@/utils/mermaidViewer'
+import { runMermaidOnDivs } from '@/utils/mermaidShared'
 import { resolveFilePreviewExt, isKnownPreviewableExt } from '@/utils/filePreview'
 import { formatStringDate } from '@/utils/index'
 import { resolveKnowledgeDownloadFileName } from '../knowledgeDownloadFileName'
 import DocumentPreview from '@/components/document-preview.vue'
-import RichEditor from './RichEditor.vue'
-import VersionHistory from './VersionHistory.vue'
 import { browseDocIcon } from './docIcon'
 import type { OutlineItem } from './types'
+
+// 编辑器与版本历史是重依赖（tiptap / diff），首次使用时才拉 chunk，
+// KB 首屏不背这个包。
+const RichEditor = defineAsyncComponent(() => import('./RichEditor.vue'))
+const VersionHistory = defineAsyncComponent(() => import('./VersionHistory.vue'))
 
 const props = withDefaults(defineProps<{
   doc: KnowledgeTreeDocument | null
@@ -173,14 +176,6 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-
-// 与 doc-content.vue 相同的 mermaid 初始化（幂等，后调用覆盖先调用）。
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'strict',
-  fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif',
-})
 
 const detail = ref<any>(null)
 const markdown = ref('')
@@ -318,6 +313,9 @@ const editTitle = ref('')
 const editContent = ref('')
 const saving = ref(false)
 const relearning = ref(false)
+// 进入编辑时快照的 metadata.version（未编辑过的文档为 0），保存时作为
+// base_version 做乐观并发检测；后端不匹配返回 409。
+const editBaseVersion = ref(0)
 let relearnTimer: ReturnType<typeof setInterval> | null = null
 
 // 编辑入口只对「有权限 + 有正文 + 不在解析中」的文档开放；解析中的文档保存会
@@ -331,10 +329,17 @@ const canEditNow = computed(() => {
   return !isInFlightStatus(status)
 })
 
+// 从 detail.metadata 同步编辑基线版本：有编辑内容取 version，否则 0。
+const syncEditBaseVersion = () => {
+  const meta = parseMetadataObject(detail.value?.metadata)
+  editBaseVersion.value = meta?.content ? Number(meta?.version) || 1 : 0
+}
+
 const startEdit = () => {
   if (!canEditNow.value) return
   editTitle.value = detail.value?.title || props.doc?.title || ''
   editContent.value = markdown.value
+  syncEditBaseVersion()
   editing.value = true
 }
 
@@ -344,7 +349,40 @@ const cancelEdit = () => {
   editTitle.value = ''
 }
 
-const saveEdit = async () => {
+// 保存冲突（409）：让用户选「加载最新」还是「强制覆盖」。tdesign confirm 弹窗
+// 只有双按钮，cancel 槽位复用为破坏性的「强制覆盖」；直接关闭弹窗 = 什么都不
+// 做，继续在旧基线上编辑。
+const showSaveConflictDialog = (error: any) => {
+  const details = error?.error?.details || error?.details
+  const current = typeof details?.current_version === 'number' ? details.current_version : -1
+  const dialog = DialogPlugin.confirm({
+    header: t('knowledgeBase.browse.editor.conflictTitle'),
+    body: t('knowledgeBase.browse.editor.conflictBody', { ver: current >= 0 ? current : '?' }),
+    confirmBtn: t('knowledgeBase.browse.editor.conflictLoadLatest'),
+    cancelBtn: {
+      content: t('knowledgeBase.browse.editor.conflictOverwrite'),
+      theme: 'danger',
+      variant: 'outline',
+    },
+    theme: 'warning',
+    onConfirm: async () => {
+      dialog.destroy()
+      // 用最新内容替换编辑器并留在编辑模式；用户未保存的修改会被覆盖（文案已说明）。
+      await loadContent()
+      editTitle.value = detail.value?.title || props.doc?.title || ''
+      editContent.value = markdown.value
+      syncEditBaseVersion()
+      MessagePlugin.info(t('knowledgeBase.browse.editor.conflictLoaded'))
+    },
+    onCancel: () => {
+      dialog.destroy()
+      // 强制覆盖：不带 base_version 重发，以本地内容为准创建新版本。
+      void saveEditInner(false)
+    },
+  })
+}
+
+const saveEditInner = async (withCas: boolean) => {
   const doc = props.doc
   if (!doc || saving.value) return
   if (!editContent.value.trim()) return
@@ -354,23 +392,31 @@ const saveEdit = async () => {
     const result: any = await updateKnowledgeContent(doc.id, {
       title: title || undefined,
       content: editContent.value,
+      base_version: withCas ? editBaseVersion.value : undefined,
     })
     const data = result?.data
     if (!result?.success || !data) {
       throw new Error(result?.message || t('knowledgeBase.browse.saveFailed'))
     }
     detail.value = data
+    syncEditBaseVersion()
     markdown.value = parseMetadataObject(data.metadata)?.content || editContent.value
     editing.value = false
     MessagePlugin.success(t('knowledgeBase.browse.saveSuccess'))
     emit('doc-updated')
   } catch (error: any) {
+    if (withCas && error?.status === 409) {
+      showSaveConflictDialog(error)
+      return
+    }
     console.error('[DocReader] save failed', error)
     MessagePlugin.error(error?.message || t('knowledgeBase.browse.saveFailed'))
   } finally {
     saving.value = false
   }
 }
+
+const saveEdit = () => saveEditInner(true)
 
 // 恢复历史版本后：刷新详情与正文渲染，并通知父级刷新文档树（标题/标记可能变化）。
 const onRestored = async () => {
@@ -511,21 +557,14 @@ const runPostRender = async () => {
     props.kbId ? { mode: 'knowledgeBase', kbId: props.kbId } : undefined,
   )
 
-  // Mermaid：渲染并绑定点击全屏（与 doc-content.vue 行为一致）。
-  const mermaidEls = root.querySelectorAll<HTMLElement>('.mermaid')
-  if (mermaidEls.length > 0) {
-    try {
-      await mermaid.run({ nodes: mermaidEls })
-      mermaidEls.forEach((div) => {
-        const el = div as HTMLElement
-        el.style.cursor = 'pointer'
-        el.removeEventListener('click', handleMermaidClick)
-        el.addEventListener('click', handleMermaidClick)
-      })
-    } catch (error) {
-      console.error('[DocReader] Mermaid rendering error:', error)
-    }
-  }
+  // Mermaid：经 mermaidShared 动态加载渲染（主题/明暗变量统一由它管理），
+  // 渲染后绑定点击全屏（与 doc-content.vue 行为一致）。
+  const mermaidEls = await runMermaidOnDivs(root)
+  mermaidEls.forEach((el) => {
+    el.style.cursor = 'pointer'
+    el.removeEventListener('click', handleMermaidClick)
+    el.addEventListener('click', handleMermaidClick)
+  })
 
   onScroll()
 }

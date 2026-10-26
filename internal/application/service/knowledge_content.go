@@ -86,6 +86,23 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 		version = meta.Version + 1
 	}
 
+	// Optimistic concurrency (CAS): the persisted current version is version-1
+	// (0 for a never-edited document). A client that started editing from an
+	// older version must not silently clobber a newer save — reject with 409
+	// and tell it where the document actually is.
+	if payload.BaseVersion != nil {
+		if *payload.BaseVersion < 0 {
+			return nil, werrors.NewValidationError("base_version 不能为负数")
+		}
+		if *payload.BaseVersion != version-1 {
+			return nil, werrors.NewConflictError("文档已被他人修改，请加载最新内容后再保存").
+				WithDetails(map[string]any{
+					"reason":          "version_conflict",
+					"current_version": version - 1,
+				})
+		}
+	}
+
 	// Draft documents have never been indexed, so nothing can be stale yet;
 	// everything else gets the "待重建" marker until relearn runs.
 	indexStale := existing.ParseStatus != types.ManualKnowledgeStatusDraft

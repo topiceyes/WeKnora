@@ -2,8 +2,10 @@ package service
 
 import (
 	"fmt"
+	"net/http"
 	"testing"
 
+	werrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/require"
@@ -160,7 +162,14 @@ func TestContentVersionConflictRollsBack(t *testing.T) {
 		Title: "并发保存", Content: "冲突内容",
 	})
 	require.Error(t, err, "(knowledge_id, version) 冲突必须失败")
-	require.Contains(t, err.Error(), "冲突")
+	appErr, ok := err.(*werrors.AppError)
+	require.True(t, ok, "竞态冲突必须是 AppError（透传 409）")
+	require.Equal(t, werrors.ErrConflict, appErr.Code)
+	require.Equal(t, http.StatusConflict, appErr.HTTPCode)
+	details, ok := appErr.Details.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "version_conflict", details["reason"])
+	require.Equal(t, 1, details["current_version"], "赢家提交的就是失败方算出的同一个版本号")
 
 	stored := f.reload(t, "doc")
 	require.Equal(t, "原标题", stored.Title, "冲突时 knowledge 行一并回滚")
@@ -217,4 +226,67 @@ func TestContentVersionFirstEditOfPipelineDocIsV1(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, versions, 1)
 	require.Equal(t, 1, versions[0].Version)
+}
+
+func intPtr(v int) *int { return &v }
+
+// base_version 乐观并发：过期 base 必须 409 且不动 knowledge 行；匹配/缺省
+// base 正常保存。未编辑文档的期望 base 是 0。
+func TestUpdateKnowledgeContentCAS(t *testing.T) {
+	f := newKnowledgeContentFixture(t)
+	f.seed(t, &types.Knowledge{
+		ID: "doc", TenantID: 7, KnowledgeBaseID: "kb",
+		Type: "file", FileType: "pdf", FileName: "a.pdf", Title: "原标题",
+		ParseStatus: types.ParseStatusCompleted,
+	})
+
+	// 未编辑文档 base 0 → 首次编辑成 v1。
+	_, err := f.svc.UpdateKnowledgeContent(f.ctx, "doc", &types.KnowledgeContentPayload{
+		Content: "v1 内容", BaseVersion: intPtr(0),
+	})
+	require.NoError(t, err)
+
+	// base 仍是 0（过期，当前已是 v1）→ 409，行不动。
+	_, err = f.svc.UpdateKnowledgeContent(f.ctx, "doc", &types.KnowledgeContentPayload{
+		Content: "过期编辑", BaseVersion: intPtr(0),
+	})
+	appErr, ok := err.(*werrors.AppError)
+	require.True(t, ok, "CAS 冲突必须是 AppError")
+	require.Equal(t, werrors.ErrConflict, appErr.Code)
+	require.Equal(t, http.StatusConflict, appErr.HTTPCode)
+	details, ok := appErr.Details.(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "version_conflict", details["reason"])
+	require.Equal(t, 1, details["current_version"])
+	meta, mErr := f.reload(t, "doc").ManualMetadata()
+	require.NoError(t, mErr)
+	require.Equal(t, "v1 内容", meta.Content, "冲突保存不得改行")
+	require.Equal(t, 1, meta.Version)
+
+	// base 匹配（当前 v1）→ 保存成 v2。
+	_, err = f.svc.UpdateKnowledgeContent(f.ctx, "doc", &types.KnowledgeContentPayload{
+		Content: "v2 内容", BaseVersion: intPtr(1),
+	})
+	require.NoError(t, err)
+	meta, mErr = f.reload(t, "doc").ManualMetadata()
+	require.NoError(t, mErr)
+	require.Equal(t, 2, meta.Version)
+
+	// nil base（restore、普通 API 调用方）→ 跳过检查直接保存。
+	_, err = f.svc.UpdateKnowledgeContent(f.ctx, "doc", &types.KnowledgeContentPayload{
+		Content: "v3 内容",
+	})
+	require.NoError(t, err)
+	meta, mErr = f.reload(t, "doc").ManualMetadata()
+	require.NoError(t, mErr)
+	require.Equal(t, 3, meta.Version)
+
+	// 负数 base → 参数错误。
+	_, err = f.svc.UpdateKnowledgeContent(f.ctx, "doc", &types.KnowledgeContentPayload{
+		Content: "x", BaseVersion: intPtr(-1),
+	})
+	require.Error(t, err)
+	appErr, ok = err.(*werrors.AppError)
+	require.True(t, ok)
+	require.Equal(t, werrors.ErrValidation, appErr.Code)
 }

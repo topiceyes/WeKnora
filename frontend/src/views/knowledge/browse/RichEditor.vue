@@ -73,6 +73,23 @@
           <t-icon name="code" size="16px" />
         </button>
       </t-tooltip>
+      <t-tooltip :content="t('knowledgeBase.browse.editor.inlineMath')" placement="bottom">
+        <button type="button" class="rich-editor__btn rich-editor__btn--text"
+          :class="{ 'is-active': isActive('inlineMath') }" @click="insertInlineMath">
+          $x
+        </button>
+      </t-tooltip>
+      <t-tooltip :content="t('knowledgeBase.browse.editor.blockMath')" placement="bottom">
+        <button type="button" class="rich-editor__btn rich-editor__btn--text"
+          :class="{ 'is-active': isActive('blockMath') }" @click="insertBlockMath">
+          ∑
+        </button>
+      </t-tooltip>
+      <t-tooltip :content="t('knowledgeBase.browse.editor.diagram')" placement="bottom">
+        <button type="button" class="rich-editor__btn" @click="insertMermaid">
+          <t-icon name="chart" size="16px" />
+        </button>
+      </t-tooltip>
       <span class="rich-editor__divider" />
 
       <t-tooltip :content="t('knowledgeBase.browse.editor.table')" placement="bottom">
@@ -114,20 +131,54 @@
     <editor-content :editor="editor" class="rich-editor__content" />
     <input ref="imageInputRef" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,image/svg+xml,image/avif"
       style="display: none" @change="onImagePicked" />
+
+    <!-- 点击已渲染的公式 → 编辑 LaTeX 源码。用 v-if 控制挂载而不是
+         v-model 的动画关闭：连续编辑两个公式时（上一个还在关闭动画中），
+         tdesign 的动画状态机会把 .t-dialog__wrap 的 visibility 卡在
+         visible，透明层残留拦截住编辑器的保存按钮。v-if 关闭即卸载 DOM，
+         没有可中断的动画。 -->
+    <t-dialog
+      v-if="mathEdit.visible"
+      :visible="true"
+      :header="t('knowledgeBase.browse.editor.mathEditTitle')"
+      :footer="false"
+      width="520px"
+      @confirm="confirmMathEdit"
+      @close="mathEdit.visible = false"
+    >
+      <t-textarea
+        v-model="mathEdit.latex"
+        :autosize="{ minRows: 3, maxRows: 8 }"
+        :placeholder="t('knowledgeBase.browse.editor.mathEditPlaceholder')"
+        class="rich-editor__math-input"
+      />
+      <div class="rich-editor__math-actions">
+        <t-button size="small" @click="mathEdit.visible = false">
+          {{ t('common.cancel') }}
+        </t-button>
+        <t-button size="small" theme="primary" @click="confirmMathEdit">
+          {{ t('common.confirm') }}
+        </t-button>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { reactive, ref, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import { StarterKit } from '@tiptap/starter-kit'
 import { TaskList, TaskItem } from '@tiptap/extension-list'
 import { Image } from '@tiptap/extension-image'
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
 import { Markdown } from 'tiptap-markdown'
+import 'katex/dist/katex.min.css'
 import { uploadContentImage } from '@/api/knowledge-base'
+import { MermaidCodeBlock } from './MermaidCodeBlock'
+import { buildBlockMathExtension, buildInlineMathExtension } from './editorMathExtensions'
 
 const props = defineProps<{
   modelValue: string
@@ -141,6 +192,37 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+// ---------- 公式 / 图表 ----------
+
+// 点击已渲染公式 → 弹窗改 LaTeX 源码（pos 固定，update 就地替换 attrs）。
+const mathEdit = reactive({
+  visible: false,
+  kind: 'inline' as 'inline' | 'block',
+  latex: '',
+  pos: 0,
+})
+
+const openMathEditor = (kind: 'inline' | 'block', latex: string, pos: number) => {
+  mathEdit.kind = kind
+  mathEdit.latex = latex
+  mathEdit.pos = pos
+  mathEdit.visible = true
+}
+
+const confirmMathEdit = () => {
+  const e = editor.value
+  if (!e || !mathEdit.latex.trim()) {
+    mathEdit.visible = false
+    return
+  }
+  if (mathEdit.kind === 'block') {
+    e.chain().focus().updateBlockMath({ pos: mathEdit.pos, latex: mathEdit.latex }).run()
+  } else {
+    e.chain().focus().updateInlineMath({ pos: mathEdit.pos, latex: mathEdit.latex }).run()
+  }
+  mathEdit.visible = false
+}
+
 // 工具栏 active 状态依赖编辑器选区；tiptap 本身非响应式，用 nonce 触发重渲染。
 const stateNonce = ref(0)
 
@@ -150,7 +232,13 @@ const editor = useEditor({
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
       link: { openOnClick: false },
+      codeBlock: false, // 用带 mermaid NodeView 的版本替换
     }),
+    MermaidCodeBlock.configure({
+      parseErrorText: t('knowledgeBase.browse.editor.mermaidParseError'),
+    }),
+    buildBlockMathExtension(openMathEditor),
+    buildInlineMathExtension(openMathEditor),
     TaskList,
     TaskItem.configure({ nested: true }),
     Image,
@@ -206,6 +294,47 @@ const toggleHeading = (level: number) => {
 
 const insertTable = () => {
   editor.value?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+}
+
+// ---------- 公式 / 图表插入 ----------
+
+// 选中文本时把它当 LaTeX 预填；空选区给占位公式，插入后点击可改。
+const selectionLatex = (): string => {
+  const e = editor.value
+  if (!e) return ''
+  const { from, to, empty } = e.state.selection
+  if (empty) return ''
+  return e.state.doc.textBetween(from, to, '\n').trim()
+}
+
+// 官方 insertInlineMath/insertBlockMath 插入 atom 节点后会把选区留在节点上
+// （NodeSelection）——随后的 insertContent（如插 mermaid 块）会把这个节点
+// 整体替换掉。插入后把光标移到节点后面，继续打字/插入都落在公式之后。
+const moveSelectionPastNode = ({ tr, state }: any) => {
+  if (state.selection instanceof NodeSelection) {
+    tr.setSelection(TextSelection.create(state.doc, state.selection.to))
+  }
+  return true
+}
+
+const insertInlineMath = () => {
+  const latex = selectionLatex() || 'E=mc^2'
+  editor.value?.chain().focus().deleteSelection().insertInlineMath({ latex })
+    .command(moveSelectionPastNode).run()
+}
+
+const insertBlockMath = () => {
+  const latex = selectionLatex() || 'E=mc^2'
+  editor.value?.chain().focus().deleteSelection().insertBlockMath({ latex })
+    .command(moveSelectionPastNode).run()
+}
+
+const insertMermaid = () => {
+  editor.value?.chain().focus().insertContent({
+    type: 'codeBlock',
+    attrs: { language: 'mermaid' },
+    content: [{ type: 'text', text: 'flowchart TD\n  A --> B' }],
+  }).run()
 }
 
 // ---------- 链接 ----------
@@ -336,6 +465,19 @@ const onImagePicked = async (event: Event) => {
   width: 320px;
 }
 
+.rich-editor__math-input {
+  :deep(textarea) {
+    font-family: 'SF Mono', Consolas, Menlo, monospace;
+  }
+}
+
+.rich-editor__math-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .rich-editor__content {
   flex: 1;
   min-height: 0;
@@ -441,6 +583,67 @@ const onImagePicked = async (event: Event) => {
       border: 0;
       border-top: 1px solid var(--td-component-stroke);
       margin: 1.25em 0;
+    }
+
+    // 公式节点（@tiptap/extension-mathematics NodeView 渲染 KaTeX）
+    .tiptap-mathematics-render {
+      position: relative;
+
+      &.tiptap-mathematics-render--editable {
+        cursor: pointer;
+
+        &:hover {
+          outline: 1px dashed var(--td-brand-color);
+          border-radius: var(--app-radius-xs);
+        }
+      }
+
+      &.ProseMirror-selectednode {
+        outline: 2px solid var(--td-brand-color);
+        border-radius: var(--app-radius-xs);
+      }
+
+      &.block-math-error {
+        color: var(--td-error-color);
+        font-family: 'SF Mono', Consolas, Menlo, monospace;
+      }
+    }
+
+    div[data-type='block-math'] {
+      margin: 0.75em 0;
+      text-align: center;
+      overflow-x: auto;
+    }
+
+    span[data-type='inline-math'] .katex {
+      font-size: 1.05em;
+    }
+
+    // mermaid 代码块：预览在上、源码在下
+    div[data-code-block-wrap] {
+      display: flex;
+      flex-direction: column;
+
+      .rich-editor__mermaid-preview {
+        display: flex;
+        justify-content: center;
+        padding: 10px;
+        margin-bottom: 6px;
+        border-radius: var(--app-radius-sm);
+        background: var(--td-bg-color-secondarycontainer);
+        overflow-x: auto;
+
+        > svg {
+          max-width: 100%;
+          height: auto;
+        }
+
+        &--error {
+          justify-content: flex-start;
+          color: var(--td-error-color);
+          font-size: var(--app-text-xs);
+        }
+      }
     }
 
     a {

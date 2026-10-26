@@ -340,6 +340,12 @@ type KnowledgeContentPayload struct {
 	Title string `json:"title" extensions:"x-agent"`
 	// Full replacement Markdown content (not a diff).
 	Content string `json:"content" extensions:"x-agent,x-agent-required,x-agent-max-bytes=800000"`
+	// BaseVersion is the optimistic-concurrency guard: the metadata.version the
+	// editor loaded (0 when the document had no edited content yet). A mismatch
+	// with the persisted version fails with HTTP 409 and error.details
+	// current_version, so the client can offer "load latest" vs "overwrite".
+	// nil skips the check (restore flow, plain API callers).
+	BaseVersion *int `json:"base_version" minimum:"0" extensions:"x-agent"`
 }
 
 // KnowledgeMaxContentVersions caps how many content snapshots are kept per
@@ -361,6 +367,10 @@ type KnowledgeContentVersion struct {
 	Title           string    `json:"title"            gorm:"type:varchar(512)"`
 	Content         string    `json:"content,omitempty" gorm:"type:text"`
 	CreatedBy       string    `json:"created_by"       gorm:"type:varchar(64);default:''"`
+	// CreatorName is resolved from CreatedBy at read time for display; it is
+	// never persisted (gorm:"-"). API-key saves store CreatedBy = "" and stay
+	// nameless — the UI falls back to its "unknown user" label.
+	CreatorName     string    `json:"creator_name,omitempty" gorm:"-"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 

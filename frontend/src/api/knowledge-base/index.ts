@@ -664,8 +664,13 @@ export function reparseKnowledge(id: string, data?: { process_config?: Knowledge
   return post(`/api/v1/knowledge/${id}/reparse`, data);
 }
 
-// 保存在线编辑的 Markdown 内容（任意类型文档），标记 index_stale，不触发索引重建
-export function updateKnowledgeContent(id: string, data: { title?: string; content: string }) {
+// 保存在线编辑的 Markdown 内容（任意类型文档），标记 index_stale，不触发索引重建。
+// base_version 是编辑器加载时的 metadata.version（未编辑文档为 0）；不匹配时后端
+// 返回 409（error.code=1005，error.details.current_version 为真实当前版本）。
+export function updateKnowledgeContent(
+  id: string,
+  data: { title?: string; content: string; base_version?: number },
+) {
   return put(`/api/v1/knowledge/${id}/content`, data);
 }
 
@@ -688,6 +693,7 @@ export interface KnowledgeContentVersionSummary {
   version: number;
   title: string;
   created_by: string;
+  creator_name?: string;
   created_at: string;
 }
 
