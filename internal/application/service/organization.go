@@ -25,18 +25,18 @@ const DefaultMemberLimit = 200
 var ValidInviteCodeValidityDays = map[int]bool{0: true, 1: true, 7: true, 30: true}
 
 var (
-	ErrOrgNotFound           = errors.New("organization not found")
-	ErrOrgPermissionDenied   = errors.New("permission denied for this organization")
+	ErrOrgNotFound         = errors.New("organization not found")
+	ErrOrgPermissionDenied = errors.New("permission denied for this organization")
 	// ErrInvalidDingTalkImportBatch 批量导入的 ding_user_ids 为空或超上限。
 	ErrInvalidDingTalkImportBatch = errors.New("invalid dingtalk import batch size")
-	ErrCannotRemoveOwner     = errors.New("cannot remove organization owner tenant")
-	ErrCannotChangeOwnerRole = errors.New("cannot change organization owner tenant role")
-	ErrTenantNotInOrg        = errors.New("tenant is not a member of this organization")
-	ErrInvalidRole           = errors.New("invalid role")
-	ErrInviteCodeExpired     = errors.New("invite code has expired")
-	ErrInvalidValidityDays   = errors.New("invite_code_validity_days must be 0, 1, 7, or 30")
-	ErrOrgMemberLimitReached = errors.New("organization member limit reached")
-	ErrOrgMemberLimitTooLow  = errors.New("member limit cannot be lower than current member count")
+	ErrCannotRemoveOwner          = errors.New("cannot remove organization owner tenant")
+	ErrCannotChangeOwnerRole      = errors.New("cannot change organization owner tenant role")
+	ErrTenantNotInOrg             = errors.New("tenant is not a member of this organization")
+	ErrInvalidRole                = errors.New("invalid role")
+	ErrInviteCodeExpired          = errors.New("invite code has expired")
+	ErrInvalidValidityDays        = errors.New("invite_code_validity_days must be 0, 1, 7, or 30")
+	ErrOrgMemberLimitReached      = errors.New("organization member limit reached")
+	ErrOrgMemberLimitTooLow       = errors.New("member limit cannot be lower than current member count")
 )
 
 // organizationService implements OrganizationService.

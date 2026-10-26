@@ -359,19 +359,19 @@ const KnowledgeMaxContentVersions = 50
 // file/url documents is never snapshotted — their first online edit produces
 // version 1, and the original file stays the provenance snapshot.
 type KnowledgeContentVersion struct {
-	ID              string    `json:"id"               gorm:"type:varchar(36);primaryKey"`
-	TenantID        uint64    `json:"tenant_id"        gorm:"index"`
-	KnowledgeBaseID string    `json:"knowledge_base_id" gorm:"type:varchar(36);index"`
-	KnowledgeID     string    `json:"knowledge_id"     gorm:"type:varchar(36);uniqueIndex:idx_kcv_knowledge_version"`
-	Version         int       `json:"version"          gorm:"uniqueIndex:idx_kcv_knowledge_version"`
-	Title           string    `json:"title"            gorm:"type:varchar(512)"`
-	Content         string    `json:"content,omitempty" gorm:"type:text"`
-	CreatedBy       string    `json:"created_by"       gorm:"type:varchar(64);default:''"`
+	ID              string `json:"id"               gorm:"type:varchar(36);primaryKey"`
+	TenantID        uint64 `json:"tenant_id"        gorm:"index"`
+	KnowledgeBaseID string `json:"knowledge_base_id" gorm:"type:varchar(36);index"`
+	KnowledgeID     string `json:"knowledge_id"     gorm:"type:varchar(36);uniqueIndex:idx_kcv_knowledge_version"`
+	Version         int    `json:"version"          gorm:"uniqueIndex:idx_kcv_knowledge_version"`
+	Title           string `json:"title"            gorm:"type:varchar(512)"`
+	Content         string `json:"content,omitempty" gorm:"type:text"`
+	CreatedBy       string `json:"created_by"       gorm:"type:varchar(64);default:''"`
 	// CreatorName is resolved from CreatedBy at read time for display; it is
 	// never persisted (gorm:"-"). API-key saves store CreatedBy = "" and stay
 	// nameless — the UI falls back to its "unknown user" label.
-	CreatorName     string    `json:"creator_name,omitempty" gorm:"-"`
-	CreatedAt       time.Time `json:"created_at"`
+	CreatorName string    `json:"creator_name,omitempty" gorm:"-"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // TableName returns the table name for KnowledgeContentVersion.

@@ -165,9 +165,9 @@ func TestImportOnePerPath(t *testing.T) {
 	ctx := context.Background()
 	// 快照三人：已注册未入组 / 未注册 / 已入组。
 	if err := repo.ReplaceContacts(ctx, "corp-1", map[string]*dingtalk.DeptUserDetail{
-		"ding-reg":      {UserID: "ding-reg", UnionID: "union-reg", Name: "已注册", DeptIDList: []int64{100}},
-		"ding-new":      {UserID: "ding-new", UnionID: "union-new", Name: "新人", DeptIDList: []int64{100}},
-		"ding-member":   {UserID: "ding-member", UnionID: "union-member", Name: "老成员", DeptIDList: []int64{200}},
+		"ding-reg":    {UserID: "ding-reg", UnionID: "union-reg", Name: "已注册", DeptIDList: []int64{100}},
+		"ding-new":    {UserID: "ding-new", UnionID: "union-new", Name: "新人", DeptIDList: []int64{100}},
+		"ding-member": {UserID: "ding-member", UnionID: "union-member", Name: "老成员", DeptIDList: []int64{200}},
 	}); err != nil {
 		t.Fatalf("seed contacts: %v", err)
 	}
