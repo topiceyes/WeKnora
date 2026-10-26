@@ -76,13 +76,14 @@ export const openMermaidFullscreen = (svgHtml: string): void => {
   let dragStartTY = 0
   const STEP = 0.2
 
-  // 创建遮罩层
+  // 创建遮罩层（cssText 里属性名必须 kebab-case：zIndex/transformOrigin 这类
+  // camelCase 会被 CSS 解析器当未知属性静默丢弃，导致层级/缩放原点不生效）
   const overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;inset:0;zIndex:9999;background:rgba(0,0,0,0.65);overflow:hidden;cursor:grab;'
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.65);overflow:hidden;cursor:grab;'
 
   // 创建工具栏
   const toolbar = document.createElement('div')
-  toolbar.style.cssText = 'position:fixed;top:20px;right:20px;display:flex;gap:6px;zIndex:10001;'
+  toolbar.style.cssText = 'position:fixed;top:20px;right:20px;display:flex;gap:6px;z-index:10001;'
 
   const createBtn = (title: string, icon: string): HTMLButtonElement => {
     const btn = document.createElement('button')
@@ -104,7 +105,7 @@ export const openMermaidFullscreen = (svgHtml: string): void => {
 
   // 创建内容区域
   const content = document.createElement('div')
-  content.style.cssText = 'position:absolute;left:50%;top:50%;background:#fff;border-radius:12px;padding:32px;box-shadow:0 8px 32px rgba(0,0,0,0.2);transformOrigin:0 0;'
+  content.style.cssText = 'position:absolute;left:50%;top:50%;background:#fff;border-radius:12px;padding:32px;box-shadow:0 8px 32px rgba(0,0,0,0.2);transform-origin:0 0;'
   content.innerHTML = svgHtml
   const svgEl = content.querySelector('svg')
   if (svgEl) {
@@ -215,6 +216,7 @@ export const openMermaidFullscreen = (svgHtml: string): void => {
 
 /**
  * 为 Mermaid 图表绑定点击全屏事件
+ * 处理器引用挂在元素上，重复调用先移除旧闭包再挂新的，不叠监听器。
  */
 export const bindMermaidClickEvents = (container: HTMLElement): void => {
   if (!container) return
@@ -222,6 +224,8 @@ export const bindMermaidClickEvents = (container: HTMLElement): void => {
   mermaidDivs.forEach((div) => {
     const divEl = div as HTMLElement
     divEl.style.cursor = 'pointer'
+    const prev = (divEl as any)._mermaidClickHandler as ((e: Event) => void) | undefined
+    if (prev) divEl.removeEventListener('click', prev)
     const clickHandler = (e: Event) => {
       e.stopPropagation()
       e.preventDefault()
@@ -230,7 +234,7 @@ export const bindMermaidClickEvents = (container: HTMLElement): void => {
         openMermaidFullscreen(svg.outerHTML)
       }
     }
-    divEl.removeEventListener('click', clickHandler)
+    ;(divEl as any)._mermaidClickHandler = clickHandler
     divEl.addEventListener('click', clickHandler)
   })
 }
