@@ -418,7 +418,10 @@ services:
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     container_name: WeKnora-tei
-    command: --model-id /model --port 80 --max-client-batch-size 32
+    # --max-batch-tokens 限制单批 token 峰值（默认 16384 在批量回填时会
+    # 把内存顶到上限并被 OOMKill）；--max-client-batch-size 与 app 侧
+    # max_batch_size 对齐。
+    command: --model-id /model --port 80 --max-client-batch-size 8 --max-batch-tokens 8192
     expose:
       - "80"
     volumes:
@@ -426,7 +429,7 @@ services:
     environment:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - HF_HOME=/data
-    mem_limit: 8g
+    mem_limit: 16g
     # CPU 满载回填时 /health 可能排队数十秒，阈值放宽避免误判 unhealthy。
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/health"]
