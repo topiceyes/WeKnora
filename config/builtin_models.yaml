@@ -1,0 +1,20 @@
+# config/builtin_models.yaml — 声明式内置模型。
+# 本文件在 app 容器启动时自动重放到 models 表（is_builtin=true，对所有租户可见）；
+# 编辑后重启 app 即生效。从文件移除的条目不会自动从数据库删除，需手工清理。
+#
+# 生产环境由 docker-compose 的 tei 服务提供 bge-m3（BAAI/bge-m3，1024 维，
+# 最大 8192 token），app 经 OpenAI 兼容 /v1/embeddings 调用（generic provider）。
+# BGE 查询前缀由应用内置处理，无需在此配置。
+builtin_models:
+  - id: builtin-embedding-bge-m3
+    type: Embedding
+    source: remote
+    is_default: true
+    name: bge-m3
+    parameters:
+      base_url: http://tei:80/v1
+      api_key: tei-local # TEI 无鉴权；占位非空即可
+      provider: generic
+      embedding_parameters:
+        dimension: 1024
+        truncate_prompt_tokens: 8192

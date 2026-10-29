@@ -52,10 +52,9 @@ services:
       # 同时设 true 并挂载实际 socket——这等同宿主机 root，仅私有化单机。
       # 入口脚本会按 socket GID 把 appuser 加入对应组（compose group_add 在 gosu 后无效）。
       # - /var/run/docker.sock:/var/run/docker.sock
-      # Optional: declarative built-in models. Copy config/builtin_models.yaml.example
-      # to config/builtin_models.yaml, edit it for your deployment, then
-      # uncomment the line below. See website-docs/03-features/06-models.md.
-      # - ./config/builtin_models.yaml:/app/config/builtin_models.yaml:ro
+      # Declarative built-in models (see website-docs/03-features/06-models.md):
+      # config/builtin_models.yaml registers the TEI bge-m3 embedding service.
+      - ./config/builtin_models.yaml:/app/config/builtin_models.yaml:ro
       # Optional: model catalog overlay (extra vendors / model overrides).
       # Copy config/models.json.example to config/models.json, then
       # - ./config/models.json:/app/config/models.json:ro
@@ -402,6 +401,31 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # TEI 向量模型服务（bge-m3）：只被 app 在 WeKnora-network 内以 OpenAI 兼容
+  # /v1/embeddings 调用（generic provider），不向公网暴露。模型首次启动时经
+  # HF_ENDPOINT 镜像下载，缓存到 tei-data。8082 仅绑定本机，供 smoke test/调试。
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    container_name: WeKnora-tei
+    command: --model-id BAAI/bge-m3 --port 80
+    ports:
+      - "127.0.0.1:${TEI_PORT:-8082}:80"
+    volumes:
+      - tei-data:/data
+    environment:
+      - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
+      - HF_HOME=/data
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    networks:
+      - WeKnora-network
+    restart: unless-stopped
 
   # Sandbox 镜像：仅用于 build/pull，非常驻。Docker 沙箱默认关闭，需
   # WEKNORA_SANDBOX_DOCKER_ENABLED=true 并挂载 docker.sock 后，app 才会按会话创建容器。
@@ -1067,6 +1091,7 @@ volumes:
   postgres-data:
   data-files:
   docreader-tmp:
+  tei-data:
   minio_data:
   neo4j-data:
   qdrant_data:
