@@ -412,12 +412,15 @@ services:
   # 注意：app 对模型 base_url 做 SSRF 校验，私网主机名需在 .env 配置
   #   SSRF_WHITELIST_EXTRA=tei
   #（与 qdrant/milvus 等内置放行项同机制，追加合并，不覆盖默认值）。
+  # 注意：不要向宿主机发布端口——本机 8082 被宝塔 nginx 用作 WeKnora 反代
+  #（m-wiki.moresec.cn / :1800 → 127.0.0.1:1801 链路历史占用），调试请
+  #   docker exec WeKnora-app curl http://tei:80/health
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     container_name: WeKnora-tei
     command: --model-id /model --port 80 --max-client-batch-size 32
-    ports:
-      - "127.0.0.1:${TEI_PORT:-8082}:80"
+    expose:
+      - "80"
     volumes:
       - ./tei-model/bge-m3:/model:ro
     environment:
