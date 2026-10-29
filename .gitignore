@@ -63,3 +63,6 @@ miniprogram/project.private.config.json
 
 # Locally built BrowserSkill runtime and extension bundles
 /artifacts/browserskill/
+
+# TEI bge-m3 预下载权重（ModelScope，约2.3GB，见 docker-compose.yml tei 服务）
+/tei-model/

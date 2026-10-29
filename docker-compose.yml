@@ -403,16 +403,20 @@ services:
       - "host.docker.internal:host-gateway"
 
   # TEI 向量模型服务（bge-m3）：只被 app 在 WeKnora-network 内以 OpenAI 兼容
-  # /v1/embeddings 调用（generic provider），不向公网暴露。模型首次启动时经
-  # HF_ENDPOINT 镜像下载，缓存到 tei-data。8082 仅绑定本机，供 smoke test/调试。
+  # /v1/embeddings 调用（generic provider），不向公网暴露。模型权重从 ModelScope
+  # 预下载到 ./tei-model/bge-m3（服务器直连 HF/hf-mirror 下载会报
+  # content-range 错误），首次部署：
+  #   pip3 install modelscope &&
+  #   modelscope download --model BAAI/bge-m3 --local_dir ./tei-model/bge-m3
+  # 8082 仅绑定本机，供 smoke test/调试。
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     container_name: WeKnora-tei
-    command: --model-id BAAI/bge-m3 --port 80
+    command: --model-id /model --port 80
     ports:
       - "127.0.0.1:${TEI_PORT:-8082}:80"
     volumes:
-      - tei-data:/data
+      - ./tei-model/bge-m3:/model:ro
     environment:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - HF_HOME=/data
@@ -1091,7 +1095,6 @@ volumes:
   postgres-data:
   data-files:
   docreader-tmp:
-  tei-data:
   minio_data:
   neo4j-data:
   qdrant_data:
