@@ -18,7 +18,7 @@ builtin_models:
       # CPU 版 TEI 推理慢：单请求默认 60s 超时会在批量回填时被排队拖爆
       # （context deadline exceeded → 整篇文档 embedding 失败）。放宽到
       # 300s，并把单批降到 8、该模型并发压到 2，避免队列堆积。
-      max_concurrency: 2
+      max_concurrency: 8
       spec:
         compat:
           request_timeout_seconds: 300
