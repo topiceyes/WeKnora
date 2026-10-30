@@ -429,7 +429,7 @@ services:
     environment:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - HF_HOME=/data
-    mem_limit: 16g
+    mem_limit: 24g
     # CPU 满载回填时 /health 可能排队数十秒，阈值放宽避免误判 unhealthy。
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/health"]
