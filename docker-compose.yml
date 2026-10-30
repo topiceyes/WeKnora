@@ -418,10 +418,12 @@ services:
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     container_name: WeKnora-tei
-    # --max-batch-tokens 限制单批 token 峰值（默认 16384 在批量回填时会
-    # 把内存顶到上限并被 OOMKill）；--max-client-batch-size 与 app 侧
+    # --max-batch-tokens 限制单批 token 峰值。曾试 32768 求吞吐，结果 TEI
+    # 长时间卡在"队列 200s + 推理 90s"，app 300s 超时重试反把队列越堆越长，
+    # 1400%+ CPU 却零产出。现固定 8192：两个客户端批（各 4 条）刚好拼成一个
+    # forward pass，排队时间接近 0。--max-client-batch-size 与 app 侧
     # max_batch_size 对齐。
-    command: --model-id /model --port 80 --max-client-batch-size 8 --max-batch-tokens 32768
+    command: --model-id /model --port 80 --max-client-batch-size 4 --max-batch-tokens 8192
     expose:
       - "80"
     volumes:
@@ -429,6 +431,7 @@ services:
     environment:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - HF_HOME=/data
+    # 16g 时回填会顶满上限颠簸（CPU 掉到 1 核利用率），24g 留出余量。
     mem_limit: 24g
     # CPU 满载回填时 /health 可能排队数十秒，阈值放宽避免误判 unhealthy。
     healthcheck:

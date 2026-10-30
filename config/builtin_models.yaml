@@ -15,14 +15,15 @@ builtin_models:
       base_url: http://tei:80/v1
       api_key: tei-local # TEI 无鉴权；占位非空即可
       provider: generic
-      # CPU 版 TEI 推理慢：单请求默认 60s 超时会在批量回填时被排队拖爆
-      # （context deadline exceeded → 整篇文档 embedding 失败）。放宽到
-      # 300s，并把单批降到 8、该模型并发压到 2，避免队列堆积。
-      max_concurrency: 8
+      # CPU 版 TEI 吞吐上限约 115 tok/s，是全链路瓶颈。并发开高只会让请求
+      # 在 TEI 里排 200s+ 队、撞 app 300s 超时后重试，形成"队列越长→超时越
+      # 多→重试越多"的死循环（实测 1400%+ CPU 零产出）。故并发固定 2、单批
+      # 4 条：两个批刚好填满 TEI 的 --max-batch-tokens 8192，排队趋近 0。
+      max_concurrency: 2
       spec:
         compat:
           request_timeout_seconds: 300
-          max_batch_size: 8
+          max_batch_size: 4
       embedding_parameters:
         dimension: 1024
         truncate_prompt_tokens: 8192
