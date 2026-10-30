@@ -423,7 +423,7 @@ services:
     # 1400%+ CPU 却零产出。现固定 8192：两个客户端批（各 4 条）刚好拼成一个
     # forward pass，排队时间接近 0。--max-client-batch-size 与 app 侧
     # max_batch_size 对齐。
-    command: --model-id /model --port 80 --max-client-batch-size 4 --max-batch-tokens 8192
+    command: --model-id /model --port 80 --max-client-batch-size 4 --max-batch-tokens 16384
     expose:
       - "80"
     volumes:
