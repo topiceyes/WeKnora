@@ -2,9 +2,17 @@
 # 本文件在 app 容器启动时自动重放到 models 表（is_builtin=true，对所有租户可见）；
 # 编辑后重启 app 即生效。从文件移除的条目不会自动从数据库删除，需手工清理。
 #
-# 生产环境由 docker-compose 的 tei 服务提供 bge-m3（BAAI/bge-m3，1024 维，
-# 最大 8192 token），app 经 OpenAI 兼容 /v1/embeddings 调用（generic provider）。
-# BGE 查询前缀由应用内置处理，无需在此配置。
+# embedding 服务地址与密钥走 .env（本文件进 git，不能写密钥）：
+#   WEKNORA_EMBED_BASE_URL  embedding 服务的 OpenAI 兼容根地址
+#   WEKNORA_EMBED_API_KEY   该服务的 Bearer key
+#
+# 当前生产指向 Mac mini M4 上的 llama.cpp（bge-m3 GGUF，Metal 后端）：
+#   容器 -> 172.23.0.1:18089（宿主机中转）-> 127.0.0.1:18089（SSH 反向隧道）
+#        -> Mac 127.0.0.1:8089（llama-server --embeddings --pooling cls）
+# 隧道由 Mac 上 `ssh -N -R` 维持，中转脚本见 backups/relay.py（宿主机 python3 常驻），
+# ufw 需放行 172.23.0.0/16 到 18089。
+# 回退到本机 TEI：把 WEKNORA_EMBED_BASE_URL 改回 http://tei:80/v1 即可——
+# 两边向量经实测余弦相似度 0.999994，混用不影响检索一致性。
 builtin_models:
   - id: builtin-embedding-bge-m3
     type: Embedding
@@ -12,14 +20,12 @@ builtin_models:
     is_default: true
     name: bge-m3
     parameters:
-      base_url: http://tei:80/v1
-      api_key: tei-local # TEI 无鉴权；占位非空即可
+      base_url: ${WEKNORA_EMBED_BASE_URL}
+      api_key: ${WEKNORA_EMBED_API_KEY}
       provider: generic
-      # CPU 版 TEI 吞吐上限约 115 tok/s，是全链路瓶颈。并发开高只会让请求
-      # 在 TEI 里排 200s+ 队、撞 app 300s 超时后重试，形成"队列越长→超时越
-      # 多→重试越多"的死循环（实测 1400%+ CPU 零产出）。故并发固定 2、单批
-      # 4 条：两个批刚好填满 TEI 的 --max-batch-tokens 8192，排队趋近 0。
-      max_concurrency: 2
+      # Mac(Metal) 实测 ~3300 token/秒，llama-server 起 4 个 slot，故并发开 4；
+      # 单批 4 条。旧本机 TEI 方案并发只能给 1~2（其吞吐仅 110~200 token/秒）。
+      max_concurrency: 4
       spec:
         compat:
           request_timeout_seconds: 300
