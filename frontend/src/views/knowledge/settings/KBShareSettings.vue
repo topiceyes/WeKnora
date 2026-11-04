@@ -40,9 +40,10 @@
           </div>
           <t-popup v-if="canShare" v-model="addPopupVisible" trigger="click" placement="bottom-end" destroy-on-close
             overlay-class-name="share-add-popup-overlay">
-            <t-button theme="primary" variant="outline" shape="square" size="small" class="share-panel-add-btn"
+            <t-button theme="primary" variant="outline" size="small" class="share-panel-add-btn"
               :title="$t('knowledgeEditor.share.addShare')" :aria-label="$t('knowledgeEditor.share.addShare')">
               <template #icon><t-icon name="add" /></template>
+              {{ $t('knowledgeEditor.share.addShare') }}
             </t-button>
             <template #content>
               <div class="share-add-popup-inner" @click.stop>

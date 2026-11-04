@@ -99,6 +99,20 @@ type KnowledgeBaseService interface {
 		ctx context.Context, kbID, query string, limit int,
 	) ([]*types.KBTransferCandidate, error)
 
+	// BuildKnowledgeBaseWorkspaceTransferPlan is the read-only preflight for
+	// moving a knowledge base — creator, workspace, content rows and files —
+	// into the target user's home workspace. Same matrix as the transfer.
+	BuildKnowledgeBaseWorkspaceTransferPlan(
+		ctx context.Context, kbID, newOwnerUserID string,
+	) (*types.KBWorkspaceTransferPlan, error)
+
+	// TransferKnowledgeBaseWorkspace performs that move. The KB row, every
+	// tenant-scoped child row, its local files and its share anchors move
+	// together; preflight blockers abort before any file or row changes.
+	TransferKnowledgeBaseWorkspace(
+		ctx context.Context, kbID, newOwnerUserID string,
+	) (*types.KBWorkspaceTransferResult, error)
+
 	// TogglePinKnowledgeBase toggles the pin status of a knowledge base
 	TogglePinKnowledgeBase(ctx context.Context, id string) (*types.KnowledgeBase, error)
 

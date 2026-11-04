@@ -996,6 +996,9 @@ func (h *KnowledgeBaseHandler) TransferKnowledgeBaseOwnership(c *gin.Context) {
 			stderrors.Is(err, service.ErrKBOwnerTransferInactive),
 			stderrors.Is(err, service.ErrKBOwnerTransferTargetRole):
 			_ = c.Error(apperrors.NewBadRequestError(err.Error()))
+		case stderrors.Is(err, service.ErrKBWorkspaceTransferRequired):
+			_ = c.Error(apperrors.NewBadRequestError(err.Error()).
+				WithDetails(map[string]any{"code": "workspace_transfer_required"}))
 		case stderrors.Is(err, service.ErrKBOwnerTransferConflict):
 			_ = c.Error(apperrors.NewConflictError(err.Error()))
 		default:
@@ -1010,6 +1013,175 @@ func (h *KnowledgeBaseHandler) TransferKnowledgeBaseOwnership(c *gin.Context) {
 		"success": true,
 		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
 	})
+}
+
+// TransferKnowledgeBaseWorkspaceRequest is the body of
+// POST /knowledge-bases/{id}/transfer-workspace.
+type TransferKnowledgeBaseWorkspaceRequest struct {
+	// NewOwnerUserID is the person who will own the KB afterwards. The move
+	// targets that person's home workspace.
+	NewOwnerUserID string `json:"new_owner_user_id" binding:"required"`
+}
+
+// GetKnowledgeBaseWorkspaceTransferPlan godoc
+// @Summary      知识库整体迁移预检
+// @Description  展示把知识库（创建人、所属空间、内容与文件）迁入目标用户归属空间前的预检结果：目标空间、数据规模、保留的共享数、阻断项。阻断项非空时不得提交迁移。仅知识库创建者或本空间 Admin/Owner 可调用，仅 JWT 可调用。
+// @Tags         知识库
+// @Produce      json
+// @Param        id                  path   string  true   "知识库ID"
+// @Param        new_owner_user_id  query  string  true   "接收人用户ID"
+// @Success      200  {object}  handler.DataResponse{data=types.KBWorkspaceTransferPlan}  "迁移预检"
+// @Failure      400  {object}  errors.AppError  "请求参数错误或目标成员不符合条件"
+// @Failure      403  {object}  errors.AppError  "无权转让"
+// @Failure      404  {object}  errors.AppError  "知识库或目标空间不存在"
+// @Failure      500  {object}  errors.AppError  "服务器错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/workspace-transfer-plan [get]
+func (h *KnowledgeBaseHandler) GetKnowledgeBaseWorkspaceTransferPlan(c *gin.Context) {
+	ctx := c.Request.Context()
+	kbID := c.Param("id")
+
+	grant, ok := middleware.KBAccessFromContext(c)
+	if !ok || grant == nil || grant.KnowledgeBase == nil || grant.KnowledgeBase.ID != kbID {
+		_ = c.Error(apperrors.NewNotFoundError("knowledge base not found"))
+		return
+	}
+	if !h.authorizeKBWorkspaceTransfer(c, grant.KnowledgeBase) {
+		return
+	}
+	newOwnerID := strings.TrimSpace(c.Query("new_owner_user_id"))
+	if newOwnerID == "" {
+		_ = c.Error(apperrors.NewBadRequestError("new_owner_user_id is required"))
+		return
+	}
+
+	plan, err := h.service.BuildKnowledgeBaseWorkspaceTransferPlan(ctx, kbID, newOwnerID)
+	if err != nil {
+		if h.writeKBWorkspaceTransferError(c, err) {
+			return
+		}
+		logger.ErrorWithFields(ctx, err, nil)
+		_ = c.Error(apperrors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    plan,
+	})
+}
+
+// TransferKnowledgeBaseWorkspace godoc
+// @Summary      知识库整体迁移
+// @Description  把知识库连同创建人、所属空间、全部内容行、文件与共享锚点一起迁入目标用户的归属空间。迁移前逐项预检，任一阻断项存在则返回 409 且不做任何改动。跨空间迁移不可撤销。仅 JWT 可调用。
+// @Tags         知识库
+// @Accept       json
+// @Produce      json
+// @Param        id       path      string                                      true  "知识库ID"
+// @Param        request  body      handler.TransferKnowledgeBaseWorkspaceRequest true  "迁移请求"
+// @Success      200      {object}  handler.DataResponse{data=types.KBWorkspaceTransferResult}  "迁移结果"
+// @Failure      400      {object}  errors.AppError  "请求参数错误、目标不符合条件或目标与源同空间"
+// @Failure      403      {object}  errors.AppError  "无权迁移"
+// @Failure      404      {object}  errors.AppError  "知识库或目标空间不存在"
+// @Failure      409      {object}  errors.AppError  "存在阻断项、并发修改或已有迁移在进行"
+// @Failure      500      {object}  errors.AppError  "服务器错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/transfer-workspace [post]
+func (h *KnowledgeBaseHandler) TransferKnowledgeBaseWorkspace(c *gin.Context) {
+	ctx := c.Request.Context()
+	kbID := c.Param("id")
+
+	grant, ok := middleware.KBAccessFromContext(c)
+	if !ok || grant == nil || grant.KnowledgeBase == nil || grant.KnowledgeBase.ID != kbID {
+		_ = c.Error(apperrors.NewNotFoundError("knowledge base not found"))
+		return
+	}
+	if !h.authorizeKBWorkspaceTransfer(c, grant.KnowledgeBase) {
+		return
+	}
+
+	var req TransferKnowledgeBaseWorkspaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		_ = c.Error(apperrors.NewBadRequestError("Invalid request parameters").WithDetails(err.Error()))
+		return
+	}
+	newOwnerID := strings.TrimSpace(req.NewOwnerUserID)
+	if newOwnerID == "" {
+		_ = c.Error(apperrors.NewBadRequestError("new_owner_user_id is required"))
+		return
+	}
+
+	logger.Infof(ctx, "Transferring knowledge base workspace, ID: %s",
+		secutils.SanitizeForLog(kbID))
+
+	result, err := h.service.TransferKnowledgeBaseWorkspace(ctx, kbID, newOwnerID)
+	if err != nil {
+		if h.writeKBWorkspaceTransferError(c, err) {
+			return
+		}
+		logger.ErrorWithFields(ctx, err, nil)
+		_ = c.Error(apperrors.NewInternalServerError(err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// authorizeKBWorkspaceTransfer mirrors OwnedKBOrAdmin in the handler: creator
+// at the contributor floor, or Admin+ of the KB's own workspace. The caller's
+// own workspace comes from the gin key because KBAccess rewrites the request
+// context to the KB's tenant.
+func (h *KnowledgeBaseHandler) authorizeKBWorkspaceTransfer(
+	c *gin.Context, kb *types.KnowledgeBase,
+) bool {
+	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
+	if callerTenantID == 0 {
+		_ = c.Error(apperrors.NewForbiddenError("missing caller workspace"))
+		return false
+	}
+	callerID, _ := types.UserIDFromContext(c.Request.Context())
+	role := types.TenantRoleFromContext(c.Request.Context())
+	isCreator := callerID != "" && kb.CreatorID == callerID &&
+		role.HasPermission(types.TenantRoleContributor)
+	isWorkspaceAdmin := callerTenantID == kb.TenantID && role.HasPermission(types.TenantRoleAdmin)
+	if !isCreator && !isWorkspaceAdmin {
+		_ = c.Error(apperrors.NewForbiddenError(
+			"only the knowledge base creator or a workspace admin can transfer it"))
+		return false
+	}
+	return true
+}
+
+func (h *KnowledgeBaseHandler) writeKBWorkspaceTransferError(c *gin.Context, err error) bool {
+	switch {
+	case stderrors.Is(err, repository.ErrKnowledgeBaseNotFound),
+		stderrors.Is(err, repository.ErrTenantNotFound):
+		_ = c.Error(apperrors.NewNotFoundError(err.Error()))
+	case stderrors.Is(err, service.ErrKBOwnerTransferForbidden):
+		_ = c.Error(apperrors.NewForbiddenError(err.Error()))
+	case stderrors.Is(err, service.ErrKBOwnerTransferTargetSelf),
+		stderrors.Is(err, service.ErrKBOwnerTransferSynthetic),
+		stderrors.Is(err, service.ErrKBOwnerTransferNotMember),
+		stderrors.Is(err, service.ErrKBOwnerTransferInactive),
+		stderrors.Is(err, service.ErrKBOwnerTransferTargetRole),
+		stderrors.Is(err, service.ErrKBWorkspaceTransferSameTenant),
+		stderrors.Is(err, service.ErrKBWorkspaceTransferTargetInactive),
+		stderrors.Is(err, service.ErrKBWorkspaceTransferUnsupported):
+		_ = c.Error(apperrors.NewBadRequestError(err.Error()))
+	case stderrors.Is(err, service.ErrKBOwnerTransferConflict),
+		stderrors.Is(err, service.ErrKBWorkspaceTransferInProgress):
+		_ = c.Error(apperrors.NewConflictError(err.Error()))
+	default:
+		var blocked *service.KBWorkspaceTransferBlockedError
+		if stderrors.As(err, &blocked) {
+			_ = c.Error(apperrors.NewConflictError(err.Error()).
+				WithDetails(map[string]any{"blockers": blocked.Blockers}))
+			return true
+		}
+		return false
+	}
+	return true
 }
 
 // KBTransferCandidateView is the API projection of a transfer candidate: the

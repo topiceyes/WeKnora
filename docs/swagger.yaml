@@ -1577,6 +1577,7 @@ definitions:
     - kb.clone_completed
     - kb.clone_failed
     - kb.owner_transferred
+    - kb.workspace_transferred
     - knowledge.created
     - knowledge.updated
     - knowledge.deleted
@@ -1642,6 +1643,7 @@ definitions:
     - AuditActionKBCloneCompleted
     - AuditActionKBCloneFailed
     - AuditActionKBOwnerTransferred
+    - AuditActionKBWorkspaceTransferred
     - AuditActionKnowledgeCreated
     - AuditActionKnowledgeUpdated
     - AuditActionKnowledgeDeleted
@@ -4089,6 +4091,73 @@ definitions:
     - KBCloneStatusProcessing
     - KBCloneStatusCompleted
     - KBCloneStatusFailed
+  github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferBlocker:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties: {}
+        type: object
+      message:
+        type: string
+    type: object
+  github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferPlan:
+    properties:
+      blockers:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferBlocker'
+        type: array
+      moves_workspace:
+        type: boolean
+      shares_kept:
+        type: integer
+      source_tenant_id:
+        type: integer
+      source_tenant_name:
+        type: string
+      stats:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferStats'
+      target_tenant_id:
+        type: integer
+      target_tenant_name:
+        type: string
+      target_user_id:
+        type: string
+      target_username:
+        type: string
+      warnings:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferBlocker'
+        type: array
+    type: object
+  github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferResult:
+    properties:
+      from_tenant_id:
+        type: integer
+      knowledge_base_id:
+        type: string
+      new_owner_user_id:
+        type: string
+      shares_reanchored:
+        type: integer
+      stats:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferStats'
+      to_tenant_id:
+        type: integer
+    type: object
+  github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferStats:
+    properties:
+      chunk_count:
+        type: integer
+      file_bytes:
+        type: integer
+      file_count:
+        type: integer
+      knowledge_count:
+        type: integer
+      wiki_page_count:
+        type: integer
+    type: object
   github_com_Tencent_WeKnora_internal_types.KS3EngineConfig:
     properties:
       access_key:
@@ -12929,6 +12998,16 @@ definitions:
     required:
     - new_owner_user_id
     type: object
+  internal_handler.TransferKnowledgeBaseWorkspaceRequest:
+    properties:
+      new_owner_user_id:
+        description: |-
+          NewOwnerUserID is the person who will own the KB afterwards. The move
+          targets that person's home workspace.
+        type: string
+    required:
+    - new_owner_user_id
+    type: object
   internal_handler.UpdateAgentRequest:
     properties:
       avatar:
@@ -19560,6 +19639,109 @@ paths:
       security:
       - Bearer: []
       summary: 转让知识库所有权
+      tags:
+      - 知识库
+  /knowledge-bases/{id}/transfer-workspace:
+    post:
+      consumes:
+      - application/json
+      description: 把知识库连同创建人、所属空间、全部内容行、文件与共享锚点一起迁入目标用户的归属空间。迁移前逐项预检，任一阻断项存在则返回 409
+        且不做任何改动。跨空间迁移不可撤销。仅 JWT 可调用。
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 迁移请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.TransferKnowledgeBaseWorkspaceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 迁移结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferResult'
+              type: object
+        "400":
+          description: 请求参数错误、目标不符合条件或目标与源同空间
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 无权迁移
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识库或目标空间不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "409":
+          description: 存在阻断项、并发修改或已有迁移在进行
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 知识库整体迁移
+      tags:
+      - 知识库
+  /knowledge-bases/{id}/workspace-transfer-plan:
+    get:
+      description: 展示把知识库（创建人、所属空间、内容与文件）迁入目标用户归属空间前的预检结果：目标空间、数据规模、保留的共享数、阻断项。阻断项非空时不得提交迁移。仅知识库创建者或本空间
+        Admin/Owner 可调用，仅 JWT 可调用。
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 接收人用户ID
+        in: query
+        name: new_owner_user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 迁移预检
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.KBWorkspaceTransferPlan'
+              type: object
+        "400":
+          description: 请求参数错误或目标成员不符合条件
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 无权转让
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识库或目标空间不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 知识库整体迁移预检
       tags:
       - 知识库
   /knowledge-bases/copy:

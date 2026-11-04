@@ -130,11 +130,13 @@ func ResolveKB(ctx context.Context, request KBRequest, kb *types.KnowledgeBase, 
 	if kb.TenantID == request.Caller.TenantID {
 		return grant(types.OrgRoleAdmin)
 	}
-	// The designated creator owns the KB even from another workspace: an
-	// ownership transfer across workspaces intentionally leaves tenant_id
-	// untouched (moving storage/vectors is out of scope), so the new owner
-	// may hold creator_id while their tenant is not a member of every org
-	// the KB is shared into. Ownership itself is the access grant.
+	// The designated creator owns the KB even from another workspace. Since
+	// v1.8.3 a cross-workspace transfer moves the whole KB (tenant, content
+	// and files) into the new owner's workspace, so this channel now exists
+	// only for rows left behind by the earlier creator-only transfers
+	// (v1.8.1/v1.8.2). Those owners may hold creator_id while their tenant is
+	// not a member of every org the KB is shared into; ownership is the grant
+	// until they move the KB into their own workspace.
 	//
 	// The CreatorRoleFloor applies to the caller's role in their own
 	// workspace. OwnedKBOrAdmin cannot enforce it here: its creator lookup

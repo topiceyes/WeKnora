@@ -25,3 +25,34 @@ export function filterTransferCandidates<T extends TransferCandidateLike>(
 export function transferCandidateLabel(member: TransferCandidateLike): string {
   return member.username?.trim() || member.email || member.user_id;
 }
+
+/**
+ * 预检是否有硬阻断项。阻断项非空时后端拒绝迁移，前端也必须禁用提交。
+ * 计划缺失（尚未加载 / 加载失败）同样视为不可提交。
+ */
+export function transferHasBlockers(
+  plan: { blockers?: ArrayLike<unknown> | null } | null | undefined,
+): boolean {
+  if (!plan) return true;
+  return (plan.blockers?.length ?? 0) > 0;
+}
+
+/**
+ * 把字节数压缩成便于阅读的「数值 + 单位」。单位保持 ASCII（B/KB/MB/GB），
+ * 六种语言下都无需翻译；数值最多保留一位小数。
+ */
+export function formatTransferFileSize(
+  bytes?: number | null,
+): { value: string; unit: 'B' | 'KB' | 'MB' | 'GB' } {
+  const n = Number(bytes ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return { value: '0', unit: 'B' };
+  const units: Array<'B' | 'KB' | 'MB' | 'GB'> = ['B', 'KB', 'MB', 'GB'];
+  let value = n;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  const rounded = index === 0 ? String(Math.round(value)) : value.toFixed(1).replace(/\.0$/, '');
+  return { value: rounded, unit: units[index] };
+}

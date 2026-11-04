@@ -60,6 +60,10 @@ func TestProcessSyncCancelsWhenKnowledgeBaseDeleted(t *testing.T) {
 }
 
 type processSyncKBService struct {
+	// Embedded for forward compatibility: these tests only exercise the
+	// handful of methods below, and an unimplemented method panics only if a
+	// test actually calls it.
+	interfaces.KnowledgeBaseService
 	getErr error
 	kb     *types.KnowledgeBase
 }

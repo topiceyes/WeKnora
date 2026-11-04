@@ -292,6 +292,15 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 		kbgrp.GET("/:id/transfer-candidates",
 			g.OwnedKBOrAdmin(), g.KBAccessRead("id"),
 			handler.ListKnowledgeBaseTransferCandidates)
+
+		// 整体迁移预检 / 迁移 —— 把创建人与所属空间一起迁到接手人的归属空间。
+		// 与 transfer-owner 同一授权矩阵，同样故意注册在裸 kbgrp（JWT-only）。
+		kbgrp.GET("/:id/workspace-transfer-plan",
+			g.OwnedKBOrAdmin(), g.KBAccessRead("id"),
+			handler.GetKnowledgeBaseWorkspaceTransferPlan)
+		kbgrp.POST("/:id/transfer-workspace",
+			g.OwnedKBOrAdmin(), g.KBAccessWrite("id"),
+			handler.TransferKnowledgeBaseWorkspace)
 	}
 }
 

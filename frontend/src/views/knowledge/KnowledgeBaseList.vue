@@ -190,6 +190,11 @@
                         <span>{{ $t('knowledgeList.menu.duplicate') }}</span>
                       </div>
                       <template v-if="canManageKBCard(kb)">
+                        <div v-if="canShareKBCard(kb)" class="popup-menu-item"
+                          @click.stop="handleShareById(kb.id)">
+                          <t-icon class="menu-icon" name="share" />
+                          <span>{{ $t('knowledgeEditor.share.addShare') }}</span>
+                        </div>
                         <div class="popup-menu-item" @click.stop="handleSettingsById(kb.id)">
                           <t-icon class="menu-icon" name="setting" />
                           <span>{{ $t('knowledgeBase.settings') }}</span>
@@ -421,6 +426,10 @@
                         <span>{{ $t('knowledgeList.menu.duplicate') }}</span>
                       </div>
                       <template v-if="canManageKBCard(kb)">
+                        <div v-if="canShareKBCard(kb)" class="popup-menu-item" @click.stop="handleShare(kb)">
+                          <t-icon class="menu-icon" name="share" />
+                          <span>{{ $t('knowledgeEditor.share.addShare') }}</span>
+                        </div>
                         <div class="popup-menu-item" @click.stop="handleSettings(kb)">
                           <t-icon class="menu-icon" name="setting" />
                           <span>{{ $t('knowledgeBase.settings') }}</span>
@@ -648,7 +657,8 @@
     <!-- 知识库编辑器（创建/编辑统一组件） -->
     <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
       :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
-      @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
+      @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess"
+      @workspace-moved="handleKBWorkspaceMoved" />
 
     <!-- 右侧：共享知识库详情面板 -->
     <Teleport to="body">
@@ -822,6 +832,9 @@ interface KB {
   creator_id?: string;
   // creator_name 由后端 list 接口回填，仅用于卡片右下角来源徽章的 tooltip。
   creator_name?: string;
+  // tenant_id 是知识库所属空间；卡片菜单用它区分「本空间 Admin」与
+  // 「跨空间归宿人」两种共享授权来源。
+  tenant_id?: number;
 }
 
 const flatKnowledgeBaseSortAccessors: ResourceSortAccessors<any> = {
@@ -1296,6 +1309,29 @@ function canManageKBCard(kb: KB): boolean {
   return authStore.hasRole('admin')
 }
 
+// canShareKBCard mirrors the backend g.OwnedKBOrAdmin() gate for share
+// mutations: the KB creator (at the Contributor floor) or an Admin+ of the
+// KB's own workspace. Shared-space cards (permission present, or isMine
+// false) are never shareholders — being able to see a shared KB does not
+// grant the right to share it further.
+function canShareKBCard(kb: KB): boolean {
+  if (authStore.isLiteMode) return false
+  const userId = authStore.user?.id || ''
+  // Creator outranks the shared-card framing: a cross-workspace owner left
+  // behind by the legacy creator-only transfer still shows up as a share row
+  // (with a permission and is_creator/is_mine flags) but is allowed to share.
+  const isCreator = (kb as any).is_creator === true
+    || Boolean(kb.creator_id && userId && kb.creator_id === userId)
+  if (isCreator && authStore.hasRole('contributor')) return true
+  const sharePermission = (kb as any).permission as string | undefined
+  if (sharePermission) return false
+  if ((kb as any).isMine === false) return false
+  const kbTenant = Number(kb.tenant_id || 0)
+  const activeTenant = Number(authStore.currentTenantId || 0)
+  if (!kbTenant || !activeTenant || kbTenant !== activeTenant) return false
+  return authStore.hasRole('admin')
+}
+
 function canDuplicateKBCard(kb: any): boolean {
   if (!authStore.hasRole('contributor') || kb.isMine === false) return false
   // 复制在后端按 workspace 限制：跨空间归宿库仍属于原空间，调用必然被拒，
@@ -1339,6 +1375,12 @@ function showKbOriginBadge(kb: { creator_id?: string; creator_name?: string }): 
 const handleSettingsById = (id: string) => {
   openKbMenuId.value = null
   goSettings(id)
+}
+
+// 直接打开设置的共享分区。
+const handleShareById = (id: string) => {
+  openKbMenuId.value = null
+  uiStore.openKBSettings(id, 'share')
 }
 
 // 通过 ID 处理删除（用于全部 Tab 下的知识库）
@@ -1458,6 +1500,12 @@ const goToSharedKbFromPanel = () => {
   }
 }
 
+const handleShare = (kb: KB) => {
+  // 手动关闭弹窗
+  openKbMenuId.value = null
+  uiStore.openKBSettings(kb.id, 'share')
+}
+
 const handleDelete = (kb: KB) => {
   // 手动关闭弹窗
   openKbMenuId.value = null
@@ -1557,6 +1605,13 @@ const handleKBEditorSuccess = (kbId: string) => {
       router.replace({ query: rest })
     }
   })
+}
+
+// 整库迁移到其他人的空间：该库已从本空间消失，刷新全部列表与缓存即可。
+const handleKBWorkspaceMoved = (payload: { kb_id: string; to_tenant_id: number }) => {
+  chatResources.invalidateKnowledgeBaseDetail(payload.kb_id)
+  chatResources.invalidate('knowledgeBases')
+  fetchList(true)
 }
 
 // 触发高亮闪烁效果

@@ -514,6 +514,69 @@ export async function listKnowledgeBaseTransferCandidates(
   )) as unknown as ListKBTransferCandidatesResponse
 }
 
+// 整库迁移（归宿人 + 所属空间一起转移）预检与执行。
+// 目标空间 = 接手人的归属空间（users.tenant_id）；跨空间迁移不可撤销。
+export interface KBWorkspaceTransferBlocker {
+  code: string
+  message: string
+  details?: Record<string, unknown>
+}
+
+export interface KBWorkspaceTransferStats {
+  knowledge_count: number
+  chunk_count: number
+  wiki_page_count: number
+  file_count: number
+  file_bytes: number
+}
+
+export interface KBWorkspaceTransferPlan {
+  moves_workspace: boolean
+  source_tenant_id: number
+  source_tenant_name?: string
+  target_tenant_id: number
+  target_tenant_name?: string
+  target_user_id: string
+  target_username?: string
+  stats: KBWorkspaceTransferStats
+  shares_kept: number
+  blockers: KBWorkspaceTransferBlocker[]
+  warnings?: KBWorkspaceTransferBlocker[]
+}
+
+export interface KBWorkspaceTransferResult {
+  knowledge_base_id: string
+  from_tenant_id: number
+  to_tenant_id: number
+  new_owner_user_id: string
+  stats: KBWorkspaceTransferStats
+  shares_reanchored: number
+}
+
+export interface KBWorkspaceTransferPlanResponse {
+  success: boolean
+  data?: KBWorkspaceTransferPlan
+  message?: string
+}
+
+export async function getKnowledgeBaseWorkspaceTransferPlan(
+  id: string,
+  newOwnerUserId: string,
+): Promise<KBWorkspaceTransferPlanResponse> {
+  const u = new URLSearchParams({ new_owner_user_id: newOwnerUserId })
+  return (await get(
+    `/api/v1/knowledge-bases/${id}/workspace-transfer-plan?${u.toString()}`,
+  )) as unknown as KBWorkspaceTransferPlanResponse
+}
+
+// 整库迁移：知识库行、全部内容行、文件与共享锚点一起迁到接手人的空间。
+// 预检有阻断项时后端返回 409（error.details.blockers）。
+export function transferKnowledgeBaseWorkspace(id: string, newOwnerUserId: string) {
+  return post(`/api/v1/knowledge-bases/${id}/transfer-workspace`, {
+    new_owner_user_id: newOwnerUserId,
+  })
+}
+
 // 知识文件 API（基于具体知识库）
 // data.tag_ids: 可选，指定知识所属的多个标签 ID
 export function uploadKnowledgeFile(

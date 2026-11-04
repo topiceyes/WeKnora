@@ -707,6 +707,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
   (e: 'success', kbId: string): void
+  // 整库迁移到其他人的空间：调用者已失去访问权，由父组件负责刷新 / 离开。
+  (e: 'workspace-moved', payload: { kb_id: string; to_tenant_id: number }): void
 }>()
 
 /** 首次保存创建成功后留在弹窗内，继续配置共享等设置 */
@@ -1098,7 +1100,32 @@ const isCurrentKBLoad = (generation: number, kbId: string) => (
 // 归属转让完成：刷新本地的 creator 信息。对「既非管理员、也不再是
 // 归宿人」的旧归宿人，转让入口会立刻消失（canTransferKB=false），
 // 必须把当前分区重置回 basic，否则内容区渲染空白。
-const handleOwnershipTransferred = async (event: { user_id: string; display_name: string }) => {
+const handleOwnershipTransferred = async (event: {
+  user_id: string
+  display_name: string
+  moved_workspace?: boolean
+  to_tenant_id?: number
+}) => {
+  // 整库迁移：知识库连同创建人、内容与文件一起换空间。
+  if (event.moved_workspace) {
+    const movedKbId = activeKbId.value
+    if (event.user_id === (authStore.user?.id || '')) {
+      // 归宿人本人把它迁回自己的空间：仍有访问权，原地刷新即可。
+      await loadKBData()
+      if (movedKbId) emit('success', movedKbId)
+      return
+    }
+    // 转给别人：本空间的会话失去了访问权，交回父组件处理跳转与刷新。
+    if (movedKbId) {
+      emit('workspace-moved', {
+        kb_id: movedKbId,
+        to_tenant_id: event.to_tenant_id || 0,
+      })
+    }
+    handleClose()
+    return
+  }
+
   kbCreatorId.value = event.user_id
   kbCreatorName.value = event.display_name || ''
   const stillCanTransfer = isKbOwner.value

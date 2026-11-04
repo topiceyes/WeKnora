@@ -358,6 +358,17 @@ const canManage = computed(() => {
   return orgStore.canManageKB(kbId.value, false);
 });
 
+// 共享入口可见性，镜像后端 g.OwnedKBOrAdmin()：归宿人（跨空间也有效，
+// 至少 Contributor）或知识库所属空间的 Admin+。通过组织共享看到的库
+// 不在这里放行——共享权限不是所有权，后端同样会拒绝。
+const canShareKB = computed(() => {
+  if (!kbInfo.value || authStore.isLiteMode) return false;
+  if (isOwner.value) return true;
+  const kbTenantId = Number((kbInfo.value as any).tenant_id || 0);
+  if (!kbTenantId || kbTenantId !== Number(authStore.currentTenantId || 0)) return false;
+  return authStore.hasRole('admin');
+});
+
 // The activity feed exposes owner-side actor and configuration summaries.
 // It lives in KB settings (KnowledgeBaseEditorModal) for Owner/Admin in the home tenant.
 
@@ -1944,6 +1955,15 @@ const handleOpenKBSettings = () => {
   uiStore.openKBSettings(kbId.value);
 };
 
+// 头部「共享」按钮：直接打开设置的共享分区，而不是先落在基础信息。
+const handleOpenKBShare = () => {
+  if (!kbId.value) {
+    MessagePlugin.warning(t('knowledgeEditor.messages.missingId'));
+    return;
+  }
+  uiStore.openKBSettings(kbId.value, 'share');
+};
+
 const handleNavigateToKbList = () => {
   router.push('/platform/knowledge-bases');
 };
@@ -2392,6 +2412,15 @@ watch(cardList, () => {
   }
 }, { deep: false });
 
+// 整库迁移到其他人的空间：当前页面所在的库已经离开本空间，继续停留只会
+// 拿到 403/404，直接清掉详情缓存并回到知识库列表。
+const handleKBWorkspaceMoved = (payload: { kb_id: string; to_tenant_id: number }) => {
+  chatResources.invalidateKnowledgeBaseDetail(payload.kb_id);
+  chatResources.invalidate('knowledgeBases');
+  MessagePlugin.warning(t('knowledgeEditor.transfer.movedAway'));
+  router.push('/platform/knowledge-bases');
+};
+
 // 处理知识库编辑成功后的回调
 const handleKBEditorSuccess = (kbIdValue: string) => {
   chatResources.invalidateKnowledgeBaseDetail(kbIdValue);
@@ -2447,8 +2476,14 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                 </t-tooltip>
               </div>
             </h2>
-            <!-- 标题行右侧的动作锚点：聚拢"信息"和"设置"两个圆形按钮。 -->
+            <!-- 标题行右侧的动作锚点：共享、信息与设置。共享带文字标签，
+                 避免再次出现"只有图标、看不出能共享"的问题。 -->
             <div class="kb-title-actions">
+              <t-button v-if="canShareKB" size="small" variant="outline" class="kb-share-button"
+                @click="handleOpenKBShare">
+                <template #icon><t-icon name="share" /></template>
+                {{ $t('knowledgeEditor.share.addShare') }}
+              </t-button>
               <KBInfoPopover v-if="kbInfo && !authStore.isLiteMode" :kb-info="kbInfo"
                 :supported-file-types="[...supportedFileTypes]" />
               <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">
@@ -2786,7 +2821,8 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
   <!-- 知识库编辑器（创建/编辑统一组件） -->
   <KnowledgeBaseEditorModal :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
     :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
-    @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
+    @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess"
+    @workspace-moved="handleKBWorkspaceMoved" />
 
   <ContextualGuide tour="kbDetail" :when="showKbDetailContextualGuide" />
 

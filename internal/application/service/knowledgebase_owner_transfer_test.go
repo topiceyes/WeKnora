@@ -405,7 +405,7 @@ func TestTransferKnowledgeBaseOwnership_SharedKBCrossTenantCallerForbidden(t *te
 	assert.ErrorIs(t, err, ErrKBOwnerTransferForbidden)
 }
 
-func TestTransferKnowledgeBaseOwnership_SharedSpaceTarget(t *testing.T) {
+func TestTransferKnowledgeBaseOwnership_SharedSpaceTargetRequiresWorkspaceMove(t *testing.T) {
 	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
 	members := &transferMemberService{extraMemberships: []*types.TenantMember{
 		{UserID: "remote", TenantID: 2, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
@@ -413,16 +413,15 @@ func TestTransferKnowledgeBaseOwnership_SharedSpaceTarget(t *testing.T) {
 	svc, audit := newTransferService(kb, members)
 	svc.kbShareService = &transferShareService{tenantIDs: []uint64{2}}
 
-	got, err := svc.TransferKnowledgeBaseOwnership(
+	_, err := svc.TransferKnowledgeBaseOwnership(
 		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "remote")
-	require.NoError(t, err)
-	assert.Equal(t, "remote", got.CreatorID)
+	require.ErrorIs(t, err, ErrKBWorkspaceTransferRequired)
+	assert.Equal(t, "creator", kb.CreatorID)
 	assert.Empty(t, members.roleCalls, "a cross-space target's own workspace role must not be changed")
-	require.Len(t, audit.entries, 1)
-	assert.Equal(t, types.AuditActionKBOwnerTransferred, audit.entries[0].Action)
+	assert.Empty(t, audit.entries)
 }
 
-func TestTransferKnowledgeBaseOwnership_SharedSpaceViewerTargetRejected(t *testing.T) {
+func TestTransferKnowledgeBaseOwnership_SharedSpaceViewerTargetRequiresWorkspaceMove(t *testing.T) {
 	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
 	members := &transferMemberService{extraMemberships: []*types.TenantMember{
 		{UserID: "remote-viewer", TenantID: 2, Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive},
@@ -432,7 +431,9 @@ func TestTransferKnowledgeBaseOwnership_SharedSpaceViewerTargetRejected(t *testi
 
 	_, err := svc.TransferKnowledgeBaseOwnership(
 		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "remote-viewer")
-	assert.ErrorIs(t, err, ErrKBOwnerTransferTargetRole)
+	// Cross-workspace targets go through the whole-KB move, which validates
+	// their own workspace role there.
+	require.ErrorIs(t, err, ErrKBWorkspaceTransferRequired)
 	assert.Equal(t, "creator", kb.CreatorID)
 }
 

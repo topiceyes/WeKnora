@@ -429,6 +429,9 @@ const taskDetailKeys = [
   'task_id', 'trigger', 'processing_status', 'source_kb_id', 'target_kb_id',
   'sync_log_id', 'mode', 'attempt', 'count', 'total', 'processed', 'failed', 'skipped', 'failure_stage',
   'old_creator_id', 'new_creator_id',
+  'old_tenant_id', 'new_tenant_id',
+  'knowledge_count', 'chunk_count', 'wiki_page_count', 'file_count',
+  'file_bytes', 'shares_reanchored',
 ] as const
 
 function taskFields(entry: KnowledgeBaseActivity): DetailField[] {

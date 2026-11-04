@@ -22,6 +22,7 @@ import (
 	secutils "github.com/Tencent/WeKnora/internal/utils"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"gorm.io/gorm"
 )
 
 // ErrInvalidTenantID represents an error for invalid tenant ID
@@ -55,6 +56,10 @@ type knowledgeBaseService struct {
 	// tenantMemberService backs ownership transfer target validation and the
 	// Viewer→Contributor promotion. Nil in tests that never transfer.
 	tenantMemberService interfaces.TenantMemberService
+	// db backs the cross-table workspace-transfer transaction and the
+	// read-only preflight queries (IM channels, agents, API keys, MCP
+	// endpoints, resource bindings). Nil in tests that never move a KB.
+	db *gorm.DB
 }
 
 // NewKnowledgeBaseService creates a new knowledge base service
@@ -80,6 +85,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	resourceCatalog interfaces.ResourceCatalog,
 	wikiRepo interfaces.WikiPageRepository,
 	tenantMemberService interfaces.TenantMemberService,
+	db *gorm.DB,
 ) interfaces.KnowledgeBaseService {
 	return &knowledgeBaseService{
 		repo:                repo,
@@ -104,6 +110,7 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 		resourceCatalog:     resourceCatalog,
 		wikiRepo:            wikiRepo,
 		tenantMemberService: tenantMemberService,
+		db:                  db,
 	}
 }
 

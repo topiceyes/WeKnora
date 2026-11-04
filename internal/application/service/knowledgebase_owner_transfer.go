@@ -37,10 +37,15 @@ var (
 )
 
 // TransferKnowledgeBaseOwnership reassigns the KB creator (归宿) to another
-// active person who can already see the KB — a member of its workspace or of a
-// shared space (organization) the KB is shared into. Only creator_id and
-// updated_at change; tenant, storage, vector store, shares, pins and content
-// stay untouched.
+// active person inside the same workspace. Only creator_id and updated_at
+// change; tenant, storage, vector store, shares, pins and content stay
+// untouched.
+//
+// A target whose home workspace differs from the KB's is no longer handled
+// here: it is rejected with ErrKBWorkspaceTransferRequired so the caller moves
+// the whole KB through TransferKnowledgeBaseWorkspace (creator, tenant,
+// content and files together). The earlier creator-only cross-workspace path
+// survives only as an access fallback for rows it already produced.
 //
 // Ordering: the target membership is validated first, a same-workspace Viewer
 // target is promoted to Contributor (audited as rbac.member_role_changed), and
@@ -280,6 +285,12 @@ func (s *knowledgeBaseService) resolveTransferTarget(
 		}
 		if _, ok := allowedTenantIDs[m.TenantID]; !ok {
 			continue
+		}
+		if m.TenantID != kb.TenantID {
+			// A cross-workspace target now means "move the whole KB", not
+			// "leave the KB here and grant a creator channel". The dedicated
+			// workspace-transfer endpoint does that with user consent.
+			return nil, false, ErrKBWorkspaceTransferRequired
 		}
 		if !m.Role.HasPermission(types.TenantRoleContributor) {
 			return nil, false, ErrKBOwnerTransferTargetRole

@@ -159,6 +159,10 @@ const (
 	// old_creator_id/new_creator_id.
 	AuditActionKBOwnerTransferred AuditAction = "kb.owner_transferred"
 
+	// AuditActionKBWorkspaceTransferred fires when a knowledge base is moved to
+	// another workspace together with its creator, content and files.
+	AuditActionKBWorkspaceTransferred AuditAction = "kb.workspace_transferred"
+
 	AuditActionKnowledgeCreated        AuditAction = "knowledge.created"
 	AuditActionKnowledgeUpdated        AuditAction = "knowledge.updated"
 	AuditActionKnowledgeDeleted        AuditAction = "knowledge.deleted"
