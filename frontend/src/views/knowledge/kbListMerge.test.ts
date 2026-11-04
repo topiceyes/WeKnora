@@ -153,6 +153,48 @@ test('drops shared rows whose knowledge_base is null', () => {
   assert.deepEqual(keys(result), ['a'])
 })
 
+test('renders a shared KB whose creator is me as mine (cross-workspace transfer)', () => {
+  // The ownership transfer only moves creator_id: the KB stays in its
+  // original workspace, so it still arrives through a share row. The creator
+  // must see it as an owned card ("我的"), not as a sharee card.
+  const result = mergeAllScopeKnowledgeBases(
+    [],
+    [
+      shared('transferred', 'viewer', {
+        knowledge_base: { id: 'transferred', creator_id: ME, tenant_id: 10000 },
+      }),
+      shared('plain', 'editor', {
+        knowledge_base: { id: 'plain', creator_id: 'someone-else', tenant_id: 10000 },
+      }),
+    ],
+    ME,
+  )
+  assert.deepEqual(keys(result), ['transferred', 'plain'])
+  assert.equal(result[0].isMine, true)
+  assert.equal((result[0] as { permission?: string }).permission, undefined)
+  assert.equal(result[1].isMine, false)
+  assert.equal((result[1] as { permission?: string }).permission, 'editor')
+})
+
+test('collapses duplicate shares of my transferred KB into one owned card', () => {
+  const result = mergeAllScopeKnowledgeBases(
+    [],
+    [
+      shared('transferred', 'viewer', {
+        share_id: 'share-a',
+        knowledge_base: { id: 'transferred', creator_id: ME },
+      }),
+      shared('transferred', 'editor', {
+        share_id: 'share-b',
+        knowledge_base: { id: 'transferred', creator_id: ME },
+      }),
+    ],
+    ME,
+  )
+  assert.deepEqual(keys(result), ['transferred'])
+  assert.equal(result[0].isMine, true)
+})
+
 test('isSharedKbEditable treats admin/editor as editable, others read-only', () => {
   assert.equal(isSharedKbEditable('admin'), true)
   assert.equal(isSharedKbEditable('editor'), true)

@@ -279,6 +279,21 @@ func TestResolveKBCrossWorkspaceCreatorOwnsKB(t *testing.T) {
 	request.Caller.UserID = "someone-else"
 	_, err = ResolveKB(context.Background(), request, kb, types.OrgRoleEditor, shares, nil)
 	require.ErrorIs(t, err, ErrForbidden)
+
+	// CreatorRoleFloor applies to the caller's role in their own workspace:
+	// a creator demoted to Viewer no longer owns the KB.
+	request.Caller = types.Caller{TenantID: 1, UserID: "owner-user", Role: types.TenantRoleViewer}
+	_, err = ResolveKB(context.Background(), request, kb, types.OrgRoleEditor, shares, nil)
+	require.ErrorIs(t, err, ErrForbidden)
+	require.False(t, CreatorManagesKB(
+		types.WithCaller(context.Background(), request.Caller), kb,
+	))
+	require.True(t, CreatorManagesKB(
+		types.WithCaller(context.Background(), types.Caller{
+			TenantID: 1, UserID: "owner-user", Role: types.TenantRoleContributor,
+		}),
+		kb,
+	))
 }
 
 func TestResolveKBMissingIdentityResourceAndAPIKeyScope(t *testing.T) {

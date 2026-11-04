@@ -71,13 +71,18 @@ func NewKBShareService(
 func creatorEffectivePermission(
 	ctx context.Context, kb *types.KnowledgeBase, effective types.OrgMemberRole,
 ) types.OrgMemberRole {
-	if kb == nil || kb.CreatorID == "" {
+	if !callerIsKBCreator(ctx, kb) {
 		return effective
 	}
-	if callerID := types.CallerFromContext(ctx).UserID; callerID != "" && kb.CreatorID == callerID {
-		return types.OrgRoleAdmin
-	}
-	return effective
+	return types.OrgRoleAdmin
+}
+
+// callerIsKBCreator reports whether the caller is the KB's designated owner
+// with at least Contributor in their own workspace. The two cross-workspace
+// transfer paths (ResolveKB and the share service) share this rule so a
+// creator demoted to Viewer loses management everywhere.
+func callerIsKBCreator(ctx context.Context, kb *types.KnowledgeBase) bool {
+	return access.CreatorManagesKB(ctx, kb)
 }
 
 // applyTenantRoleCap applies the third dimension of the cap: a caller
@@ -92,8 +97,8 @@ func applyTenantRoleCap(p types.OrgMemberRole, callerTenantRole types.TenantRole
 }
 
 // ShareKnowledgeBase shares a knowledge base to an organization.
-// Caller must be in a tenant that owns the KB *and* be a member of the
-// target org with at least editor role.
+// Caller must own the KB (its workspace, or creator after a cross-workspace
+// transfer) *and* be a member of the target org with at least editor role.
 func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, orgID string, userID string, tenantID uint64, permission types.OrgMemberRole) (*types.KnowledgeBaseShare, error) {
 	logger.Infof(ctx, "Sharing knowledge base %s to organization %s", kbID, orgID)
 
@@ -101,7 +106,7 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 	if err != nil {
 		return nil, ErrKBNotFound
 	}
-	if kb.TenantID != tenantID {
+	if kb.TenantID != tenantID && !callerIsKBCreator(ctx, kb) {
 		return nil, ErrNotKBOwner
 	}
 
@@ -129,6 +134,11 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 		return nil, ErrInvalidRole
 	}
 
+	// SourceTenantID is the share's lifecycle anchor, not the KB's data
+	// tenant: repository queries drop a share once this tenant leaves the
+	// organization. For a same-workspace owner it equals kb.TenantID; for a
+	// cross-workspace owner it is their own tenant, which is the one that
+	// actually vouched for the share. Data lookups must use kb.TenantID.
 	share := &types.KnowledgeBaseShare{
 		ID:              uuid.New().String(),
 		KnowledgeBaseID: kbID,
@@ -181,11 +191,15 @@ func (s *kbShareService) UpdateSharePermission(ctx context.Context, shareID stri
 		return ErrInvalidRole
 	}
 
+	kb, kbErr := s.loadShareKB(ctx, share.KnowledgeBaseID)
 	record := shareRecord{
 		sharedByUserID: share.SharedByUserID, sourceTenantID: share.SourceTenantID,
 		orgID: share.OrganizationID, permission: share.Permission,
 	}
-	if !canManageShare(ctx, s.orgRepo, record, permission, userID, tenantID) {
+	// A cross-workspace owner created (or inherited) the share and must be
+	// able to manage it without being the source tenant or an org admin.
+	if !(kbErr == nil && callerIsKBCreator(ctx, kb)) &&
+		!canManageShare(ctx, s.orgRepo, record, permission, userID, tenantID) {
 		return ErrSharePermissionDenied
 	}
 
@@ -195,7 +209,13 @@ func (s *kbShareService) UpdateSharePermission(ctx context.Context, shareID stri
 	if err := s.shareRepo.Update(ctx, share); err != nil {
 		return err
 	}
-	recordKBActivity(ctx, s.audit, share.SourceTenantID, share.KnowledgeBaseID, types.AuditActionKBSharePermissionChanged,
+	// Activity belongs to the KB's data tenant, not the share's anchor
+	// tenant (they differ after a cross-workspace ownership transfer).
+	auditTenantID := share.SourceTenantID
+	if kbErr == nil && kb != nil {
+		auditTenantID = kb.TenantID
+	}
+	recordKBActivity(ctx, s.audit, auditTenantID, share.KnowledgeBaseID, types.AuditActionKBSharePermissionChanged,
 		"knowledge_base_share", share.ID, types.AuditOutcomeSuccess,
 		map[string]any{"organization_id": share.OrganizationID, "permission": permission})
 	return nil
@@ -211,20 +231,35 @@ func (s *kbShareService) RemoveShare(ctx context.Context, shareID string, userID
 		return err
 	}
 
+	kb, kbErr := s.loadShareKB(ctx, share.KnowledgeBaseID)
 	record := shareRecord{
 		sharedByUserID: share.SharedByUserID, sourceTenantID: share.SourceTenantID,
 		orgID: share.OrganizationID, permission: share.Permission,
 	}
-	if !canManageShare(ctx, s.orgRepo, record, "", userID, tenantID) {
+	if !(kbErr == nil && callerIsKBCreator(ctx, kb)) &&
+		!canManageShare(ctx, s.orgRepo, record, "", userID, tenantID) {
 		return ErrSharePermissionDenied
 	}
 	if err := s.shareRepo.Delete(ctx, shareID); err != nil {
 		return err
 	}
-	recordKBActivity(ctx, s.audit, share.SourceTenantID, share.KnowledgeBaseID, types.AuditActionKBShareRemoved,
+	auditTenantID := share.SourceTenantID
+	if kbErr == nil && kb != nil {
+		auditTenantID = kb.TenantID
+	}
+	recordKBActivity(ctx, s.audit, auditTenantID, share.KnowledgeBaseID, types.AuditActionKBShareRemoved,
 		"knowledge_base_share", share.ID, types.AuditOutcomeSuccess,
 		map[string]any{"organization_id": share.OrganizationID, "permission": share.Permission})
 	return nil
+}
+
+// loadShareKB loads the share's KB when the repository is available. A miss
+// leaves a non-nil error, which keeps the creator bypass off (fail-closed).
+func (s *kbShareService) loadShareKB(ctx context.Context, kbID string) (*types.KnowledgeBase, error) {
+	if s.kbRepo == nil {
+		return nil, ErrKBNotFound
+	}
+	return s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
 }
 
 // shareRecord is the part of a KB or agent share that decides who may
@@ -280,13 +315,15 @@ func canManageShare(
 	return err == nil && tm.Role == types.OrgRoleAdmin
 }
 
-// ListSharesByKnowledgeBase lists shares for a knowledge base; caller's tenant must own the KB.
+// ListSharesByKnowledgeBase lists shares for a knowledge base; the caller's
+// tenant must own the KB, or the caller must be its designated creator after a
+// cross-workspace ownership transfer.
 func (s *kbShareService) ListSharesByKnowledgeBase(ctx context.Context, kbID string, tenantID uint64) ([]*types.KnowledgeBaseShare, error) {
 	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
 	if err != nil {
 		return nil, ErrKBNotFound
 	}
-	if kb.TenantID != tenantID {
+	if kb.TenantID != tenantID && !callerIsKBCreator(ctx, kb) {
 		return nil, ErrNotKBOwner
 	}
 	return s.shareRepo.ListByKnowledgeBase(ctx, kbID)
@@ -344,10 +381,14 @@ func (s *kbShareService) ListSharedKnowledgeBases(ctx context.Context, tenantID 
 	kbInfoMap := make(map[string]*types.SharedKnowledgeBaseInfo)
 
 	for _, share := range shares {
-		if share.SourceTenantID == tenantID {
+		if share.KnowledgeBase == nil {
 			continue
 		}
-		if share.KnowledgeBase == nil {
+		// "Shared with me" must key on where the KB's data lives. A
+		// cross-workspace owner's share carries their own tenant as the
+		// anchor (SourceTenantID), but the KB still belongs to another
+		// workspace, so it stays visible here.
+		if share.KnowledgeBase.TenantID == tenantID {
 			continue
 		}
 
@@ -366,14 +407,14 @@ func (s *kbShareService) ListSharedKnowledgeBases(ctx context.Context, tenantID 
 		effective = creatorEffectivePermission(ctx, kb, effective)
 		switch kb.Type {
 		case types.KnowledgeBaseTypeDocument:
-			knowledgeCount, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, share.SourceTenantID, kb.ID)
+			knowledgeCount, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, kb.TenantID, kb.ID)
 			if err != nil {
 				logger.Warnf(ctx, "Failed to get knowledge count for shared KB %s: %v", kb.ID, err)
 			} else {
 				kb.KnowledgeCount = knowledgeCount
 			}
 		case types.KnowledgeBaseTypeFAQ:
-			chunkCount, err := s.chunkRepo.CountChunksByKnowledgeBaseID(ctx, share.SourceTenantID, kb.ID)
+			chunkCount, err := s.chunkRepo.CountChunksByKnowledgeBaseID(ctx, kb.TenantID, kb.ID)
 			if err != nil {
 				logger.Warnf(ctx, "Failed to get chunk count for shared KB %s: %v", kb.ID, err)
 			} else {
@@ -443,11 +484,11 @@ func (s *kbShareService) ListSharedKnowledgeBasesInOrganization(ctx context.Cont
 		effective = creatorEffectivePermission(ctx, kb, effective)
 		switch kb.Type {
 		case types.KnowledgeBaseTypeDocument:
-			if count, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, share.SourceTenantID, kb.ID); err == nil {
+			if count, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, kb.TenantID, kb.ID); err == nil {
 				kb.KnowledgeCount = count
 			}
 		case types.KnowledgeBaseTypeFAQ:
-			if count, err := s.chunkRepo.CountChunksByKnowledgeBaseID(ctx, share.SourceTenantID, kb.ID); err == nil {
+			if count, err := s.chunkRepo.CountChunksByKnowledgeBaseID(ctx, kb.TenantID, kb.ID); err == nil {
 				kb.ChunkCount = count
 			}
 		}
@@ -466,7 +507,10 @@ func (s *kbShareService) ListSharedKnowledgeBasesInOrganization(ctx context.Cont
 				SourceTenantID: share.SourceTenantID,
 				SharedAt:       share.CreatedAt,
 			},
-			IsMine: share.SourceTenantID == tenantID,
+			// IsMine keeps its original meaning: shared out by this workspace.
+			// A cross-workspace owner reaches the KB through creator_id.
+			IsMine:    share.SourceTenantID == tenantID,
+			IsCreator: callerIsKBCreator(ctx, kb),
 		}
 		result = append(result, item)
 	}

@@ -209,11 +209,41 @@ func TestKnowledgeBaseActivityHandler_BlocksSharedWorkspace(t *testing.T) {
 	}}
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/knowledge-bases/kb-1/activity", nil)
+	// A member of the receiving workspace who is not the KB's creator.
 	newKBActivityHandlerTestRouter(t, svc, 8,
 		&types.KnowledgeBase{ID: "kb-1", TenantID: 7, CreatorID: "creator"},
-		"creator", types.TenantRoleOwner).ServeHTTP(w, req)
+		"someone-else", types.TenantRoleOwner).ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestKnowledgeBaseActivityHandler_AllowsCrossWorkspaceCreator(t *testing.T) {
+	// A cross-workspace ownership transfer leaves the KB in tenant 7 while the
+	// designated creator lives in tenant 8. Ownership is their grant.
+	svc := &stubAuditService{list: func(_ context.Context, tenantID uint64, q *interfaces.AuditLogQuery) ([]*types.AuditLog, error) {
+		if tenantID != 7 {
+			t.Fatalf("activity must be read from the KB data tenant, got %d", tenantID)
+		}
+		return []*types.AuditLog{{ID: 1, TenantID: 7, ScopeType: q.ScopeType, ScopeID: q.ScopeID}}, nil
+	}}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/knowledge-bases/kb-1/activity", nil)
+	newKBActivityHandlerTestRouter(t, svc, 8,
+		&types.KnowledgeBase{ID: "kb-1", TenantID: 7, CreatorID: "creator"},
+		"creator", types.TenantRoleContributor).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	// Below the CreatorRoleFloor the creator loses even cross-workspace access.
+	w = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/knowledge-bases/kb-1/activity", nil)
+	newKBActivityHandlerTestRouter(t, &stubAuditService{}, 8,
+		&types.KnowledgeBase{ID: "kb-1", TenantID: 7, CreatorID: "creator"},
+		"creator", types.TenantRoleViewer).ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for demoted creator, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

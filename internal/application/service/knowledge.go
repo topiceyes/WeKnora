@@ -1221,8 +1221,11 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, keyword string, 
 			if err == nil {
 				for _, info := range sharedList {
 					if info != nil && info.KnowledgeBase != nil && info.KnowledgeBase.Type == types.KnowledgeBaseTypeDocument {
+						// Search the KB's own workspace: a cross-workspace
+						// owner's share is anchored to their tenant, not the
+						// workspace where the data lives.
 						scopes = append(scopes, types.KnowledgeSearchScope{
-							TenantID: info.SourceTenantID,
+							TenantID: info.KnowledgeBase.TenantID,
 							KBID:     info.KnowledgeBase.ID,
 						})
 					}

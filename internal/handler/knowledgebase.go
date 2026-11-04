@@ -1575,9 +1575,12 @@ func (h *KnowledgeBaseHandler) DeleteKnowledgeBase(c *gin.Context) {
 		return
 	}
 
-	// Only owner (admin with matching tenant) can delete knowledge base
+	// Only the owner can delete: an admin acting in the KB's own workspace, or
+	// the designated creator holding the KB from another workspace (ownership
+	// transfer across workspaces leaves tenant_id untouched).
 	tenantID, _ := c.Get(types.TenantIDContextKey.String())
-	if kb.TenantID != tenantID.(uint64) || permission != types.OrgRoleAdmin {
+	isWorkspaceAdmin := kb.TenantID == tenantID.(uint64) && permission == types.OrgRoleAdmin
+	if !isWorkspaceAdmin && !access.CreatorManagesKB(ctx, kb) {
 		c.Error(apperrors.NewForbiddenError("Only knowledge base owner can delete"))
 		return
 	}

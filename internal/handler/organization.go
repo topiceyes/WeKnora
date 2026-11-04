@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Tencent/WeKnora/internal/application/access"
 	"github.com/Tencent/WeKnora/internal/application/service"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -1316,11 +1317,11 @@ func (h *OrganizationHandler) ListOrgShares(c *gin.Context) {
 			resp.KnowledgeBaseName = s.KnowledgeBase.Name
 			resp.KnowledgeBaseType = s.KnowledgeBase.Type
 			// Get knowledge count for document type
-			if count, err := h.knowledgeRepo.CountKnowledgeByKnowledgeBaseID(ctx, s.SourceTenantID, s.KnowledgeBaseID); err == nil {
+			if count, err := h.knowledgeRepo.CountKnowledgeByKnowledgeBaseID(ctx, s.KnowledgeBase.TenantID, s.KnowledgeBaseID); err == nil {
 				resp.KnowledgeCount = count
 			}
 			// Get chunk count for FAQ type
-			if count, err := h.chunkRepo.CountChunksByKnowledgeBaseID(ctx, s.SourceTenantID, s.KnowledgeBaseID); err == nil {
+			if count, err := h.chunkRepo.CountChunksByKnowledgeBaseID(ctx, s.KnowledgeBase.TenantID, s.KnowledgeBaseID); err == nil {
 				resp.ChunkCount = count
 			}
 		}
@@ -1701,7 +1702,8 @@ func (h *OrganizationHandler) listSpaceKnowledgeBasesInOrganization(ctx context.
 				// 即便 KB 是「被共享智能体捎带进来」的，只要它属于当前空间
 				// 就应该归到「我共享的」分组——否则用户会在共享空间里看到
 				// 自己的 KB 出现在「共享给我·仅查看」组里，非常迷惑。
-				IsMine: sourceTenantID == tenantID,
+				IsMine:    sourceTenantID == tenantID,
+				IsCreator: access.CreatorManagesKB(ctx, kb),
 				SourceFromAgent: &types.SourceFromAgentInfo{
 					AgentID:         agent.ID,
 					AgentName:       agentName,
@@ -1754,7 +1756,7 @@ func (h *OrganizationHandler) ListOrganizationSharedKnowledgeBases(c *gin.Contex
 		if item.KnowledgeBase != nil && !apiKeyMaySeeKB(ctx, item.KnowledgeBase.ID) {
 			continue
 		}
-		extras := map[string]interface{}{"is_mine": item.IsMine}
+		extras := map[string]interface{}{"is_mine": item.IsMine, "is_creator": item.IsCreator}
 		if item.SourceFromAgent != nil {
 			extras["source_from_agent"] = item.SourceFromAgent
 		}

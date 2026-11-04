@@ -284,7 +284,11 @@ type SourceFromAgentInfo struct {
 // When SourceFromAgent is set, the KB is from a shared agent's config (no direct KB share); show as read-only and "来自智能体 XXX".
 type OrganizationSharedKnowledgeBaseItem struct {
 	SharedKnowledgeBaseInfo
+	// IsMine means the KB belongs to the caller's own workspace; IsCreator
+	// means the caller is the designated owner (creator_id) and may hold it
+	// from another workspace.
 	IsMine          bool                 `json:"is_mine"`
+	IsCreator       bool                 `json:"is_creator"`
 	SourceFromAgent *SourceFromAgentInfo `json:"source_from_agent,omitempty"`
 }
 

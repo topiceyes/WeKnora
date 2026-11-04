@@ -504,8 +504,19 @@
         <div v-else-if="spaceSelectionOrgId && sortedSpaceKbsList.length > 0" class="kb-card-wrap">
           <template v-for="(shared, index) in sortedSpaceKbsList"
             :key="'shared-' + (shared.share_id || `agent-${shared.knowledge_base?.id}-${shared.source_from_agent?.agent_id || ''}`)">
+            <!-- 我创建的：跨空间转让后的归宿人，库仍留在原空间，但 creator_id 是自己 -->
+            <div v-if="shared.is_creator && index === 0" class="kb-section-header"
+              role="button" tabindex="0" :aria-expanded="!isKbSectionCollapsed('mine')" @click="toggleKbSection('mine')"
+              @keydown.enter.prevent="toggleKbSection('mine')"
+              @keydown.space.prevent="toggleKbSection('mine')">
+              <t-icon name="user" size="14px" />
+              <span>{{ $t('knowledgeList.sections.mine') }}</span>
+              <span class="kb-section-count">{{ spaceKbSectionCounts.mine }}</span>
+              <t-icon class="kb-section-toggle"
+                :name="isKbSectionCollapsed('mine') ? 'chevron-right' : 'chevron-down'" size="14px" />
+            </div>
             <!-- 我共享的：本空间下我自己创建并共享进来的条目，只在第一条 is_mine 上挂标题 -->
-            <div v-if="shared.is_mine && index === 0" class="kb-section-header"
+            <div v-if="shared.is_mine && (index === 0 || sortedSpaceKbsList[index - 1].is_creator)" class="kb-section-header"
               role="button" tabindex="0" :aria-expanded="!isKbSectionCollapsed('sharedByMe')" @click="toggleKbSection('sharedByMe')"
               @keydown.enter.prevent="toggleKbSection('sharedByMe')"
               @keydown.space.prevent="toggleKbSection('sharedByMe')">
@@ -516,9 +527,9 @@
                 :name="isKbSectionCollapsed('sharedByMe') ? 'chevron-right' : 'chevron-down'" size="14px" />
             </div>
             <!-- 共享给我 · 可编辑：从「我的」首次进入「共享 + 可编辑」 -->
-            <div v-if="!shared.is_mine
+            <div v-if="!shared.is_mine && !shared.is_creator
               && isSharedKbEditable(shared.permission)
-              && (index === 0 || sortedSpaceKbsList[index - 1].is_mine)" class="kb-section-header"
+              && (index === 0 || sortedSpaceKbsList[index - 1].is_mine || sortedSpaceKbsList[index - 1].is_creator)" class="kb-section-header"
               role="button" tabindex="0" :aria-expanded="!isKbSectionCollapsed('sharedEditable')" @click="toggleKbSection('sharedEditable')"
               @keydown.enter.prevent="toggleKbSection('sharedEditable')"
               @keydown.space.prevent="toggleKbSection('sharedEditable')">
@@ -530,10 +541,11 @@
                 :name="isKbSectionCollapsed('sharedEditable') ? 'chevron-right' : 'chevron-down'" size="14px" />
             </div>
             <!-- 共享给我 · 仅查看：从「可编辑共享 / 我的」首次进入「viewer」 -->
-            <div v-if="!shared.is_mine
+            <div v-if="!shared.is_mine && !shared.is_creator
               && !isSharedKbEditable(shared.permission)
               && (index === 0
                 || sortedSpaceKbsList[index - 1].is_mine
+                || sortedSpaceKbsList[index - 1].is_creator
                 || isSharedKbEditable(sortedSpaceKbsList[index - 1].permission))" class="kb-section-header"
               role="button" tabindex="0" :aria-expanded="!isKbSectionCollapsed('sharedReadonly')" @click="toggleKbSection('sharedReadonly')"
               @keydown.enter.prevent="toggleKbSection('sharedReadonly')"
@@ -555,7 +567,7 @@
                 <span class="card-title" :title="shared.knowledge_base.name">
                   <span class="card-title-text">{{ shared.knowledge_base.name }}</span>
                 </span>
-                <t-tooltip v-if="!shared.is_mine" :content="$t('knowledgeList.menu.viewDetails')" placement="top">
+                <t-tooltip v-if="!shared.is_mine && !shared.is_creator" :content="$t('knowledgeList.menu.viewDetails')" placement="top">
                   <button type="button" class="shared-detail-trigger" @click.stop="openSharedDetail(shared)"
                     :aria-label="$t('knowledgeList.menu.viewDetails')">
                     <t-icon name="info-circle" size="16px" />
@@ -872,10 +884,12 @@ const unsearchedSortedSpaceKbsList = computed(() => {
   return sortResourcesWithinGroups(
     spaceKbsList.value,
     selectedResourceSort.value,
-    item => item.is_mine
-      ? 'sharedByMe'
-      : isSharedKbEditable(item.permission) ? 'sharedEditable' : 'sharedReadonly',
-    ['sharedByMe', 'sharedEditable', 'sharedReadonly'],
+    item => item.is_creator
+      ? 'mine'
+      : item.is_mine
+        ? 'sharedByMe'
+        : isSharedKbEditable(item.permission) ? 'sharedEditable' : 'sharedReadonly',
+    ['mine', 'sharedByMe', 'sharedEditable', 'sharedReadonly'],
     sharedKnowledgeBaseSortAccessors,
   )
 })
@@ -1037,7 +1051,9 @@ const kbSectionOf = (kb: any): KbSectionKey => {
 
 // 空间筛选视图（sortedSpaceKbsList）的条目结构与上面不同：is_mine 直接标识
 // 「我共享出来的」，其余按 permission 走 sharedEditable / sharedReadonly。
+// is_creator：跨空间转让后的归宿人——库仍在原空间，但 creator_id 是自己。
 const spaceKbSectionOf = (shared: any): KbSectionKey => {
+  if (shared?.is_creator) return 'mine'
   if (shared?.is_mine) return 'sharedByMe'
   return isSharedKbEditable(shared?.permission) ? 'sharedEditable' : 'sharedReadonly'
 }
@@ -1281,7 +1297,13 @@ function canManageKBCard(kb: KB): boolean {
 }
 
 function canDuplicateKBCard(kb: any): boolean {
-  return authStore.hasRole('contributor') && kb.isMine !== false
+  if (!authStore.hasRole('contributor') || kb.isMine === false) return false
+  // 复制在后端按 workspace 限制：跨空间归宿库仍属于原空间，调用必然被拒，
+  // 因此不展示入口。
+  const kbTenant = kb.tenant_id
+  const activeTenant = authStore.effectiveTenantId
+  if (kbTenant && activeTenant && String(kbTenant) !== String(activeTenant)) return false
+  return true
 }
 
 // isMyKb 仅用于卡片右下角徽章在「我创建」与「同空间其他成员创建」之间切换。

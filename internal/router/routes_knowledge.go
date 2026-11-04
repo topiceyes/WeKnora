@@ -81,9 +81,11 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		kbRead.GET("/folders", g.Viewer(), g.KBAccessRead("id"), handler.ListKnowledgeFolders)
 		kbRead.GET("/tree", g.Viewer(), g.KBAccessRead("id"), handler.ListKnowledgeTree)
 		kb.PUT("/folders", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.RenameKnowledgeFolder)
-		// Clearing all contents under a KB is a destructive op; gate
-		// behind Admin instead of Contributor.
-		kb.With(apiKeyFullAccess()).DELETE("", g.Admin(), g.KBAccessWrite("id"), handler.ClearKnowledgeBaseContents)
+		// Clearing all contents under a KB is a destructive op. Mirror
+		// DeleteKnowledgeBase: a workspace Admin, or the KB's designated
+		// creator (who may hold it from another workspace). The handler
+		// re-checks both.
+		kb.With(apiKeyFullAccess()).DELETE("", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.ClearKnowledgeBaseContents)
 	}
 
 	// Image gallery: list every image asset of a KB (read-only, Viewer+).

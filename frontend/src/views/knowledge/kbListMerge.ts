@@ -34,6 +34,8 @@ export interface SharedKnowledgeBaseLike {
     id: string;
     knowledge_count?: number;
     chunk_count?: number;
+    creator_id?: string;
+    tenant_id?: number;
     [key: string]: unknown;
   } | null;
   permission: string;
@@ -87,8 +89,10 @@ function pinnedTime(kb: OwnedKnowledgeBase): number {
  * Ordering (unchanged from the previous inline logic):
  *   1. pinned KBs (any creator the caller pinned), newest pin first
  *   2. the caller's own non-pinned KBs
- *   3. teammate non-pinned KBs (own tenant, someone else created)
- *   4. shared KBs, editable grants before view-only
+ *   3. the caller's KBs reached through a share (cross-workspace ownership
+ *      transfer: creator_id is the caller but the KB lives elsewhere)
+ *   4. teammate non-pinned KBs (own tenant, someone else created)
+ *   5. shared KBs, editable grants before view-only
  *
  * On top of that, every entry is unique by knowledge-base id: owned rows
  * win over shared duplicates, and repeated shares of one KB collapse to
@@ -115,7 +119,6 @@ export function mergeAllScopeKnowledgeBases(
 
   for (const kb of pinned) result.push({ ...kb, isMine: true as const });
   for (const kb of ownMine) result.push({ ...kb, isMine: true as const });
-  for (const kb of teammateMine) result.push({ ...kb, isMine: true as const });
 
   // Collapse the shared rows by KB id, keeping the most-privileged grant,
   // and drop any KB the caller already owns. This is what guarantees a
@@ -137,7 +140,26 @@ export function mergeAllScopeKnowledgeBases(
     return aE - bE;
   });
 
+  // A cross-workspace ownership transfer keeps the KB in its original
+  // workspace, so the caller still reaches it through a share row. Their
+  // creator_id makes it theirs: render it as an owned card ("我的"), not a
+  // sharee card.
+  const creatorShared = sortedShared.filter((entry) => isMyKb(entry.knowledge_base!, currentUserId));
+  for (const shared of creatorShared) {
+    const kb = shared.knowledge_base!;
+    result.push({
+      ...kb,
+      isMine: true as const,
+      knowledge_count: kb.knowledge_count,
+      chunk_count: kb.chunk_count,
+    } as MergedOwnedKnowledgeBase);
+  }
+
+  for (const kb of teammateMine) result.push({ ...kb, isMine: true as const });
+
   for (const shared of sortedShared) {
+    // Already emitted above as an owned card.
+    if (isMyKb(shared.knowledge_base!, currentUserId)) continue;
     const kb = shared.knowledge_base!;
     result.push({
       ...kb,

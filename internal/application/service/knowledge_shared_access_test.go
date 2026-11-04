@@ -15,11 +15,21 @@ import (
 )
 
 func TestCreatorEffectivePermission(t *testing.T) {
-	ctx := types.WithCaller(context.Background(), types.Caller{UserID: "owner"})
+	ctx := types.WithCaller(context.Background(), types.Caller{
+		UserID: "owner", Role: types.TenantRoleContributor,
+	})
 	kb := &types.KnowledgeBase{CreatorID: "owner"}
 	require.Equal(t, types.OrgRoleAdmin, creatorEffectivePermission(ctx, kb, types.OrgRoleViewer))
 	kb.CreatorID = "someone-else"
 	require.Equal(t, types.OrgRoleViewer, creatorEffectivePermission(ctx, kb, types.OrgRoleViewer))
+
+	// A creator demoted to Viewer below the CreatorRoleFloor no longer owns
+	// the KB on the shared listing.
+	demoted := types.WithCaller(context.Background(), types.Caller{
+		UserID: "owner", Role: types.TenantRoleViewer,
+	})
+	kb.CreatorID = "owner"
+	require.Equal(t, types.OrgRoleViewer, creatorEffectivePermission(demoted, kb, types.OrgRoleViewer))
 }
 
 type fakeKBShareService struct {

@@ -91,6 +91,10 @@ export interface SharedKnowledgeBase {
     chunk_count?: number
     created_at?: string
     updated_at?: string
+    /** Workspace the KB's data actually lives in (may differ from the caller's). */
+    tenant_id?: number
+    creator_id?: string
+    creator_name?: string
   }
   share_id: string
   organization_id: string
@@ -111,6 +115,8 @@ export interface SourceFromAgentInfo {
 /** Item from GET /organizations/:id/shared-knowledge-bases (space-scoped list including mine and agent-carried) */
 export type OrganizationSharedKnowledgeBaseItem = SharedKnowledgeBase & {
   is_mine: boolean
+  /** True when the caller is the KB's designated creator (ownership may cross workspaces). */
+  is_creator?: boolean
   /** Present when the KB is from a shared agent's config (not directly shared to the space) */
   source_from_agent?: SourceFromAgentInfo
 }

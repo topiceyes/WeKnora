@@ -86,6 +86,19 @@ type AgentShareLookup interface {
 	TenantCanAccessKBViaSomeSharedAgent(context.Context, uint64, types.TenantRole, *types.KnowledgeBase) (bool, error)
 }
 
+// CreatorManagesKB reports whether the authenticated caller is the KB's
+// designated creator with at least CreatorRoleFloor in their own workspace.
+// Handlers and services use it where a tenant-scoped ownership lookup cannot
+// see the KB, so ownership must be decided from the loaded row instead.
+func CreatorManagesKB(ctx context.Context, kb *types.KnowledgeBase) bool {
+	if kb == nil || kb.CreatorID == "" {
+		return false
+	}
+	caller := types.CallerFromContext(ctx)
+	return caller.UserID != "" && caller.UserID == kb.CreatorID &&
+		caller.Role.HasPermission(CreatorRoleFloor)
+}
+
 // ResolveKB authorizes a server-loaded KB (or a document's persisted KB/tenant
 // reference). Its tenant is authoritative; resolving the owner from a share
 // record again would add a lookup and a second source of truth. It never treats
@@ -121,10 +134,14 @@ func ResolveKB(ctx context.Context, request KBRequest, kb *types.KnowledgeBase, 
 	// ownership transfer across workspaces intentionally leaves tenant_id
 	// untouched (moving storage/vectors is out of scope), so the new owner
 	// may hold creator_id while their tenant is not a member of every org
-	// the KB is shared into. Ownership itself is the access grant; the
-	// role floor in OwnedKBOrAdmin still rejects a creator demoted to
-	// Viewer in their own workspace.
-	if kb.CreatorID != "" && kb.CreatorID == request.Caller.UserID {
+	// the KB is shared into. Ownership itself is the access grant.
+	//
+	// The CreatorRoleFloor applies to the caller's role in their own
+	// workspace. OwnedKBOrAdmin cannot enforce it here: its creator lookup
+	// is tenant-scoped and returns ErrResourceNotFound for a cross-tenant
+	// KB, which the middleware treats as "let the handler decide".
+	if kb.CreatorID != "" && kb.CreatorID == request.Caller.UserID &&
+		request.Caller.Role.HasPermission(CreatorRoleFloor) {
 		return grant(types.OrgRoleAdmin)
 	}
 	if shares != nil {

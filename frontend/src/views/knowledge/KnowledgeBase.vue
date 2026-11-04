@@ -309,19 +309,23 @@ const currentSharedKb = computed(() =>
 // both the source and receiving tenants, and currentTenantId reflects the
 // active switcher rather than "how this KB became visible to me". Presence
 // in the share list is the authoritative signal.
-const isViaShare = computed(() => !!currentSharedKb.value);
+// Ownership outranks the share-list signal: a cross-workspace ownership
+// transfer leaves the KB in its original workspace, so the new owner still
+// reaches it through a share row. They are the 归宿人, not a sharee.
+const isViaShare = computed(() => !!currentSharedKb.value && !isOwner.value);
 
 // Effective permission: from direct org share list or from GET /knowledge-bases/:id (e.g. agent-visible KB).
 // Declared first: the canEdit / canManage gates below treat an explicit
 // cross-tenant grant as the single source of truth.
-const effectiveKBPermission = computed(() => orgStore.getKBPermission(kbId.value) || kbInfo.value?.my_permission || '');
+const effectiveKBPermission = computed(() => {
+  if (isOwner.value) return 'owner';
+  return orgStore.getKBPermission(kbId.value) || kbInfo.value?.my_permission || '';
+});
 
-// Can edit: when accessed via an organization share, ONLY the share grant
-// counts — even if the current user happens to be the original creator of
-// the KB. The backend's RBAC middleware authorizes based on the active
-// tenant, not on creator_id, so a creator viewing their own KB from a
-// different tenant context will be 403'd on write. Otherwise: KB creator
-// (Contributor+) or tenant Admin+ in the home tenant.
+// Can edit: the KB's designated creator always may (ownership crosses
+// workspaces now: ResolveKB grants them Admin), otherwise when accessed via
+// an organization share the share grant is the source of truth, and
+// finally a tenant Admin+ in the home tenant.
 //
 // A resolved cross-tenant permission (org share or shared-agent visibility,
 // already capped server-side by effective = min(share, org_role, tenant_role))
@@ -332,10 +336,12 @@ const effectiveKBPermission = computed(() => orgStore.getKBPermission(kbId.value
 // hasRole('contributor') is intentionally NOT here — being a Contributor
 // in a tenant does not by itself grant edit on someone else's KB.
 const canEdit = computed(() => {
+  // Creator first: the shared list may still carry a stale editor/viewer
+  // permission for a cross-workspace owner before it refreshes.
+  if (isOwner.value) return true;
   const permission = effectiveKBPermission.value;
   if (permission) return permissionCanEditKB(permission);
   if (isViaShare.value) return orgStore.canEditKB(kbId.value, false);
-  if (isOwner.value) return true;
   if (authStore.hasRole('admin')) return true;
   return orgStore.canEditKB(kbId.value, false);
 });
@@ -344,10 +350,10 @@ const canEdit = computed(() => {
 // shared KBs only an 'admin' share grant qualifies — editor/viewer (and
 // even being the creator viewed via share) never grant delete/settings.
 const canManage = computed(() => {
+  if (isOwner.value) return true;
   const permission = effectiveKBPermission.value;
   if (permission) return permissionCanManageKB(permission);
   if (isViaShare.value) return orgStore.canManageKB(kbId.value, false);
-  if (isOwner.value) return true;
   if (authStore.hasRole('admin')) return true;
   return orgStore.canManageKB(kbId.value, false);
 });

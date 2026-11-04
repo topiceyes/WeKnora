@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Tencent/WeKnora/internal/application/access"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/middleware"
@@ -112,7 +113,7 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 // an owner-tenant check so organization-shared consumers cannot inspect source
 // workspace actors or configuration history.
 // @Summary      获取知识库活动记录
-// @Description  返回知识库的重要变更与后台任务入口。仅知识库创建者或所属空间管理员可读，共享空间不可读。
+// @Description  返回知识库的重要变更与后台任务入口。仅知识库归宿人或所属空间管理员可读；归宿人跨空间持有该库时同样可读。
 // @Description  按 id 倒序；把 next_cursor 作为 after_id 取下一页，返回空列表表示没有更多。
 // @Tags         知识库
 // @Produce      json
@@ -123,7 +124,7 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 // @Param        outcome   query  string  false  "结果过滤"  Enums(success,accepted,partial,failed,denied,canceled)  extensions(x-agent)
 // @Param        actor     query  string  false  "按 actor_user_id 精确过滤"
 // @Success      200  {object}  auditLogListResponse
-// @Failure      403  {object}  errors.AppError  "非创建者或管理员，或知识库来自其他空间"
+// @Failure      403  {object}  errors.AppError  "非归宿人/管理员，或跨空间但并非该库归宿人"
 // @Failure      404  {object}  errors.AppError  "知识库不存在"
 // @Security     Bearer
 // @x-agent      {"id":"knowledge_base.list_activity","risk":"read","role":"contributor"}
@@ -132,19 +133,22 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 func (h *AuditLogHandler) ListKnowledgeBaseActivity(c *gin.Context) {
 	ctx := c.Request.Context()
 	kbID := c.Param("id")
-	access, ok := middleware.KBAccessFromContext(c)
-	if !ok || access == nil || access.KnowledgeBase == nil || access.KnowledgeBase.ID != kbID {
+	kbAccess, ok := middleware.KBAccessFromContext(c)
+	if !ok || kbAccess == nil || kbAccess.KnowledgeBase == nil || kbAccess.KnowledgeBase.ID != kbID {
 		c.Error(errors.NewNotFoundError("knowledge base not found"))
 		return
 	}
+	// A designated creator may hold the KB from another workspace; ownership
+	// is their grant even though the data stays in the original workspace.
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
-	if callerTenantID == 0 || access.KnowledgeBase.TenantID != callerTenantID {
+	inOwnerWorkspace := callerTenantID != 0 && kbAccess.KnowledgeBase.TenantID == callerTenantID
+	if !inOwnerWorkspace && !access.CreatorManagesKB(ctx, kbAccess.KnowledgeBase) {
 		c.Error(errors.NewForbiddenError("knowledge base activity is only available in the owner workspace"))
 		return
 	}
 	actorID, _ := types.UserIDFromContext(ctx)
 	role := types.TenantRoleFromContext(ctx)
-	if access.KnowledgeBase.CreatorID != actorID && !role.HasPermission(types.TenantRoleAdmin) {
+	if kbAccess.KnowledgeBase.CreatorID != actorID && !role.HasPermission(types.TenantRoleAdmin) {
 		c.Error(errors.NewForbiddenError("knowledge base activity requires creator or admin access"))
 		return
 	}
@@ -159,7 +163,7 @@ func (h *AuditLogHandler) ListKnowledgeBaseActivity(c *gin.Context) {
 		ScopeType:   "knowledge_base",
 		ScopeID:     kbID,
 	}
-	entries, err := h.auditService.List(ctx, access.KnowledgeBase.TenantID, q)
+	entries, err := h.auditService.List(ctx, kbAccess.KnowledgeBase.TenantID, q)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{"knowledge_base_id": kbID})
 		c.Error(errors.NewInternalServerError(err.Error()))

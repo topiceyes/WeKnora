@@ -2023,9 +2023,11 @@ func (h *KnowledgeHandler) ClearKnowledgeBaseContents(c *gin.Context) {
 		return
 	}
 
-	// Only owner (admin with matching tenant) can clear knowledge base contents
+	// Only the owner can clear contents: an admin acting in the KB's own
+	// workspace, or the designated creator holding the KB from another one.
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-	if kb.TenantID != tenantID || permission != types.OrgRoleAdmin {
+	isWorkspaceAdmin := kb.TenantID == tenantID && permission == types.OrgRoleAdmin
+	if !isWorkspaceAdmin && !access.CreatorManagesKB(ctx, kb) {
 		c.Error(errors.NewForbiddenError("Only knowledge base owner can clear contents"))
 		return
 	}

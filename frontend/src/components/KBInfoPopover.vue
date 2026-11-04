@@ -59,14 +59,14 @@
                 <span class="kb-info-card-hint">{{ accessPermissionSummary }}</span>
               </span>
             </div>
-            <div v-if="currentSharedKb" class="kb-info-card-row">
+            <div v-if="isViaShare && currentSharedKb" class="kb-info-card-row">
               <span class="kb-info-card-label">{{ t('knowledgeBase.accessInfo.fromOrg') }}</span>
               <span class="kb-info-card-value">
                 「{{ currentSharedKb.org_name }}」 · {{ t('knowledgeBase.accessInfo.sharedAt') }}
                 {{ formatStringDate(new Date(currentSharedKb.shared_at)) }}
               </span>
             </div>
-            <div v-else-if="effectiveKBPermission" class="kb-info-card-row">
+            <div v-else-if="!isOwner && effectiveKBPermission" class="kb-info-card-row">
               <span class="kb-info-card-label">{{ t('knowledgeBase.infoCard.source') }}</span>
               <span class="kb-info-card-value">{{ t('knowledgeList.detail.sourceTypeAgent') }}</span>
             </div>
@@ -208,9 +208,13 @@ const currentSharedKb = computed(() => {
   return orgStore.sharedKnowledgeBases?.find?.((s: any) => s.knowledge_base?.id === id) ?? null
 })
 
-const isViaShare = computed<boolean>(() => !!currentSharedKb.value)
+// A cross-workspace ownership transfer keeps the KB in its original
+// workspace, so the new owner still appears in the share list. Ownership
+// wins: they are the 归宿人, not a sharee.
+const isViaShare = computed<boolean>(() => !!currentSharedKb.value && !isOwner.value)
 
 const effectiveKBPermission = computed<string>(() => {
+  if (isOwner.value) return 'owner'
   const id = props.kbInfo?.id || ''
   return orgStore.getKBPermission?.(id) || props.kbInfo?.my_permission || ''
 })

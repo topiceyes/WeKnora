@@ -5256,7 +5256,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "返回知识库的重要变更与后台任务入口。仅知识库创建者或所属空间管理员可读，共享空间不可读。\n按 id 倒序；把 next_cursor 作为 after_id 取下一页，返回空列表表示没有更多。",
+                "description": "返回知识库的重要变更与后台任务入口。仅知识库归宿人或所属空间管理员可读；归宿人跨空间持有该库时同样可读。\n按 id 倒序；把 next_cursor 作为 after_id 取下一页，返回空列表表示没有更多。",
                 "produces": [
                     "application/json"
                 ],
@@ -5328,7 +5328,7 @@
                         }
                     },
                     "403": {
-                        "description": "非创建者或管理员，或知识库来自其他空间",
+                        "description": "非归宿人/管理员，或跨空间但并非该库归宿人",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
