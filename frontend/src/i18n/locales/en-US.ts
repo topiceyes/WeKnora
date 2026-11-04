@@ -3305,6 +3305,28 @@ export default {
     defaultLocaleBrowser: 'Browser / host default'
   },
   knowledgeEditor: {
+    transfer: {
+      title: 'Transfer ownership',
+      description: 'Reassign this knowledge base to another member of the workspace. Only the owner changes; documents, indexes, storage and shares stay untouched.',
+      currentOwner: 'Current owner',
+      workspaceOwned: 'Owned by the workspace (no individual owner)',
+      selectNewOwner: 'New owner',
+      searchPlaceholder: 'Search by username or email',
+      loading: 'Loading members…',
+      empty: 'No other active members',
+      emptySearch: 'No members match your search',
+      loadFailed: 'Failed to load members',
+      retry: 'Retry',
+      viewerWillPromote: 'Will be promoted to Contributor automatically',
+      irreversibleHint: 'After the transfer you lose management rights unless you are an admin.',
+      submit: 'Transfer ownership',
+      confirmTitle: 'Confirm ownership transfer',
+      confirmBody: 'Transfer this knowledge base to {name}? You will lose management rights.',
+      confirmAction: 'Transfer',
+      success: 'Ownership transferred to {name}',
+      failed: 'Transfer failed',
+      conflict: 'Ownership changed concurrently, please retry'
+    },
     activity: {
       title: 'Activity',
       description: 'Important changes and background-task entry points for this knowledge base. Retention follows the audit-log policy.',
@@ -3357,7 +3379,8 @@ export default {
         data_source: 'Data source',
         knowledge_base_share: 'Share',
         knowledge_move: 'Knowledge move',
-        wiki: 'Wiki'
+        wiki: 'Wiki',
+        user: 'Member'
       },
       detailFields: {
         task_id: 'Task ID',
@@ -3373,13 +3396,16 @@ export default {
         processed: 'Processed',
         failed: 'Failed',
         skipped: 'Skipped',
-        failure_stage: 'Failure stage'
+        failure_stage: 'Failure stage',
+        old_creator_id: 'Previous owner ID',
+        new_creator_id: 'New owner ID',
       },
       actions: {
         'kb.created': 'Knowledge base created',
         'kb.updated': 'Knowledge base updated',
         'kb.deleted': 'Knowledge base deleted',
         'kb.duplicated': 'Knowledge base duplicated',
+        'kb.owner_transferred': 'Ownership transferred',
         'kb.clone_started': 'Clone started',
         'kb.clone_completed': 'Clone completed',
         'kb.clone_failed': 'Clone failed',
@@ -3461,7 +3487,8 @@ export default {
       asr: 'Audio',
       datasource: 'Data Sources',
       share: 'Sharing',
-      activity: 'Activity'
+      activity: 'Activity',
+      transfer: 'Transfer'
     },
     errors: {
       vectorStoreBindingInvalid: 'The selected vector store cannot be used. Choose a different store or use the system default.',

@@ -564,6 +564,17 @@
       <div v-if="editorMode === 'edit' && activeKbId && canViewActivity && currentSection === 'activity'" class="section">
         <KnowledgeBaseActivitySettings :kb-id="activeKbId" :active="currentSection === 'activity'" />
       </div>
+
+      <!-- 归属转让（仅编辑模式，KB 创建者或空间 Admin/Owner） -->
+      <div v-if="editorMode === 'edit' && activeKbId && canTransferKB && currentSection === 'transfer'" class="section">
+        <KBOwnershipTransfer
+          :kb-id="activeKbId"
+          :tenant-id="kbTenantId"
+          :current-owner-id="kbCreatorId"
+          :current-owner-name="kbCreatorName"
+          @transferred="handleOwnershipTransferred"
+        />
+      </div>
     </div>
 
     <template #footer-note>
@@ -659,6 +670,7 @@ import GraphSettings from './settings/GraphSettings.vue'
 import KBShareSettings from './settings/KBShareSettings.vue'
 import DataSourceSettings from './settings/DataSourceSettings.vue'
 import KnowledgeBaseActivitySettings from './settings/KnowledgeBaseActivitySettings.vue'
+import KBOwnershipTransfer from './settings/KBOwnershipTransfer.vue'
 import ImagePipelineSettings from './ImagePipelineSettings.vue'
 import { useI18n } from 'vue-i18n'
 
@@ -759,6 +771,8 @@ const dsCount = ref(0)
 // that predate per-KB ownership tracking; those KBs have no "owner" and
 // only tenant Admin+ can mutate their share settings.
 const kbCreatorId = ref<string>('')
+// Display name resolved from kbCreatorId by the backend (creator_name).
+const kbCreatorName = ref<string>('')
 const kbTenantId = ref<number>(0)
 
 // Backend gate for /knowledge-bases/:id/shares (POST/PUT/DELETE) is
@@ -783,6 +797,16 @@ const canViewActivity = computed(() => {
   if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
   return isKbOwner.value || authStore.hasRole('admin')
 })
+// 归宿转让入口可见性：后端 /transfer-owner 由 OwnedKBOrAdmin 守卫
+// （创建者 OR Admin+）且仅同空间可转；这里镜像同一矩阵，入口对
+// 其他人直接隐藏而不是点了再 403。
+const canTransferKB = computed(() => {
+  if (editorMode.value !== 'edit' || !activeKbId.value || authStore.isLiteMode) return false
+  if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
+  // Owner path also needs the Contributor floor: a demoted creator (now
+  // Viewer) is rejected by both OwnedKBOrAdmin and the service.
+  return (isKbOwner.value && authStore.hasRole('contributor')) || authStore.hasRole('admin')
+})
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
 
@@ -806,7 +830,7 @@ const DEFAULT_CHUNKING_PRESET = {
 
 // 这些分区的操作在点击时即时生效（共享 / 数据源 / 活动记录），不经过底部「保存」，
 // 因此底部只显示「关闭」并提示，避免用户以为需要再点保存或以为「取消」能撤销。
-const INSTANT_SECTIONS = new Set(['datasource', 'share', 'activity'])
+const INSTANT_SECTIONS = new Set(['datasource', 'share', 'activity', 'transfer'])
 const isInstantSection = computed(() => INSTANT_SECTIONS.has(currentSection.value))
 
 const navItems = computed(() => {
@@ -840,6 +864,9 @@ const navItems = computed(() => {
   if (canViewActivity.value) {
     items.push({ key: 'activity', icon: 'history', label: t('knowledgeEditor.sidebar.activity') })
   }
+  if (canTransferKB.value) {
+    items.push({ key: 'transfer', icon: 'swap', label: t('knowledgeEditor.sidebar.transfer') })
+  }
   return items
 })
 
@@ -872,7 +899,7 @@ const navGroups = computed(() => {
     {
       key: 'management',
       label: t('knowledgeEditor.navGroups.management'),
-      items: pickItems(['activity']),
+      items: pickItems(['activity', 'transfer']),
     },
   ].filter((group) => group.items.length > 0)
 })
@@ -1063,6 +1090,20 @@ const isCurrentKBLoad = (generation: number, kbId: string) => (
 )
 
 // 加载知识库数据（编辑模式）
+// 归属转让完成：刷新本地的 creator 信息。对「既非管理员、也不再是
+// 归宿人」的旧归宿人，转让入口会立刻消失（canTransferKB=false），
+// 必须把当前分区重置回 basic，否则内容区渲染空白。
+const handleOwnershipTransferred = async (event: { user_id: string; display_name: string }) => {
+  kbCreatorId.value = event.user_id
+  kbCreatorName.value = event.display_name || ''
+  const stillCanTransfer =
+    (isKbOwner.value && authStore.hasRole('contributor')) || authStore.hasRole('admin')
+  if (!stillCanTransfer && currentSection.value === 'transfer') {
+    currentSection.value = 'basic'
+  }
+  await loadKBData()
+}
+
 const loadKBData = async (
   kbIdOverride?: string,
   generation = kbEditorLoadGeneration,
@@ -1087,6 +1128,7 @@ const loadKBData = async (
     hasFiles.value = (filesResult as any)?.total > 0
     generatedProfile.value = (kb as any).generated_profile || null
     kbCreatorId.value = (kb as any).creator_id || ''
+    kbCreatorName.value = (kb as any).creator_name || ''
     kbTenantId.value = Number((kb as any).tenant_id || 0)
 
     // 设置表单数据
@@ -1900,6 +1942,7 @@ const resetState = () => {
   loading.value = false
   chunkingDirty.value = false
   kbCreatorId.value = ''
+  kbCreatorName.value = ''
   kbTenantId.value = 0
 }
 

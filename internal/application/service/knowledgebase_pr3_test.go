@@ -132,6 +132,17 @@ func (r *fakeKBRepo) ListKnowledgeBasesByTenantID(_ context.Context, tenantID ui
 func (r *fakeKBRepo) UpdateKnowledgeBase(_ context.Context, _ *types.KnowledgeBase) error {
 	return nil
 }
+
+func (r *fakeKBRepo) UpdateKnowledgeBaseCreator(
+	_ context.Context, id string, tenantID uint64, expectedCreatorID, newCreatorID string,
+) (bool, error) {
+	kb := r.rows[id]
+	if kb == nil || kb.TenantID != tenantID || kb.CreatorID != expectedCreatorID {
+		return false, nil
+	}
+	kb.CreatorID = newCreatorID
+	return true, nil
+}
 func (r *fakeKBRepo) DeleteKnowledgeBase(_ context.Context, _ string) error { return nil }
 func (r *fakeKBRepo) TogglePinKnowledgeBase(_ context.Context, _ string, _ uint64) (*types.KnowledgeBase, error) {
 	return nil, nil

@@ -154,6 +154,10 @@ const (
 	AuditActionKBCloneStarted   AuditAction = "kb.clone_started"
 	AuditActionKBCloneCompleted AuditAction = "kb.clone_completed"
 	AuditActionKBCloneFailed    AuditAction = "kb.clone_failed"
+	// AuditActionKBOwnerTransferred fires when the KB creator (归宿) is
+	// reassigned to another workspace member. Details carries
+	// old_creator_id/new_creator_id.
+	AuditActionKBOwnerTransferred AuditAction = "kb.owner_transferred"
 
 	AuditActionKnowledgeCreated        AuditAction = "knowledge.created"
 	AuditActionKnowledgeUpdated        AuditAction = "knowledge.updated"

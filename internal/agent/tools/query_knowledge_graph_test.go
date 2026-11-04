@@ -61,6 +61,12 @@ func (s *stubKnowledgeBaseService) DeleteKnowledgeBase(context.Context, string) 
 	return nil
 }
 
+func (s *stubKnowledgeBaseService) TransferKnowledgeBaseOwnership(
+	context.Context, string, string,
+) (*types.KnowledgeBase, error) {
+	return nil, nil
+}
+
 func (s *stubKnowledgeBaseService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {
 	return nil, nil
 }

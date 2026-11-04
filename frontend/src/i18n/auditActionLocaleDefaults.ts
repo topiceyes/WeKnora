@@ -43,6 +43,7 @@ const KB_ACTIVITY_ACTION_LABELS_EN: Record<string, string> = {
   'kb.updated': 'Knowledge base updated',
   'kb.deleted': 'Knowledge base deleted',
   'kb.duplicated': 'Knowledge base duplicated',
+  'kb.owner_transferred': 'Ownership transferred',
   'kb.clone_started': 'Clone started',
   'kb.clone_completed': 'Clone completed',
   'kb.clone_failed': 'Clone failed',

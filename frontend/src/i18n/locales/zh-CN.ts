@@ -5403,7 +5403,8 @@ export default {
       asr: '音频处理',
       datasource: '数据源',
       share: '共享管理',
-      activity: '活动记录'
+      activity: '活动记录',
+      transfer: '转让'
     },
     navGroups: {
       basic: '基础',
@@ -5411,6 +5412,28 @@ export default {
       data: '存储与数据',
       integration: '发布集成',
       management: '管理与审计'
+    },
+    transfer: {
+      title: '归属转让',
+      description: '将知识库的归宿转让给空间内其他成员。仅变更创建者，文档、索引、存储与共享均不受影响。',
+      currentOwner: '当前归宿人',
+      workspaceOwned: '空间所有（无个人归宿人）',
+      selectNewOwner: '新的归宿人',
+      searchPlaceholder: '搜索用户名或邮箱',
+      loading: '正在加载成员…',
+      empty: '暂无可转让的活跃成员',
+      emptySearch: '没有匹配的成员',
+      loadFailed: '成员加载失败',
+      retry: '重试',
+      viewerWillPromote: '转让时将自动提升为 Contributor',
+      irreversibleHint: '转让后你将失去该知识库的管理权限（管理员除外）。',
+      submit: '确认转让',
+      confirmTitle: '确认转让',
+      confirmBody: '确定将知识库转让给 {name} 吗？转让后你将失去管理权限。',
+      confirmAction: '转让',
+      success: '已转让给 {name}',
+      failed: '转让失败',
+      conflict: '归属已发生变化，请重试'
     },
     activity: {
       title: '活动记录',
@@ -5465,6 +5488,7 @@ export default {
         'kb.updated': '更新知识库',
         'kb.deleted': '删除知识库',
         'kb.duplicated': '复制知识库',
+        'kb.owner_transferred': '知识库所有权已转让',
         'kb.clone_started': '开始克隆',
         'kb.clone_completed': '完成克隆',
         'kb.clone_failed': '克隆失败',
@@ -5510,7 +5534,9 @@ export default {
         processed: '已处理',
         failed: '失败数',
         skipped: '跳过数',
-        failure_stage: '失败阶段'
+        failure_stage: '失败阶段',
+        old_creator_id: '原归宿人 ID',
+        new_creator_id: '新归宿人 ID',
       },
       targets: {
         knowledge_base: '知识库',
@@ -5520,7 +5546,8 @@ export default {
         data_source: '数据源',
         knowledge_base_share: '共享',
         knowledge_move: '知识移动',
-        wiki: 'Wiki'
+        wiki: 'Wiki',
+        user: '成员'
       },
       drawer: {
         sectionSummary: '摘要',

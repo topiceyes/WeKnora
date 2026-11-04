@@ -52,6 +52,9 @@ type knowledgeBaseService struct {
 	audit           interfaces.AuditLogService
 	resourceCatalog interfaces.ResourceCatalog
 	wikiRepo        interfaces.WikiPageRepository
+	// tenantMemberService backs ownership transfer target validation and the
+	// Viewer→Contributor promotion. Nil in tests that never transfer.
+	tenantMemberService interfaces.TenantMemberService
 }
 
 // NewKnowledgeBaseService creates a new knowledge base service
@@ -76,29 +79,31 @@ func NewKnowledgeBaseService(repo interfaces.KnowledgeBaseRepository,
 	audit interfaces.AuditLogService,
 	resourceCatalog interfaces.ResourceCatalog,
 	wikiRepo interfaces.WikiPageRepository,
+	tenantMemberService interfaces.TenantMemberService,
 ) interfaces.KnowledgeBaseService {
 	return &knowledgeBaseService{
-		repo:            repo,
-		kgRepo:          kgRepo,
-		chunkRepo:       chunkRepo,
-		shareRepo:       shareRepo,
-		kbShareService:  kbShareService,
-		modelService:    modelService,
-		retrieveEngine:  retrieveEngine,
-		ownership:       ownership,
-		tenantRepo:      tenantRepo,
-		fileSvc:         fileSvc,
-		storageResolver: storageResolver,
-		graphEngine:     graphEngine,
-		asynqClient:     asynqClient,
-		taskInspector:   taskInspector,
-		taskPendingRepo: taskPendingRepo,
-		dsRepo:          dsRepo,
-		syncLogRepo:     syncLogRepo,
-		dsScheduler:     dsScheduler,
-		audit:           audit,
-		resourceCatalog: resourceCatalog,
-		wikiRepo:        wikiRepo,
+		repo:                repo,
+		kgRepo:              kgRepo,
+		chunkRepo:           chunkRepo,
+		shareRepo:           shareRepo,
+		kbShareService:      kbShareService,
+		modelService:        modelService,
+		retrieveEngine:      retrieveEngine,
+		ownership:           ownership,
+		tenantRepo:          tenantRepo,
+		fileSvc:             fileSvc,
+		storageResolver:     storageResolver,
+		graphEngine:         graphEngine,
+		asynqClient:         asynqClient,
+		taskInspector:       taskInspector,
+		taskPendingRepo:     taskPendingRepo,
+		dsRepo:              dsRepo,
+		syncLogRepo:         syncLogRepo,
+		dsScheduler:         dsScheduler,
+		audit:               audit,
+		resourceCatalog:     resourceCatalog,
+		wikiRepo:            wikiRepo,
+		tenantMemberService: tenantMemberService,
 	}
 }
 

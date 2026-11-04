@@ -5402,7 +5402,8 @@ export default {
       asr: 'Аудио',
       datasource: 'Источники данных',
       share: 'Sharing',
-      activity: 'История активности'
+      activity: 'История активности',
+      transfer: 'Передача'
     },
     navGroups: {
       basic: 'Основное',
@@ -5410,6 +5411,28 @@ export default {
       data: 'Хранение и данные',
       integration: 'Публикация',
       management: 'Управление и аудит'
+    },
+    transfer: {
+      title: 'Передача владения',
+      description: 'Переназначьте эту базу знаний другому участнику пространства. Меняется только владелец; документы, индексы, хранилище и общий доступ остаются без изменений.',
+      currentOwner: 'Текущий владелец',
+      workspaceOwned: 'Принадлежит пространству (личного владельца нет)',
+      selectNewOwner: 'Новый владелец',
+      searchPlaceholder: 'Поиск по имени или email',
+      loading: 'Загрузка участников…',
+      empty: 'Нет других активных участников',
+      emptySearch: 'Никто не соответствует поиску',
+      loadFailed: 'Не удалось загрузить участников',
+      retry: 'Повторить',
+      viewerWillPromote: 'Будет автоматически повышен до Contributor',
+      irreversibleHint: 'После передачи вы потеряете права управления (кроме администраторов).',
+      submit: 'Передать владение',
+      confirmTitle: 'Подтверждение передачи',
+      confirmBody: 'Передать эту базу знаний пользователю {name}? Вы потеряете права управления.',
+      confirmAction: 'Передать',
+      success: 'Владение передано: {name}',
+      failed: 'Передача не удалась',
+      conflict: 'Владение изменилось одновременно, повторите попытку'
     },
     activity: {
       title: 'История действий',
@@ -5464,6 +5487,7 @@ export default {
         'kb.updated': 'База знаний обновлена',
         'kb.deleted': 'База знаний удалена',
         'kb.duplicated': 'База знаний скопирована',
+        'kb.owner_transferred': 'Владение базой знаний передано',
         'kb.clone_started': 'Клонирование начато',
         'kb.clone_completed': 'Клонирование завершено',
         'kb.clone_failed': 'Ошибка клонирования',
@@ -5509,7 +5533,9 @@ export default {
         processed: 'Обработано',
         failed: 'Ошибок',
         skipped: 'Пропущено',
-        failure_stage: 'Этап ошибки'
+        failure_stage: 'Этап ошибки',
+        old_creator_id: 'ID прежнего владельца',
+        new_creator_id: 'ID нового владельца',
       },
       targets: {
         knowledge_base: 'База знаний',
@@ -5519,7 +5545,8 @@ export default {
         data_source: 'Источник данных',
         knowledge_base_share: 'Общий доступ',
         knowledge_move: 'Перемещение',
-        wiki: 'Wiki'
+        wiki: 'Wiki',
+        user: 'Участник'
       },
       drawer: {
         sectionSummary: 'Сводка',

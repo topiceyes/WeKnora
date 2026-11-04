@@ -5402,7 +5402,8 @@ export default {
       asr: '오디오',
       datasource: '데이터 소스',
       share: '공유관리',
-      activity: '활동 기록'
+      activity: '활동 기록',
+      transfer: '양도'
     },
     navGroups: {
       basic: '기본',
@@ -5410,6 +5411,28 @@ export default {
       data: '스토리지 및 데이터',
       integration: '게시 및 통합',
       management: '관리 및 감사'
+    },
+    transfer: {
+      title: '소유권 양도',
+      description: '이 지식 베이스의 소유자를 워크스페이스의 다른 멤버로 변경합니다. 소유자만 변경되고 문서, 인덱스, 스토리지, 공유는 그대로 유지됩니다.',
+      currentOwner: '현재 소유자',
+      workspaceOwned: '워크스페이스 소유(개인 소유자 없음)',
+      selectNewOwner: '새 소유자',
+      searchPlaceholder: '사용자 이름 또는 이메일로 검색',
+      loading: '멤버를 불러오는 중…',
+      empty: '양도할 수 있는 활성 멤버가 없습니다',
+      emptySearch: '검색과 일치하는 멤버가 없습니다',
+      loadFailed: '멤버를 불러오지 못했습니다',
+      retry: '다시 시도',
+      viewerWillPromote: '양도 시 자동으로 Contributor 로 승격됩니다',
+      irreversibleHint: '양도 후 관리자가 아니면 이 지식 베이스의 관리 권한을 잃습니다.',
+      submit: '소유권 양도',
+      confirmTitle: '소유권 양도 확인',
+      confirmBody: '이 지식 베이스를 {name}에게 양도하시겠습니까? 양도 후 관리 권한을 잃습니다.',
+      confirmAction: '양도',
+      success: '{name}에게 소유권을 양도했습니다',
+      failed: '양도에 실패했습니다',
+      conflict: '소유권이 동시에 변경되었습니다. 다시 시도하세요'
     },
     activity: {
       title: '활동 기록',
@@ -5464,6 +5487,7 @@ export default {
         'kb.updated': '지식 베이스 업데이트',
         'kb.deleted': '지식 베이스 삭제',
         'kb.duplicated': '지식 베이스 복제',
+        'kb.owner_transferred': '지식 베이스 소유권 양도됨',
         'kb.clone_started': '복제 시작',
         'kb.clone_completed': '복제 완료',
         'kb.clone_failed': '복제 실패',
@@ -5509,7 +5533,9 @@ export default {
         processed: '처리됨',
         failed: '실패',
         skipped: '건너뜀',
-        failure_stage: '실패 단계'
+        failure_stage: '실패 단계',
+        old_creator_id: '이전 소유자 ID',
+        new_creator_id: '새 소유자 ID',
       },
       targets: {
         knowledge_base: '지식 베이스',
@@ -5519,7 +5545,8 @@ export default {
         data_source: '데이터 소스',
         knowledge_base_share: '공유',
         knowledge_move: '지식 이동',
-        wiki: 'Wiki'
+        wiki: 'Wiki',
+        user: '멤버'
       },
       drawer: {
         sectionSummary: '요약',

@@ -172,6 +172,31 @@ func (r *knowledgeBaseRepository) UpdateKnowledgeBase(ctx context.Context, kb *t
 	return r.db.WithContext(ctx).Save(kb).Error
 }
 
+// UpdateKnowledgeBaseCreator reassigns creator_id (and bumps updated_at) for
+// exactly one row that still has expectedCreatorID within the given tenant.
+// It is a compare-and-swap: COALESCE covers legacy NULL creators, the tenant
+// predicate stops a leaked KB id from moving ownership across workspaces, and
+// RowsAffected==1 means a concurrent transfer cannot both succeed. Callers
+// map matched=false to 409 Conflict without an extra roundtrip.
+func (r *knowledgeBaseRepository) UpdateKnowledgeBaseCreator(
+	ctx context.Context, id string, tenantID uint64, expectedCreatorID, newCreatorID string,
+) (bool, error) {
+	if id == "" || tenantID == 0 || newCreatorID == "" {
+		return false, errors.New("knowledge base creator update: missing key")
+	}
+	res := r.db.WithContext(ctx).Model(&types.KnowledgeBase{}).
+		Where("id = ? AND tenant_id = ? AND COALESCE(creator_id, '') = ?",
+			id, tenantID, expectedCreatorID).
+		Updates(map[string]interface{}{
+			"creator_id": newCreatorID,
+			"updated_at": time.Now(),
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // UpdateKnowledgeBaseGeneratedProfile writes the generated_profile column
 // only. The rest of the row is left untouched so a settings save that lands
 // while a profile is being generated is not overwritten by the worker.

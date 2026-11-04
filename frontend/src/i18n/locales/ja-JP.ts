@@ -3305,6 +3305,28 @@ export default {
     defaultLocaleBrowser: 'ブラウザ／ホストのデフォルト'
   },
   knowledgeEditor: {
+    transfer: {
+      title: '所有権の譲渡',
+      description: 'この知識ベースの所有者をワークスペース内の別のメンバーに変更します。所有者のみが変わり、ドキュメント・インデックス・ストレージ・共有には影響しません。',
+      currentOwner: '現在の所有者',
+      workspaceOwned: 'ワークスペース所有（個人の所有者なし）',
+      selectNewOwner: '新しい所有者',
+      searchPlaceholder: 'ユーザー名またはメールで検索',
+      loading: 'メンバーを読み込み中…',
+      empty: '譲渡できる有効なメンバーがいません',
+      emptySearch: '該当するメンバーがいません',
+      loadFailed: 'メンバーの読み込みに失敗しました',
+      retry: '再試行',
+      viewerWillPromote: '譲渡時に自動的に Contributor に昇格します',
+      irreversibleHint: '譲渡後は管理者以外はこの知識ベースの管理権限を失います。',
+      submit: '所有権を譲渡',
+      confirmTitle: '所有権譲渡の確認',
+      confirmBody: 'この知識ベースを {name} に譲渡しますか？譲渡後は管理権限を失います。',
+      confirmAction: '譲渡する',
+      success: '{name} に所有権を譲渡しました',
+      failed: '譲渡に失敗しました',
+      conflict: '所有権が同時に変更されました。再度お試しください'
+    },
     activity: {
       title: 'アクティビティ',
       description: 'このナレッジベースの重要な変更履歴と、バックグラウンドタスクへの導線を表示します。保持期間は監査ログのポリシーに従います。',
@@ -3357,7 +3379,8 @@ export default {
         data_source: 'データソース',
         knowledge_base_share: '共有',
         knowledge_move: 'ナレッジの移動',
-        wiki: 'Wiki'
+        wiki: 'Wiki',
+        user: 'メンバー'
       },
       detailFields: {
         task_id: 'タスクID',
@@ -3373,13 +3396,16 @@ export default {
         processed: '処理済み',
         failed: '失敗',
         skipped: 'スキップ',
-        failure_stage: '失敗した段階'
+        failure_stage: '失敗した段階',
+        old_creator_id: '以前の所有者 ID',
+        new_creator_id: '新しい所有者 ID',
       },
       actions: {
         'kb.created': 'ナレッジベースを作成',
         'kb.updated': 'ナレッジベースを更新',
         'kb.deleted': 'ナレッジベースを削除',
         'kb.duplicated': 'ナレッジベースを複製',
+        'kb.owner_transferred': '知識ベースの所有権を譲渡',
         'kb.clone_started': '複製を開始',
         'kb.clone_completed': '複製が完了',
         'kb.clone_failed': '複製に失敗',
@@ -3461,7 +3487,8 @@ export default {
       asr: '音声',
       datasource: 'データソース',
       share: '共有',
-      activity: 'アクティビティ'
+      activity: 'アクティビティ',
+      transfer: '譲渡'
     },
     errors: {
       vectorStoreBindingInvalid: '選択したベクトルストアは使用できません。別のストアを選択するか、システムのデフォルトを使用してください。',

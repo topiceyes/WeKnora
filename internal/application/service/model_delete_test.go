@@ -56,6 +56,11 @@ func (s *stubKBRepoForModelDelete) ListKnowledgeBasesByTenantID(context.Context,
 func (s *stubKBRepoForModelDelete) UpdateKnowledgeBase(context.Context, *types.KnowledgeBase) error {
 	return nil
 }
+func (s *stubKBRepoForModelDelete) UpdateKnowledgeBaseCreator(
+	context.Context, string, uint64, string, string,
+) (bool, error) {
+	return false, nil
+}
 func (s *stubKBRepoForModelDelete) DeleteKnowledgeBase(context.Context, string) error { return nil }
 func (s *stubKBRepoForModelDelete) CountByVectorStoreID(context.Context, *gorm.DB, uint64, string) (int64, error) {
 	return 0, nil

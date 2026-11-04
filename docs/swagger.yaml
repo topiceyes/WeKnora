@@ -1576,6 +1576,7 @@ definitions:
     - kb.clone_started
     - kb.clone_completed
     - kb.clone_failed
+    - kb.owner_transferred
     - knowledge.created
     - knowledge.updated
     - knowledge.deleted
@@ -1640,6 +1641,7 @@ definitions:
     - AuditActionKBCloneStarted
     - AuditActionKBCloneCompleted
     - AuditActionKBCloneFailed
+    - AuditActionKBOwnerTransferred
     - AuditActionKnowledgeCreated
     - AuditActionKnowledgeUpdated
     - AuditActionKnowledgeDeleted
@@ -12897,6 +12899,14 @@ definitions:
           $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.GraphRelation'
         type: array
     type: object
+  internal_handler.TransferKnowledgeBaseOwnerRequest:
+    properties:
+      new_owner_user_id:
+        description: NewOwnerUserID is the workspace member who will own the KB afterwards.
+        type: string
+    required:
+    - new_owner_user_id
+    type: object
   internal_handler.UpdateAgentRequest:
     properties:
       avatar:
@@ -19425,6 +19435,62 @@ paths:
         target: knowledge_base.get
       x-agent-hint: Renames a tag. tag_id comes from knowledge_base.list_tags. A field
         left out is kept.
+  /knowledge-bases/{id}/transfer-owner:
+    post:
+      consumes:
+      - application/json
+      description: 将知识库创建者（归宿）转让给同一空间内的其他成员。仅知识库创建者或空间 Admin/Owner 可操作；目标成员需处于 active
+        状态，角色低于 Contributor 时会自动提升（产生 rbac.member_role_changed 审计）。仅变更 creator_id
+        / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 转让请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.TransferKnowledgeBaseOwnerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新后的知识库
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/internal_handler.KnowledgeBaseView'
+              type: object
+        "400":
+          description: 请求参数错误或目标成员不符合条件
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 无权转让或知识库来自其他空间
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识库不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "409":
+          description: 所有权已被并发修改
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 转让知识库所有权
+      tags:
+      - 知识库
   /knowledge-bases/copy:
     post:
       consumes:

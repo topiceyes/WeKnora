@@ -98,6 +98,11 @@ func (s *processSyncKBService) UpdateKnowledgeBase(
 	return nil, nil
 }
 func (s *processSyncKBService) DeleteKnowledgeBase(context.Context, string) error { return nil }
+func (s *processSyncKBService) TransferKnowledgeBaseOwnership(
+	context.Context, string, string,
+) (*types.KnowledgeBase, error) {
+	return nil, nil
+}
 func (s *processSyncKBService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {
 	return nil, nil
 }

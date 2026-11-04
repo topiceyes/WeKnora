@@ -83,6 +83,12 @@ type KnowledgeBaseService interface {
 	//   - Possible errors such as not existing, insufficient permissions, etc.
 	DeleteKnowledgeBase(ctx context.Context, id string) error
 
+	// TransferKnowledgeBaseOwnership reassigns the KB creator (归宿) to another
+	// active member of the same workspace. Only creator_id and updated_at
+	// change; authorization mirrors the route guard "creator OR Admin+", and a
+	// Viewer target is promoted to Contributor first (audited separately).
+	TransferKnowledgeBaseOwnership(ctx context.Context, kbID, newOwnerUserID string) (*types.KnowledgeBase, error)
+
 	// TogglePinKnowledgeBase toggles the pin status of a knowledge base
 	TogglePinKnowledgeBase(ctx context.Context, id string) (*types.KnowledgeBase, error)
 
@@ -214,6 +220,15 @@ type KnowledgeBaseRepository interface {
 	// Returns:
 	//   - Possible errors such as record not existing, database errors, etc.
 	UpdateKnowledgeBase(ctx context.Context, kb *types.KnowledgeBase) error
+
+	// UpdateKnowledgeBaseCreator reassigns creator_id/updated_at for the row
+	// matching (id, tenant, expectedCreatorID) — a tenant-scoped compare-and-
+	// swap so concurrent transfers cannot both commit. Returns
+	// (matched, error); matched=false means the expected creator no longer
+	// holds the KB (conflict) or the row is gone.
+	UpdateKnowledgeBaseCreator(
+		ctx context.Context, id string, tenantID uint64, expectedCreatorID, newCreatorID string,
+	) (bool, error)
 
 	// DeleteKnowledgeBase deletes a knowledge base record
 	// Parameters:

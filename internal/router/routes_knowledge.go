@@ -276,6 +276,15 @@ func RegisterKnowledgeBaseRoutes(r *gin.RouterGroup, handler *handler.KnowledgeB
 			GET("/copy/progress/:task_id", g.Viewer(), handler.GetKBCloneProgress)
 		// 获取可移动目标知识库列表 — Viewer+ 且对 KB 有 read 权限
 		kb.GET("/:id/move-targets", g.Viewer(), g.KBAccessRead("id"), handler.ListMoveTargets)
+
+		// 转让知识库所有权（归宿）—— 仅 JWT 可调用：故意注册在裸 kbgrp
+		// （不走 apiKeyGroup），/api/v1 API key 网关对未声明路由默认拒绝。
+		// OwnedKBOrAdmin 管「创建者 OR Admin+」；KBAccessWrite 解析
+		// own/shared 访问并写入 grant；handler 再用 c.Get(TenantID) 的原租户
+		// 兜住跨空间共享 KB（KBAccess 会改写 request ctx 的执行租户）。
+		kbgrp.POST("/:id/transfer-owner",
+			g.OwnedKBOrAdmin(), g.KBAccessWrite("id"),
+			handler.TransferKnowledgeBaseOwnership)
 	}
 }
 

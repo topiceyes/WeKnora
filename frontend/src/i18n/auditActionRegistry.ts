@@ -51,6 +51,7 @@ export const KB_ACTIVITY_ACTIONS = [
   'kb.updated',
   'kb.deleted',
   'kb.duplicated',
+  'kb.owner_transferred',
   'kb.clone_started',
   'kb.clone_completed',
   'kb.clone_failed',

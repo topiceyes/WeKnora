@@ -286,6 +286,12 @@ func TestKnowledgeBaseLifecycleRoutesDeclareManageCapability(t *testing.T) {
 			}
 		})
 	}
+
+	// Ownership transfer reassigns creator_id — a human-only operation.
+	// Registered on the raw group so the API-key gate stays default-deny.
+	if _, ok := g.apiKeyAuthorizer.Lookup(http.MethodPost, "/api/v1/knowledge-bases/:id/transfer-owner"); ok {
+		t.Fatal("KB ownership transfer must remain default-deny for API keys")
+	}
 }
 
 func TestKnowledgeReadRoutesDeclareRetrieveCapability(t *testing.T) {

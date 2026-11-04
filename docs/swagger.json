@@ -8437,6 +8437,94 @@
                 "x-agent-hint": "Deletes a tag that no document uses. If documents still use it, this fails; take the tag off them with knowledge.set_tags first. Documents are not deleted."
             }
         },
+        "/knowledge-bases/{id}/transfer-owner": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "将知识库创建者（归宿）转让给同一空间内的其他成员。仅知识库创建者或空间 Admin/Owner 可操作；目标成员需处于 active 状态，角色低于 Contributor 时会自动提升（产生 rbac.member_role_changed 审计）。仅变更 creator_id / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识库"
+                ],
+                "summary": "转让知识库所有权",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "知识库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "转让请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.TransferKnowledgeBaseOwnerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "更新后的知识库",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/internal_handler.KnowledgeBaseView"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误或目标成员不符合条件",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "无权转让或知识库来自其他空间",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识库不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "409": {
+                        "description": "所有权已被并发修改",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/knowledge-chat/{session_id}": {
             "post": {
                 "security": [
@@ -25999,6 +26087,7 @@
                 "kb.clone_started",
                 "kb.clone_completed",
                 "kb.clone_failed",
+                "kb.owner_transferred",
                 "knowledge.created",
                 "knowledge.updated",
                 "knowledge.deleted",
@@ -26063,6 +26152,7 @@
                 "AuditActionKBCloneStarted",
                 "AuditActionKBCloneCompleted",
                 "AuditActionKBCloneFailed",
+                "AuditActionKBOwnerTransferred",
                 "AuditActionKnowledgeCreated",
                 "AuditActionKnowledgeUpdated",
                 "AuditActionKnowledgeDeleted",
@@ -40486,6 +40576,18 @@
                     "items": {
                         "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.GraphRelation"
                     }
+                }
+            }
+        },
+        "internal_handler.TransferKnowledgeBaseOwnerRequest": {
+            "type": "object",
+            "required": [
+                "new_owner_user_id"
+            ],
+            "properties": {
+                "new_owner_user_id": {
+                    "description": "NewOwnerUserID is the workspace member who will own the KB afterwards.",
+                    "type": "string"
                 }
             }
         },

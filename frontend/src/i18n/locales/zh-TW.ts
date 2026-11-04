@@ -5403,7 +5403,8 @@ export default {
       asr: '音訊處理',
       datasource: '資料源',
       share: '共享管理',
-      activity: '活動記錄'
+      activity: '活動記錄',
+      transfer: '轉讓'
     },
     navGroups: {
       basic: '基礎',
@@ -5411,6 +5412,28 @@ export default {
       data: '存儲與資料',
       integration: '發布集成',
       management: '管理與稽核'
+    },
+    transfer: {
+      title: '歸屬轉讓',
+      description: '將知識庫的歸屬轉讓給空間內其他成員。僅變更建立者，文件、索引、儲存與共用均不受影響。',
+      currentOwner: '目前歸屬人',
+      workspaceOwned: '空間所有（無個人歸屬人）',
+      selectNewOwner: '新的歸屬人',
+      searchPlaceholder: '搜尋使用者名稱或信箱',
+      loading: '正在載入成員…',
+      empty: '暫無可轉讓的啟用成員',
+      emptySearch: '沒有符合的成員',
+      loadFailed: '成員載入失敗',
+      retry: '重試',
+      viewerWillPromote: '轉讓時將自動提升為 Contributor',
+      irreversibleHint: '轉讓後你將失去該知識庫的管理權限（管理員除外）。',
+      submit: '確認轉讓',
+      confirmTitle: '確認轉讓',
+      confirmBody: '確定將知識庫轉讓給 {name} 嗎？轉讓後你將失去管理權限。',
+      confirmAction: '轉讓',
+      success: '已轉讓給 {name}',
+      failed: '轉讓失敗',
+      conflict: '歸屬已發生變化，請重試'
     },
     activity: {
       title: '活動記錄',
@@ -5465,6 +5488,7 @@ export default {
         'kb.updated': '更新知識庫',
         'kb.deleted': '刪除知識庫',
         'kb.duplicated': '複製知識庫',
+        'kb.owner_transferred': '知識庫所有權已轉讓',
         'kb.clone_started': '開始克隆',
         'kb.clone_completed': '完成克隆',
         'kb.clone_failed': '克隆失敗',
@@ -5510,7 +5534,9 @@ export default {
         processed: '已處理',
         failed: '失敗數',
         skipped: '跳過數',
-        failure_stage: '失敗階段'
+        failure_stage: '失敗階段',
+        old_creator_id: '原歸屬人 ID',
+        new_creator_id: '新歸屬人 ID',
       },
       targets: {
         knowledge_base: '知識庫',
@@ -5520,7 +5546,8 @@ export default {
         data_source: '資料源',
         knowledge_base_share: '共享',
         knowledge_move: '知識移動',
-        wiki: 'Wiki'
+        wiki: 'Wiki',
+        user: '成員'
       },
       drawer: {
         sectionSummary: '摘要',

@@ -475,6 +475,12 @@ export function togglePinKnowledgeBase(id: string) {
   return put(`/api/v1/knowledge-bases/${id}/pin`);
 }
 
+// 转让知识库所有权（归宿）—— 后端 JWT-only，创建者或空间 Admin/Owner 可调用。
+// Viewer 目标会被后端自动提升为 Contributor。
+export function transferKnowledgeBaseOwner(id: string, newOwnerUserId: string) {
+  return post(`/api/v1/knowledge-bases/${id}/transfer-owner`, { new_owner_user_id: newOwnerUserId });
+}
+
 // 知识文件 API（基于具体知识库）
 // data.tag_ids: 可选，指定知识所属的多个标签 ID
 export function uploadKnowledgeFile(
