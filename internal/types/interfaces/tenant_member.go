@@ -30,6 +30,13 @@ type TenantMemberRepository interface {
 	// ordered by joined_at ascending.
 	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error)
 
+	// ListActiveByTenantIDs returns active memberships across the given
+	// tenants, optionally filtered by user email/username (same LIKE
+	// semantics as ListPagedByTenant). Ordered by tenant_id then joined_at.
+	// Used by knowledge-base ownership transfer to search the members of
+	// every shared space a KB is visible in.
+	ListActiveByTenantIDs(ctx context.Context, tenantIDs []uint64, search string, limit int) ([]*types.TenantMember, error)
+
 	// CountFilteredByTenant counts active memberships in tenant. Optional
 	// search matches user email/username (join users table); empty search
 	// counts all memberships.

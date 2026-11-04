@@ -260,6 +260,27 @@ func TestResolveKBPermissionMatrix(t *testing.T) {
 	}
 }
 
+func TestResolveKBCrossWorkspaceCreatorOwnsKB(t *testing.T) {
+	// A cross-workspace ownership transfer leaves tenant_id untouched, so the
+	// creator may sit in another tenant and have no share grant. Ownership
+	// itself must still authorize them.
+	kb := &types.KnowledgeBase{ID: "kb", TenantID: 2, CreatorID: "owner-user"}
+	shares := &shareLookup{}
+
+	request := KBRequest{Caller: types.Caller{
+		TenantID: 1, UserID: "owner-user", Role: types.TenantRoleOwner,
+	}}
+	grant, err := ResolveKB(context.Background(), request, kb, types.OrgRoleEditor, shares, nil)
+	require.NoError(t, err)
+	require.Equal(t, types.OrgRoleAdmin, grant.Permission)
+	require.Equal(t, uint64(2), grant.EffectiveTenantID)
+
+	// Same workspace name, different user: no ownership, no share -> denied.
+	request.Caller.UserID = "someone-else"
+	_, err = ResolveKB(context.Background(), request, kb, types.OrgRoleEditor, shares, nil)
+	require.ErrorIs(t, err, ErrForbidden)
+}
+
 func TestResolveKBMissingIdentityResourceAndAPIKeyScope(t *testing.T) {
 	kb := &types.KnowledgeBase{ID: "kb", TenantID: 1}
 	_, err := ResolveKB(context.Background(), KBRequest{}, kb, types.OrgRoleViewer, nil, nil)

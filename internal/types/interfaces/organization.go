@@ -119,6 +119,12 @@ type KBShareService interface {
 	ListSharedKnowledgeBaseIDsByOrganizations(ctx context.Context, orgIDs []string, tenantID uint64) (map[string][]string, error)
 	GetShare(ctx context.Context, shareID string) (*types.KnowledgeBaseShare, error)
 	GetShareByKBAndOrg(ctx context.Context, kbID string, orgID string) (*types.KnowledgeBaseShare, error)
+	// ListShareMemberTenantIDs returns the tenant IDs of every member
+	// organization this KB is shared into. It performs no authorization, so
+	// callers must already have verified that they own/administer the KB.
+	// Used to resolve ownership-transfer candidates from the KB's shared
+	// spaces (the "共享空间" members the UI shows).
+	ListShareMemberTenantIDs(ctx context.Context, kbID string) ([]uint64, error)
 
 	// Permission Check (Plan 3: tenant-keyed). Returns the effective
 	// OrgMemberRole the caller can use against the shared KB after the

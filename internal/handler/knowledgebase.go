@@ -582,11 +582,12 @@ func (h *KnowledgeBaseHandler) GetKnowledgeBase(c *gin.Context) {
 		logger.Warnf(c.Request.Context(), "Failed to fill KB counts for %s: %v", kb.ID, fillErr)
 	}
 	tenantID := c.GetUint64(types.TenantIDContextKey.String())
-	// Resolve the creator's display name for own-workspace KBs (the ownership
-	// transfer UI shows the current owner). Cross-tenant shared KBs are left
-	// nameless: resolving the owner's username would leak identity across
-	// workspaces.
-	if kb.TenantID == tenantID {
+	callerID, _ := types.UserIDFromContext(c.Request.Context())
+	// Resolve the creator's display name for own-workspace KBs and for the
+	// creator themselves after a cross-workspace ownership transfer (they are
+	// looking at a KB they own). Other cross-tenant shared KBs stay nameless:
+	// resolving the owner's username would leak identity across workspaces.
+	if kb.TenantID == tenantID || (kb.CreatorID != "" && kb.CreatorID == callerID) {
 		enrichKBCreatorNames(c.Request.Context(), h.userService, []*types.KnowledgeBase{kb})
 	}
 	storeView := h.resolveKBStoreView(c.Request.Context(), kb, tenantID)
@@ -911,13 +912,15 @@ func (h *KnowledgeBaseHandler) UpdateKnowledgeBase(c *gin.Context) {
 // TransferKnowledgeBaseOwnerRequest is the body of
 // POST /knowledge-bases/{id}/transfer-owner.
 type TransferKnowledgeBaseOwnerRequest struct {
-	// NewOwnerUserID is the workspace member who will own the KB afterwards.
+	// NewOwnerUserID is the person who will own the KB afterwards. They must
+	// be an active member of the KB's workspace or of a shared space the KB
+	// is shared into.
 	NewOwnerUserID string `json:"new_owner_user_id" binding:"required"`
 }
 
 // TransferKnowledgeBaseOwnership godoc
 // @Summary      转让知识库所有权
-// @Description  将知识库创建者（归宿）转让给同一空间内的其他成员。仅知识库创建者或空间 Admin/Owner 可操作；目标成员需处于 active 状态，角色低于 Contributor 时会自动提升（产生 rbac.member_role_changed 审计）。仅变更 creator_id / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。
+// @Description  将知识库创建者（归宿）转让给本空间成员，或该知识库所共享到的共享空间成员。仅知识库创建者或本空间 Admin/Owner 可操作；目标需处于 active 状态。同空间 Viewer 目标会自动提升为 Contributor（产生 rbac.member_role_changed 审计），跨空间目标需已具备 Contributor 权限。仅变更 creator_id / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。
 // @Tags         知识库
 // @Accept       json
 // @Produce      json
@@ -925,7 +928,7 @@ type TransferKnowledgeBaseOwnerRequest struct {
 // @Param        request  body      handler.TransferKnowledgeBaseOwnerRequest true  "转让请求"
 // @Success      200      {object}  handler.DataResponse{data=handler.KnowledgeBaseView}  "更新后的知识库"
 // @Failure      400      {object}  errors.AppError  "请求参数错误或目标成员不符合条件"
-// @Failure      403      {object}  errors.AppError  "无权转让或知识库来自其他空间"
+// @Failure      403      {object}  errors.AppError  "无权转让"
 // @Failure      404      {object}  errors.AppError  "知识库不存在"
 // @Failure      409      {object}  errors.AppError  "所有权已被并发修改"
 // @Failure      500      {object}  errors.AppError  "服务器错误"
@@ -953,27 +956,28 @@ func (h *KnowledgeBaseHandler) TransferKnowledgeBaseOwnership(c *gin.Context) {
 	}
 	kb := grant.KnowledgeBase
 
-	// KBAccessWrite rewrites c.Request.Context() to the KB owner's tenant for
-	// shared KBs, so the own-workspace check reads the original caller tenant
-	// from the gin key — same pattern as DeleteKnowledgeBase. A KB shared
-	// from another workspace must never have its ownership transferred here.
+	// KBAccessWrite rewrites c.Request.Context() to the KB's tenant for shared
+	// KBs, so the caller's own workspace is read from the gin key — same
+	// pattern as DeleteKnowledgeBase. The creator may live in another
+	// workspace after a cross-workspace transfer; workspace admins may not.
 	callerTenantID := c.GetUint64(types.TenantIDContextKey.String())
-	if callerTenantID == 0 || kb.TenantID != callerTenantID {
-		_ = c.Error(apperrors.NewForbiddenError(
-			"ownership can only be transferred in the owner workspace"))
+	if callerTenantID == 0 {
+		_ = c.Error(apperrors.NewForbiddenError("missing caller workspace"))
 		return
 	}
 
 	// Defense in depth behind OwnedKBOrAdmin: creator (at the contributor
-	// floor) or Admin+. Tenant-owned rows only pass for Admin+.
+	// floor) or Admin+ of the KB's workspace. Tenant-owned rows only pass for
+	// Admin+.
 	callerID, _ := types.UserIDFromContext(ctx)
 	role := types.TenantRoleFromContext(ctx)
-	if kb.CreatorID != callerID || !role.HasPermission(types.TenantRoleContributor) {
-		if !role.HasPermission(types.TenantRoleAdmin) {
-			_ = c.Error(apperrors.NewForbiddenError(
-				"only the knowledge base creator or an admin can transfer ownership"))
-			return
-		}
+	isCreator := callerID != "" && kb.CreatorID == callerID &&
+		role.HasPermission(types.TenantRoleContributor)
+	isWorkspaceAdmin := callerTenantID == kb.TenantID && role.HasPermission(types.TenantRoleAdmin)
+	if !isCreator && !isWorkspaceAdmin {
+		_ = c.Error(apperrors.NewForbiddenError(
+			"only the knowledge base creator or a workspace admin can transfer ownership"))
+		return
 	}
 
 	logger.Infof(ctx, "Transferring knowledge base ownership, ID: %s",
@@ -989,7 +993,8 @@ func (h *KnowledgeBaseHandler) TransferKnowledgeBaseOwnership(c *gin.Context) {
 		case stderrors.Is(err, service.ErrKBOwnerTransferTargetSelf),
 			stderrors.Is(err, service.ErrKBOwnerTransferSynthetic),
 			stderrors.Is(err, service.ErrKBOwnerTransferNotMember),
-			stderrors.Is(err, service.ErrKBOwnerTransferInactive):
+			stderrors.Is(err, service.ErrKBOwnerTransferInactive),
+			stderrors.Is(err, service.ErrKBOwnerTransferTargetRole):
 			_ = c.Error(apperrors.NewBadRequestError(err.Error()))
 		case stderrors.Is(err, service.ErrKBOwnerTransferConflict):
 			_ = c.Error(apperrors.NewConflictError(err.Error()))
@@ -1004,6 +1009,107 @@ func (h *KnowledgeBaseHandler) TransferKnowledgeBaseOwnership(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    buildKBResponse(kb, h.resolveKBStoreView(ctx, kb, callerTenantID), nil),
+	})
+}
+
+// KBTransferCandidateView is the API projection of a transfer candidate: the
+// membership identity from the service plus the user fields the picker needs.
+type KBTransferCandidateView struct {
+	UserID     string                   `json:"user_id"`
+	Username   string                   `json:"username"`
+	Email      string                   `json:"email,omitempty"`
+	Avatar     string                   `json:"avatar,omitempty"`
+	Role       types.TenantRole         `json:"role"`
+	Status     types.TenantMemberStatus `json:"status"`
+	TenantID   uint64                   `json:"tenant_id"`
+	TenantName string                   `json:"tenant_name,omitempty"`
+}
+
+// ListKnowledgeBaseTransferCandidates godoc
+// @Summary      列出知识库归宿转让候选人
+// @Description  返回可以接手该知识库的人：本空间成员，以及该知识库所共享到的共享空间成员。`q` 按用户名或邮箱服务端模糊匹配；当前归宿人会被排除。调用者需为知识库创建者或本空间 Admin/Owner。仅 JWT 可调用。
+// @Tags         知识库
+// @Produce      json
+// @Param        id   path   string  true   "知识库ID"
+// @Param        q    query  string  false  "按用户名或邮箱搜索"
+// @Param        limit query int     false  "返回条数上限（默认 50，最大 100）"
+// @Success      200  {object}  handler.DataResponse{data=[]handler.KBTransferCandidateView}  "候选人列表"
+// @Failure      403  {object}  errors.AppError  "无权查看候选人"
+// @Failure      404  {object}  errors.AppError  "知识库不存在"
+// @Failure      500  {object}  errors.AppError  "服务器错误"
+// @Security     Bearer
+// @Router       /knowledge-bases/{id}/transfer-candidates [get]
+func (h *KnowledgeBaseHandler) ListKnowledgeBaseTransferCandidates(c *gin.Context) {
+	ctx := c.Request.Context()
+	kbID := c.Param("id")
+
+	grant, ok := middleware.KBAccessFromContext(c)
+	if !ok || grant == nil || grant.KnowledgeBase == nil || grant.KnowledgeBase.ID != kbID {
+		_ = c.Error(apperrors.NewNotFoundError("knowledge base not found"))
+		return
+	}
+	kb := grant.KnowledgeBase
+
+	limit := 50
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	candidates, err := h.service.ListKnowledgeBaseTransferCandidates(
+		ctx, kbID, c.Query("q"), limit,
+	)
+	if err != nil {
+		switch {
+		case stderrors.Is(err, repository.ErrKnowledgeBaseNotFound):
+			_ = c.Error(apperrors.NewNotFoundError("knowledge base not found"))
+		case stderrors.Is(err, service.ErrKBOwnerTransferForbidden):
+			_ = c.Error(apperrors.NewForbiddenError(err.Error()))
+		default:
+			logger.ErrorWithFields(ctx, err, nil)
+			_ = c.Error(apperrors.NewInternalServerError(err.Error()))
+		}
+		return
+	}
+
+	ids := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.UserID)
+	}
+	usersByID := map[string]*types.User{}
+	if len(ids) > 0 && h.userService != nil {
+		if users, uerr := h.userService.GetUsersByIDs(ctx, ids); uerr == nil {
+			usersByID = users
+		} else {
+			logger.Warnf(ctx, "Failed to resolve transfer candidate users: %v", uerr)
+		}
+	}
+
+	resp := make([]KBTransferCandidateView, 0, len(candidates))
+	for _, candidate := range candidates {
+		row := KBTransferCandidateView{
+			UserID:     candidate.UserID,
+			Role:       candidate.Role,
+			Status:     candidate.Status,
+			TenantID:   candidate.TenantID,
+			TenantName: candidate.TenantName,
+		}
+		if u, found := usersByID[candidate.UserID]; found && u != nil {
+			row.Username = u.Username
+			row.Avatar = u.Avatar
+			// The roster policy hides other workspaces' email addresses;
+			// search still matches them server-side.
+			if candidate.TenantID == kb.TenantID {
+				row.Email = u.Email
+			}
+		}
+		resp = append(resp, row)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    resp,
 	})
 }
 

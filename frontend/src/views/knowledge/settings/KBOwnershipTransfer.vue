@@ -62,7 +62,10 @@
           <span class="transfer-candidate-name">{{ transferCandidateLabel(member) }}</span>
           <span class="transfer-candidate-role">
             {{ t(`tenantMember.role.${member.role}`) }}
-            <template v-if="member.role === 'viewer'">
+            <template v-if="candidateTenantName(member)">
+              · {{ candidateTenantName(member) }}
+            </template>
+            <template v-else-if="viewerWillPromote(member)">
               · {{ t('knowledgeEditor.transfer.viewerWillPromote') }}
             </template>
           </span>
@@ -92,9 +95,11 @@
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
-import { listMembers } from '@/api/tenant/members'
-import type { TenantMember } from '@/api/tenant/members'
-import { transferKnowledgeBaseOwner } from '@/api/knowledge-base'
+import {
+  listKnowledgeBaseTransferCandidates,
+  transferKnowledgeBaseOwner,
+} from '@/api/knowledge-base'
+import type { KBTransferCandidate } from '@/api/knowledge-base'
 import SpaceAvatar from '@/components/SpaceAvatar.vue'
 import { filterTransferCandidates, transferCandidateLabel } from './ownershipTransfer'
 
@@ -120,7 +125,7 @@ const workspaceOwnedFallback = '—'
 const searchQuery = ref('')
 const loadingCandidates = ref(false)
 const loadError = ref('')
-const members = ref<TenantMember[]>([])
+const members = ref<KBTransferCandidate[]>([])
 const selectedUserId = ref('')
 const submitting = ref(false)
 
@@ -128,23 +133,34 @@ const candidates = computed(() =>
   filterTransferCandidates(members.value, props.currentOwnerId),
 )
 
+// Same-workspace Viewer targets are promoted by the backend during the
+// transfer. Cross-space candidates must already have Contributor rights in
+// their own workspace, so no promotion hint applies there.
+function viewerWillPromote(member: KBTransferCandidate): boolean {
+  return member.tenant_id === props.tenantId && member.role === 'viewer'
+}
+
+function candidateTenantName(member: KBTransferCandidate): string {
+  if (member.tenant_id === props.tenantId) return ''
+  return member.tenant_name || ''
+}
+
 // Requests run in parallel while the user types; only the newest response may
 // publish results, otherwise a slow earlier search can overwrite a newer one.
 let loadSeq = 0
 
 async function loadCandidates() {
-  if (!props.tenantId) return
+  if (!props.kbId) return
   const seq = ++loadSeq
   loadingCandidates.value = true
   loadError.value = ''
   try {
-    const resp = await listMembers(props.tenantId, {
+    const resp = await listKnowledgeBaseTransferCandidates(props.kbId, {
       q: searchQuery.value.trim() || undefined,
-      page: 1,
-      page_size: 50,
+      limit: 50,
     })
     if (seq !== loadSeq) return
-    members.value = resp.success && resp.data?.members ? resp.data.members : []
+    members.value = resp.success && resp.data ? resp.data : []
     if (!candidates.value.some((m) => m.user_id === selectedUserId.value)) {
       selectedUserId.value = ''
     }
@@ -158,7 +174,7 @@ async function loadCandidates() {
   }
 }
 
-function selectedMember(): TenantMember | undefined {
+function selectedMember(): KBTransferCandidate | undefined {
   return candidates.value.find((m) => m.user_id === selectedUserId.value)
 }
 
@@ -184,7 +200,7 @@ function confirmTransfer() {
   })
 }
 
-async function doTransfer(target: TenantMember) {
+async function doTransfer(target: KBTransferCandidate) {
   submitting.value = true
   try {
     await transferKnowledgeBaseOwner(props.kbId, target.user_id)

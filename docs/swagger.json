@@ -8437,6 +8437,85 @@
                 "x-agent-hint": "Deletes a tag that no document uses. If documents still use it, this fails; take the tag off them with knowledge.set_tags first. Documents are not deleted."
             }
         },
+        "/knowledge-bases/{id}/transfer-candidates": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回可以接手该知识库的人：本空间成员，以及该知识库所共享到的共享空间成员。`q` 按用户名或邮箱服务端模糊匹配；当前归宿人会被排除。调用者需为知识库创建者或本空间 Admin/Owner。仅 JWT 可调用。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识库"
+                ],
+                "summary": "列出知识库归宿转让候选人",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "知识库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "按用户名或邮箱搜索",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "返回条数上限（默认 50，最大 100）",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "候选人列表",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/internal_handler.DataResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/internal_handler.KBTransferCandidateView"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "无权查看候选人",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识库不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/knowledge-bases/{id}/transfer-owner": {
             "post": {
                 "security": [
@@ -8444,7 +8523,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "将知识库创建者（归宿）转让给同一空间内的其他成员。仅知识库创建者或空间 Admin/Owner 可操作；目标成员需处于 active 状态，角色低于 Contributor 时会自动提升（产生 rbac.member_role_changed 审计）。仅变更 creator_id / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。",
+                "description": "将知识库创建者（归宿）转让给本空间成员，或该知识库所共享到的共享空间成员。仅知识库创建者或本空间 Admin/Owner 可操作；目标需处于 active 状态。同空间 Viewer 目标会自动提升为 Contributor（产生 rbac.member_role_changed 审计），跨空间目标需已具备 Contributor 权限。仅变更 creator_id / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。",
                 "consumes": [
                     "application/json"
                 ],
@@ -8499,7 +8578,7 @@
                         }
                     },
                     "403": {
-                        "description": "无权转让或知识库来自其他空间",
+                        "description": "无权转让",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -38126,6 +38205,35 @@
                 }
             }
         },
+        "internal_handler.KBTransferCandidateView": {
+            "type": "object",
+            "properties": {
+                "avatar": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole"
+                },
+                "status": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantMemberStatus"
+                },
+                "tenant_id": {
+                    "type": "integer"
+                },
+                "tenant_name": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.KnowledgeBaseView": {
             "type": "object",
             "required": [
@@ -40586,7 +40694,7 @@
             ],
             "properties": {
                 "new_owner_user_id": {
-                    "description": "NewOwnerUserID is the workspace member who will own the KB afterwards.",
+                    "description": "NewOwnerUserID is the person who will own the KB afterwards. They must\nbe an active member of the KB's workspace or of a shared space the KB\nis shared into.",
                     "type": "string"
                 }
             }

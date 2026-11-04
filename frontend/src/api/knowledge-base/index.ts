@@ -476,9 +476,42 @@ export function togglePinKnowledgeBase(id: string) {
 }
 
 // 转让知识库所有权（归宿）—— 后端 JWT-only，创建者或空间 Admin/Owner 可调用。
-// Viewer 目标会被后端自动提升为 Contributor。
+// 同空间 Viewer 目标会被后端自动提升为 Contributor。
 export function transferKnowledgeBaseOwner(id: string, newOwnerUserId: string) {
   return post(`/api/v1/knowledge-bases/${id}/transfer-owner`, { new_owner_user_id: newOwnerUserId });
+}
+
+// 转让候选人：本空间成员 + 该知识库共享到的共享空间成员。
+// 后端按用户名/邮箱模糊搜索，并已排除当前归宿人。
+export interface KBTransferCandidate {
+  user_id: string
+  username: string
+  email?: string
+  avatar?: string
+  role: 'owner' | 'admin' | 'contributor' | 'viewer'
+  status: 'active' | 'invited' | 'suspended'
+  tenant_id: number
+  tenant_name?: string
+}
+
+export interface ListKBTransferCandidatesResponse {
+  success: boolean
+  data?: KBTransferCandidate[]
+  message?: string
+}
+
+export async function listKnowledgeBaseTransferCandidates(
+  id: string,
+  params: { q?: string; limit?: number } = {},
+): Promise<ListKBTransferCandidatesResponse> {
+  const u = new URLSearchParams()
+  const q = params.q?.trim()
+  if (q) u.set('q', q)
+  if (params.limit != null && params.limit > 0) u.set('limit', String(params.limit))
+  const qs = u.toString()
+  return (await get(
+    `/api/v1/knowledge-bases/${id}/transfer-candidates${qs ? `?${qs}` : ''}`,
+  )) as unknown as ListKBTransferCandidatesResponse
 }
 
 // 知识文件 API（基于具体知识库）

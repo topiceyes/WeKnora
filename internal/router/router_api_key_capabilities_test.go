@@ -292,6 +292,9 @@ func TestKnowledgeBaseLifecycleRoutesDeclareManageCapability(t *testing.T) {
 	if _, ok := g.apiKeyAuthorizer.Lookup(http.MethodPost, "/api/v1/knowledge-bases/:id/transfer-owner"); ok {
 		t.Fatal("KB ownership transfer must remain default-deny for API keys")
 	}
+	if _, ok := g.apiKeyAuthorizer.Lookup(http.MethodGet, "/api/v1/knowledge-bases/:id/transfer-candidates"); ok {
+		t.Fatal("KB ownership transfer candidates must remain default-deny for API keys")
+	}
 }
 
 func TestKnowledgeReadRoutesDeclareRetrieveCapability(t *testing.T) {

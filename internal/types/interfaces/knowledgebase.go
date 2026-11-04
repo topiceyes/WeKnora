@@ -84,10 +84,20 @@ type KnowledgeBaseService interface {
 	DeleteKnowledgeBase(ctx context.Context, id string) error
 
 	// TransferKnowledgeBaseOwnership reassigns the KB creator (归宿) to another
-	// active member of the same workspace. Only creator_id and updated_at
-	// change; authorization mirrors the route guard "creator OR Admin+", and a
-	// Viewer target is promoted to Contributor first (audited separately).
+	// active member of the KB's workspace or of a shared space the KB is
+	// visible in. Only creator_id and updated_at change; authorization mirrors
+	// the route guard "creator OR Admin+", and a same-workspace Viewer target
+	// is promoted to Contributor first (audited separately).
 	TransferKnowledgeBaseOwnership(ctx context.Context, kbID, newOwnerUserID string) (*types.KnowledgeBase, error)
+
+	// ListKnowledgeBaseTransferCandidates finds people who may receive the KB:
+	// active members of its workspace plus active members of every organization
+	// the KB is shared into. Query matches username/email server-side and the
+	// current owner is excluded. Caller must be the creator or a workspace
+	// Admin+ (the same matrix as the transfer itself).
+	ListKnowledgeBaseTransferCandidates(
+		ctx context.Context, kbID, query string, limit int,
+	) ([]*types.KBTransferCandidate, error)
 
 	// TogglePinKnowledgeBase toggles the pin status of a knowledge base
 	TogglePinKnowledgeBase(ctx context.Context, id string) (*types.KnowledgeBase, error)

@@ -33,6 +33,11 @@ type TenantMemberService interface {
 	// ListByTenant returns every active membership inside the tenant.
 	ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error)
 
+	// ListActiveByTenantIDs returns active memberships across the given
+	// tenants, optionally filtered by user email/username. See the repository
+	// method for ordering and limit semantics.
+	ListActiveByTenantIDs(ctx context.Context, tenantIDs []uint64, search string, limit int) ([]*types.TenantMember, error)
+
 	// ListMembersPage lists members with pagination. Query matches email or
 	// username case-insensitively; empty query returns full tenant list slice.
 	ListMembersPage(ctx context.Context, tenantID uint64, query string, page, pageSize int) ([]*types.TenantMember, int64, error)

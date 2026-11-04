@@ -16,8 +16,12 @@ type transferMemberService struct {
 	interfaces.TenantMemberService
 	membership   *types.TenantMember
 	membershipOK bool
-	roleCalls    []transferRoleCall
-	roleErr      error
+	// extraMemberships models the cross-workspace pool: users whose home
+	// tenant is a member of one of the KB's shared spaces.
+	extraMemberships []*types.TenantMember
+	membersPage      []*types.TenantMember
+	roleCalls        []transferRoleCall
+	roleErr          error
 }
 
 type transferRoleCall struct {
@@ -34,6 +38,64 @@ func (m *transferMemberService) GetMembership(_ context.Context, userID string, 
 		return nil, nil
 	}
 	return m.membership, nil
+}
+
+func (m *transferMemberService) ListByUser(_ context.Context, userID string) ([]*types.TenantMember, error) {
+	var out []*types.TenantMember
+	if m.membershipOK && m.membership.UserID == userID {
+		out = append(out, m.membership)
+	}
+	for _, extra := range m.extraMemberships {
+		if extra.UserID == userID {
+			out = append(out, extra)
+		}
+	}
+	return out, nil
+}
+
+func (m *transferMemberService) ListMembersPage(
+	_ context.Context, tenantID uint64, query string, _, limit int,
+) ([]*types.TenantMember, int64, error) {
+	var out []*types.TenantMember
+	for _, candidate := range m.membersPage {
+		if candidate.TenantID != tenantID {
+			continue
+		}
+		if query != "" && candidate.UserID != query {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, int64(len(out)), nil
+}
+
+func (m *transferMemberService) ListActiveByTenantIDs(
+	_ context.Context, tenantIDs []uint64, query string, limit int,
+) ([]*types.TenantMember, error) {
+	allowed := make(map[uint64]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		allowed[id] = struct{}{}
+	}
+	var out []*types.TenantMember
+	for _, candidate := range m.extraMemberships {
+		if candidate.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		if _, ok := allowed[candidate.TenantID]; !ok {
+			continue
+		}
+		if query != "" && candidate.UserID != query {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (m *transferMemberService) UpdateRole(_ context.Context, userID string, tenantID uint64, role types.TenantRole) error {
@@ -104,6 +166,18 @@ func (r *transferKBRepo) UpdateKnowledgeBaseCreator(
 	return r.fakeKBRepo.UpdateKnowledgeBaseCreator(context.Background(), id, tenantID, expectedCreatorID, newCreatorID)
 }
 
+// transferShareService exposes the shared-space tenant pool used by the
+// candidate and target-validation paths.
+type transferShareService struct {
+	interfaces.KBShareService
+	tenantIDs []uint64
+	err       error
+}
+
+func (s *transferShareService) ListShareMemberTenantIDs(context.Context, string) ([]uint64, error) {
+	return s.tenantIDs, s.err
+}
+
 func transferTestCtx(userID string, role types.TenantRole, tenantID uint64) context.Context {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, tenantID)
@@ -120,6 +194,7 @@ func newTransferService(kb *types.KnowledgeBase, members *transferMemberService)
 		repo:                repo,
 		audit:               audit,
 		tenantMemberService: members,
+		kbShareService:      &transferShareService{},
 	}, audit
 }
 
@@ -328,6 +403,143 @@ func TestTransferKnowledgeBaseOwnership_SharedKBCrossTenantCallerForbidden(t *te
 	ctx := types.WithExecutionTenant(transferTestCtx("editor", types.TenantRoleContributor, 2), 1)
 	_, err := svc.TransferKnowledgeBaseOwnership(ctx, "kb-1", "target")
 	assert.ErrorIs(t, err, ErrKBOwnerTransferForbidden)
+}
+
+func TestTransferKnowledgeBaseOwnership_SharedSpaceTarget(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
+	members := &transferMemberService{extraMemberships: []*types.TenantMember{
+		{UserID: "remote", TenantID: 2, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
+	}}
+	svc, audit := newTransferService(kb, members)
+	svc.kbShareService = &transferShareService{tenantIDs: []uint64{2}}
+
+	got, err := svc.TransferKnowledgeBaseOwnership(
+		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "remote")
+	require.NoError(t, err)
+	assert.Equal(t, "remote", got.CreatorID)
+	assert.Empty(t, members.roleCalls, "a cross-space target's own workspace role must not be changed")
+	require.Len(t, audit.entries, 1)
+	assert.Equal(t, types.AuditActionKBOwnerTransferred, audit.entries[0].Action)
+}
+
+func TestTransferKnowledgeBaseOwnership_SharedSpaceViewerTargetRejected(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
+	members := &transferMemberService{extraMemberships: []*types.TenantMember{
+		{UserID: "remote-viewer", TenantID: 2, Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive},
+	}}
+	svc, _ := newTransferService(kb, members)
+	svc.kbShareService = &transferShareService{tenantIDs: []uint64{2}}
+
+	_, err := svc.TransferKnowledgeBaseOwnership(
+		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "remote-viewer")
+	assert.ErrorIs(t, err, ErrKBOwnerTransferTargetRole)
+	assert.Equal(t, "creator", kb.CreatorID)
+}
+
+func TestTransferKnowledgeBaseOwnership_TargetOutsideSharedSpacesRejected(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
+	members := &transferMemberService{extraMemberships: []*types.TenantMember{
+		{UserID: "outsider", TenantID: 3, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
+	}}
+	svc, _ := newTransferService(kb, members)
+	svc.kbShareService = &transferShareService{tenantIDs: []uint64{2}}
+
+	_, err := svc.TransferKnowledgeBaseOwnership(
+		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "outsider")
+	assert.ErrorIs(t, err, ErrKBOwnerTransferNotMember)
+}
+
+func TestTransferKnowledgeBaseOwnership_CrossWorkspaceCreatorMayTransferAgain(t *testing.T) {
+	// The KB stays in tenant 1 after an earlier cross-workspace transfer; the
+	// creator now lives in tenant 2 and must still be allowed to hand it on.
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "remote-creator", Name: "kb"}
+	members := &transferMemberService{membership: activeMember("target", types.TenantRoleContributor), membershipOK: true}
+	svc, _ := newTransferService(kb, members)
+
+	ctx := types.WithExecutionTenant(
+		transferTestCtx("remote-creator", types.TenantRoleOwner, 2), 1)
+	got, err := svc.TransferKnowledgeBaseOwnership(ctx, "kb-1", "target")
+	require.NoError(t, err)
+	assert.Equal(t, "target", got.CreatorID)
+}
+
+func TestListKnowledgeBaseTransferCandidates_MergesWorkspaceAndSharedSpace(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
+	members := &transferMemberService{
+		membersPage: []*types.TenantMember{
+			{UserID: "creator", TenantID: 1, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
+			{UserID: "local", TenantID: 1, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive},
+			{UserID: "invited", TenantID: 1, Role: types.TenantRoleViewer, Status: types.TenantMemberStatusInvited},
+		},
+		extraMemberships: []*types.TenantMember{
+			{UserID: "remote", TenantID: 2, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
+			{UserID: "remote-suspended", TenantID: 2, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusSuspended},
+		},
+	}
+	svc, _ := newTransferService(kb, members)
+	svc.kbShareService = &transferShareService{tenantIDs: []uint64{2, 3}}
+
+	got, err := svc.ListKnowledgeBaseTransferCandidates(
+		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "local", got[0].UserID, "workspace members come first")
+	assert.Equal(t, "remote", got[1].UserID)
+	assert.Equal(t, uint64(2), got[1].TenantID)
+}
+
+func TestListKnowledgeBaseTransferCandidates_SearchAndLimit(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
+	members := &transferMemberService{
+		membersPage: []*types.TenantMember{
+			{UserID: "alice", TenantID: 1, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive},
+			{UserID: "bob", TenantID: 1, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive},
+		},
+		extraMemberships: []*types.TenantMember{
+			{UserID: "carol", TenantID: 2, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
+		},
+	}
+	svc, _ := newTransferService(kb, members)
+	svc.kbShareService = &transferShareService{tenantIDs: []uint64{2}}
+
+	got, err := svc.ListKnowledgeBaseTransferCandidates(
+		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "carol", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "carol", got[0].UserID)
+
+	limited, err := svc.ListKnowledgeBaseTransferCandidates(
+		transferTestCtx("creator", types.TenantRoleContributor, 1), "kb-1", "", 1)
+	require.NoError(t, err)
+	require.Len(t, limited, 1)
+	assert.Equal(t, "alice", limited[0].UserID)
+}
+
+func TestListKnowledgeBaseTransferCandidates_RequiresCreatorOrAdmin(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "creator", Name: "kb"}
+	members := &transferMemberService{}
+	svc, _ := newTransferService(kb, members)
+
+	_, err := svc.ListKnowledgeBaseTransferCandidates(
+		transferTestCtx("someone-else", types.TenantRoleContributor, 1), "kb-1", "", 50)
+	assert.ErrorIs(t, err, ErrKBOwnerTransferForbidden)
+}
+
+func TestListKnowledgeBaseTransferCandidates_CrossWorkspaceCreatorAllowed(t *testing.T) {
+	kb := &types.KnowledgeBase{ID: "kb-1", TenantID: 1, CreatorID: "remote-creator", Name: "kb"}
+	members := &transferMemberService{
+		membersPage: []*types.TenantMember{
+			{UserID: "local", TenantID: 1, Role: types.TenantRoleContributor, Status: types.TenantMemberStatusActive},
+		},
+	}
+	svc, _ := newTransferService(kb, members)
+
+	ctx := types.WithExecutionTenant(
+		transferTestCtx("remote-creator", types.TenantRoleOwner, 2), 1)
+	got, err := svc.ListKnowledgeBaseTransferCandidates(ctx, "kb-1", "", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "local", got[0].UserID)
 }
 
 func TestTransferKnowledgeBaseOwnership_RepoErrorPropagates(t *testing.T) {

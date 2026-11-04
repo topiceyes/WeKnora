@@ -249,6 +249,46 @@ func TestTenantMemberSearchTreatsLikeWildcardsLiterally(t *testing.T) {
 	assert.Equal(t, literalID, members[0].UserID)
 }
 
+// Covers the ownership-transfer candidate query: tenant membership, active
+// status, LIKE escaping and the result cap all apply together.
+func TestListActiveByTenantIDsFiltersTenantStatusAndSearch(t *testing.T) {
+	db := setupLikeEscapeTestDB(t)
+	repo := NewTenantMemberRepository(db).(*tenantMemberRepository)
+	ctx := context.Background()
+
+	seed := func(id string, tenantID uint64, status types.TenantMemberStatus, username, email string) {
+		t.Helper()
+		require.NoError(t, db.Exec(
+			`INSERT INTO users (id, username, email) VALUES (?, ?, ?)`, id, username, email).Error)
+		require.NoError(t, db.Create(&types.TenantMember{
+			UserID: id, TenantID: tenantID, Role: types.TenantRoleContributor, Status: status,
+		}).Error)
+	}
+	literalID := uuid.New().String()
+	seed(literalID, 1, types.TenantMemberStatusActive, "ann_bob", "ann_bob@example.com")
+	seed(uuid.New().String(), 1, types.TenantMemberStatusActive, "annxbob", "annxbob@example.com")
+	seed(uuid.New().String(), 1, types.TenantMemberStatusSuspended, "suspended", "suspended@example.com")
+	seed(uuid.New().String(), 2, types.TenantMemberStatusActive, "carol", "carol@example.com")
+	seed(uuid.New().String(), 3, types.TenantMemberStatusActive, "dave", "dave@example.com")
+
+	all, err := repo.ListActiveByTenantIDs(ctx, []uint64{1, 2}, "", 50)
+	require.NoError(t, err)
+	require.Len(t, all, 3, "suspended members and tenant 3 must be excluded")
+	for _, member := range all {
+		require.NotEqual(t, types.TenantMemberStatusSuspended, member.Status)
+		require.Contains(t, []uint64{1, 2}, member.TenantID)
+	}
+
+	matched, err := repo.ListActiveByTenantIDs(ctx, []uint64{1, 2}, "ann_bob", 50)
+	require.NoError(t, err)
+	require.Len(t, matched, 1, "underscore must match literally, not as a wildcard")
+	assert.Equal(t, literalID, matched[0].UserID)
+
+	limited, err := repo.ListActiveByTenantIDs(ctx, []uint64{1, 2}, "", 1)
+	require.NoError(t, err)
+	require.Len(t, limited, 1)
+}
+
 // Covers the session sidebar keyword filter in QueryPaged.
 func TestSessionQueryPagedKeywordTreatsLikeWildcardsLiterally(t *testing.T) {
 	db := setupLikeEscapeTestDB(t)

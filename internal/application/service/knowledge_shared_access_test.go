@@ -14,6 +14,14 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestCreatorEffectivePermission(t *testing.T) {
+	ctx := types.WithCaller(context.Background(), types.Caller{UserID: "owner"})
+	kb := &types.KnowledgeBase{CreatorID: "owner"}
+	require.Equal(t, types.OrgRoleAdmin, creatorEffectivePermission(ctx, kb, types.OrgRoleViewer))
+	kb.CreatorID = "someone-else"
+	require.Equal(t, types.OrgRoleViewer, creatorEffectivePermission(ctx, kb, types.OrgRoleViewer))
+}
+
 type fakeKBShareService struct {
 	allowedKBs map[string]bool
 }
@@ -69,6 +77,10 @@ func (f *fakeKBShareService) CheckTenantKBPermission(
 
 func (f *fakeKBShareService) HasTenantKBPermission(ctx context.Context, kbID string, callerTenantID uint64, callerTenantRole types.TenantRole, requiredRole types.OrgMemberRole) (bool, error) {
 	return f.allowedKBs[kbID], nil
+}
+
+func (f *fakeKBShareService) ListShareMemberTenantIDs(context.Context, string) ([]uint64, error) {
+	return nil, nil
 }
 
 func (f *fakeKBShareService) GetKBSourceTenant(context.Context, string) (uint64, error) {

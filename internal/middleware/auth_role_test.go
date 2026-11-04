@@ -114,6 +114,11 @@ func (f *fakeMemberService) ListByUser(ctx context.Context, userID string) ([]*t
 func (f *fakeMemberService) ListByTenant(ctx context.Context, tenantID uint64) ([]*types.TenantMember, error) {
 	return nil, nil
 }
+func (f *fakeMemberService) ListActiveByTenantIDs(
+	ctx context.Context, tenantIDs []uint64, search string, limit int,
+) ([]*types.TenantMember, error) {
+	return nil, nil
+}
 func (f *fakeMemberService) ListMembersPage(
 	ctx context.Context, tenantID uint64, query string, page, pageSize int,
 ) ([]*types.TenantMember, int64, error) {

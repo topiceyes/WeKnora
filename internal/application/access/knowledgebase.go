@@ -117,6 +117,16 @@ func ResolveKB(ctx context.Context, request KBRequest, kb *types.KnowledgeBase, 
 	if kb.TenantID == request.Caller.TenantID {
 		return grant(types.OrgRoleAdmin)
 	}
+	// The designated creator owns the KB even from another workspace: an
+	// ownership transfer across workspaces intentionally leaves tenant_id
+	// untouched (moving storage/vectors is out of scope), so the new owner
+	// may hold creator_id while their tenant is not a member of every org
+	// the KB is shared into. Ownership itself is the access grant; the
+	// role floor in OwnedKBOrAdmin still rejects a creator demoted to
+	// Viewer in their own workspace.
+	if kb.CreatorID != "" && kb.CreatorID == request.Caller.UserID {
+		return grant(types.OrgRoleAdmin)
+	}
 	if shares != nil {
 		permissions := NewKBSharePermissions(ctx, shares, request.Caller.TenantID, request.Caller.Role)
 		permission, shared, err := permissions.Permission(kb.ID)

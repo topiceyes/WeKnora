@@ -103,6 +103,12 @@ func (s *processSyncKBService) TransferKnowledgeBaseOwnership(
 ) (*types.KnowledgeBase, error) {
 	return nil, nil
 }
+
+func (s *processSyncKBService) ListKnowledgeBaseTransferCandidates(
+	context.Context, string, string, int,
+) ([]*types.KBTransferCandidate, error) {
+	return nil, nil
+}
 func (s *processSyncKBService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {
 	return nil, nil
 }

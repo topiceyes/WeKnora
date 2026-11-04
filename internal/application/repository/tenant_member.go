@@ -18,6 +18,14 @@ import (
 // semantic; just kept separate so the repo doesn't import service).
 var ErrLastOwner = errors.New("repository: last active owner")
 
+// Bounds for ListActiveByTenantIDs. They mirror the members-management page
+// size (20/100) but live here because the repository must stay independent of
+// the service package's constants.
+const (
+	tenantMembersDefaultLimit = 20
+	tenantMembersMaxLimit     = 100
+)
+
 // forUpdateClause returns the gorm SELECT ... FOR UPDATE clause. Kept
 // in one place so we can swap it out for `clause.Locking{Strength: "UPDATE"}`
 // on databases that don't support row-level locking (none in our matrix,
@@ -87,6 +95,51 @@ func (r *tenantMemberRepository) ListByTenant(ctx context.Context, tenantID uint
 		Where("tenant_id = ?", tenantID).
 		Order("joined_at ASC, id ASC").
 		Find(&members).Error
+	if err != nil {
+		return nil, err
+	}
+	return members, nil
+}
+
+// ListActiveByTenantIDs returns active memberships across the given tenants,
+// optionally restricted to users whose email or username matches search.
+//
+// Ordering is deterministic (tenant, join time, id) so a search that returns
+// more rows than the caller's limit still yields a stable slice. A non-positive
+// limit is treated as the default page size.
+func (r *tenantMemberRepository) ListActiveByTenantIDs(
+	ctx context.Context, tenantIDs []uint64, search string, limit int,
+) ([]*types.TenantMember, error) {
+	if len(tenantIDs) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = tenantMembersDefaultLimit
+	}
+	if limit > tenantMembersMaxLimit {
+		limit = tenantMembersMaxLimit
+	}
+	search = strings.TrimSpace(search)
+
+	var members []*types.TenantMember
+	q := r.db.WithContext(ctx).Model(&types.TenantMember{}).
+		Where("tenant_members.tenant_id IN ?", tenantIDs).
+		Where("tenant_members.status = ?", types.TenantMemberStatusActive).
+		Order("tenant_members.tenant_id ASC, tenant_members.joined_at ASC, tenant_members.id ASC").
+		Limit(limit)
+
+	var err error
+	if search == "" {
+		err = q.Find(&members).Error
+	} else {
+		like := "%" + escapeLikePattern(search) + "%"
+		err = q.
+			Joins(`INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL`).
+			Where(
+				`(LOWER(users.email) LIKE LOWER(?) ESCAPE ? OR LOWER(users.username) LIKE LOWER(?) ESCAPE ?)`,
+				like, likeEscapeChar, like, likeEscapeChar).
+			Find(&members).Error
+	}
 	if err != nil {
 		return nil, err
 	}

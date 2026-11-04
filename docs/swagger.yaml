@@ -11113,6 +11113,25 @@ definitions:
     required:
     - llmModelId
     type: object
+  internal_handler.KBTransferCandidateView:
+    properties:
+      avatar:
+        type: string
+      email:
+        type: string
+      role:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole'
+      status:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantMemberStatus'
+      tenant_id:
+        type: integer
+      tenant_name:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
   internal_handler.KnowledgeBaseView:
     properties:
       asr_config:
@@ -12902,7 +12921,10 @@ definitions:
   internal_handler.TransferKnowledgeBaseOwnerRequest:
     properties:
       new_owner_user_id:
-        description: NewOwnerUserID is the workspace member who will own the KB afterwards.
+        description: |-
+          NewOwnerUserID is the person who will own the KB afterwards. They must
+          be an active member of the KB's workspace or of a shared space the KB
+          is shared into.
         type: string
     required:
     - new_owner_user_id
@@ -19435,13 +19457,62 @@ paths:
         target: knowledge_base.get
       x-agent-hint: Renames a tag. tag_id comes from knowledge_base.list_tags. A field
         left out is kept.
+  /knowledge-bases/{id}/transfer-candidates:
+    get:
+      description: 返回可以接手该知识库的人：本空间成员，以及该知识库所共享到的共享空间成员。`q` 按用户名或邮箱服务端模糊匹配；当前归宿人会被排除。调用者需为知识库创建者或本空间
+        Admin/Owner。仅 JWT 可调用。
+      parameters:
+      - description: 知识库ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 按用户名或邮箱搜索
+        in: query
+        name: q
+        type: string
+      - description: 返回条数上限（默认 50，最大 100）
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 候选人列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/internal_handler.DataResponse'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/internal_handler.KBTransferCandidateView'
+                  type: array
+              type: object
+        "403":
+          description: 无权查看候选人
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "404":
+          description: 知识库不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 列出知识库归宿转让候选人
+      tags:
+      - 知识库
   /knowledge-bases/{id}/transfer-owner:
     post:
       consumes:
       - application/json
-      description: 将知识库创建者（归宿）转让给同一空间内的其他成员。仅知识库创建者或空间 Admin/Owner 可操作；目标成员需处于 active
-        状态，角色低于 Contributor 时会自动提升（产生 rbac.member_role_changed 审计）。仅变更 creator_id
-        / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。
+      description: 将知识库创建者（归宿）转让给本空间成员，或该知识库所共享到的共享空间成员。仅知识库创建者或本空间 Admin/Owner 可操作；目标需处于
+        active 状态。同空间 Viewer 目标会自动提升为 Contributor（产生 rbac.member_role_changed 审计），跨空间目标需已具备
+        Contributor 权限。仅变更 creator_id / updated_at，向量库、存储、共享与内容均不动。仅 JWT 可调用。
       parameters:
       - description: 知识库ID
         in: path
@@ -19471,7 +19542,7 @@ paths:
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
         "403":
-          description: 无权转让或知识库来自其他空间
+          description: 无权转让
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
         "404":

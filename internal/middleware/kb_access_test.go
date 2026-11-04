@@ -52,6 +52,10 @@ func (s *stubKBShareForGuard) GetKBSourceTenant(_ context.Context, kbID string) 
 	panic("the loaded KB already carries its authoritative tenant")
 }
 
+func (s *stubKBShareForGuard) ListShareMemberTenantIDs(context.Context, string) ([]uint64, error) {
+	panic("not implemented")
+}
+
 func (s *stubKBShareForGuard) ShareKnowledgeBase(context.Context, string, string, string, uint64, types.OrgMemberRole) (*types.KnowledgeBaseShare, error) {
 	panic("not implemented")
 }

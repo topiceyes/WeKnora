@@ -62,6 +62,24 @@ func NewKBShareService(
 	}
 }
 
+// creatorEffectivePermission upgrades a KB's creator to Admin on the shared
+// listing. A cross-workspace ownership transfer leaves the KB in its original
+// tenant, so the new owner reaches it through a share whose permission may be
+// lower (often viewer); ownership itself still grants management, matching
+// ResolveKB. Kept separate from the 3-D cap so share listings don't show the
+// owner as read-only.
+func creatorEffectivePermission(
+	ctx context.Context, kb *types.KnowledgeBase, effective types.OrgMemberRole,
+) types.OrgMemberRole {
+	if kb == nil || kb.CreatorID == "" {
+		return effective
+	}
+	if callerID := types.CallerFromContext(ctx).UserID; callerID != "" && kb.CreatorID == callerID {
+		return types.OrgRoleAdmin
+	}
+	return effective
+}
+
 // applyTenantRoleCap applies the third dimension of the cap: a caller
 // whose own tenant role is Viewer cannot exceed OrgRoleViewer on any
 // shared resource, regardless of what the org-level grant said. Higher
@@ -279,6 +297,41 @@ func (s *kbShareService) ListSharesByOrganization(ctx context.Context, orgID str
 	return s.shareRepo.ListByOrganization(ctx, orgID)
 }
 
+// ListShareMemberTenantIDs returns the union of tenant IDs belonging to every
+// organization this KB is shared into. Shares are the KB's "shared spaces": a
+// user who can see the KB through one of them is a candidate for ownership.
+//
+// No authorization is performed here — the KB service calls this only after it
+// has verified that the caller is the creator or an admin of the KB workspace.
+func (s *kbShareService) ListShareMemberTenantIDs(ctx context.Context, kbID string) ([]uint64, error) {
+	shares, err := s.shareRepo.ListByKnowledgeBase(ctx, kbID)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[uint64]struct{}, len(shares))
+	tenantIDs := make([]uint64, 0, len(shares))
+	for _, share := range shares {
+		if share == nil || share.OrganizationID == "" {
+			continue
+		}
+		members, err := s.orgRepo.ListTenantMembers(ctx, share.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range members {
+			if m == nil || m.TenantID == 0 {
+				continue
+			}
+			if _, ok := seen[m.TenantID]; ok {
+				continue
+			}
+			seen[m.TenantID] = struct{}{}
+			tenantIDs = append(tenantIDs, m.TenantID)
+		}
+	}
+	return tenantIDs, nil
+}
+
 // ListSharedKnowledgeBases lists all knowledge bases reachable from the
 // caller's tenant via cross-tenant org shares. Permission per KB is
 // computed via the 3-D cap.
@@ -310,6 +363,7 @@ func (s *kbShareService) ListSharedKnowledgeBases(ctx context.Context, tenantID 
 		effective = applyTenantRoleCap(effective, callerTenantRole)
 
 		kb := share.KnowledgeBase
+		effective = creatorEffectivePermission(ctx, kb, effective)
 		switch kb.Type {
 		case types.KnowledgeBaseTypeDocument:
 			knowledgeCount, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, share.SourceTenantID, kb.ID)
@@ -386,6 +440,7 @@ func (s *kbShareService) ListSharedKnowledgeBasesInOrganization(ctx context.Cont
 		effective = applyTenantRoleCap(effective, callerTenantRole)
 
 		kb := share.KnowledgeBase
+		effective = creatorEffectivePermission(ctx, kb, effective)
 		switch kb.Type {
 		case types.KnowledgeBaseTypeDocument:
 			if count, err := s.kgRepo.CountKnowledgeByKnowledgeBaseID(ctx, share.SourceTenantID, kb.ID); err == nil {

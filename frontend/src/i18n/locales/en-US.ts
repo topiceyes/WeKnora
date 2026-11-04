@@ -3307,13 +3307,13 @@ export default {
   knowledgeEditor: {
     transfer: {
       title: 'Transfer ownership',
-      description: 'Reassign this knowledge base to another member of the workspace. Only the owner changes; documents, indexes, storage and shares stay untouched.',
+      description: 'Reassign this knowledge base to a member of its workspace or of a shared space it is shared into. Only the owner changes; documents, indexes, storage and shares stay untouched.',
       currentOwner: 'Current owner',
       workspaceOwned: 'Owned by the workspace (no individual owner)',
       selectNewOwner: 'New owner',
       searchPlaceholder: 'Search by username or email',
       loading: 'Loading members…',
-      empty: 'No other active members',
+      empty: 'No eligible candidates (workspace or shared-space members)',
       emptySearch: 'No members match your search',
       loadFailed: 'Failed to load members',
       retry: 'Retry',

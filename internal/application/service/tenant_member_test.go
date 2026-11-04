@@ -92,6 +92,34 @@ func (r *fakeTenantMemberRepo) ListByTenant(ctx context.Context, tenantID uint64
 	return out, nil
 }
 
+func (r *fakeTenantMemberRepo) ListActiveByTenantIDs(
+	_ context.Context, tenantIDs []uint64, search string, limit int,
+) ([]*types.TenantMember, error) {
+	allowed := make(map[uint64]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		allowed[id] = struct{}{}
+	}
+	search = strings.TrimSpace(strings.ToLower(search))
+	var out []*types.TenantMember
+	for _, e := range r.rows {
+		if e.DeletedAt.Valid || e.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		if _, ok := allowed[e.TenantID]; !ok {
+			continue
+		}
+		if search != "" && !strings.Contains(strings.ToLower(e.UserID), search) {
+			continue
+		}
+		cp := *e
+		out = append(out, &cp)
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func (r *fakeTenantMemberRepo) filterTenantRows(tenantID uint64, search string) []*types.TenantMember {
 	search = strings.TrimSpace(strings.ToLower(search))
 	var out []*types.TenantMember

@@ -794,18 +794,23 @@ const isKbOwner = computed(() => {
 
 const canViewActivity = computed(() => {
   if (editorMode.value !== 'edit' || !activeKbId.value) return false
+  // The creator owns the KB even across workspaces (ownership transfer
+  // deliberately keeps tenant_id); workspace admins are scoped to the KB's
+  // own workspace.
+  if (isKbOwner.value) return true
   if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
-  return isKbOwner.value || authStore.hasRole('admin')
+  return authStore.hasRole('admin')
 })
 // 归宿转让入口可见性：后端 /transfer-owner 由 OwnedKBOrAdmin 守卫
-// （创建者 OR Admin+）且仅同空间可转；这里镜像同一矩阵，入口对
-// 其他人直接隐藏而不是点了再 403。
+// （创建者 OR 本空间 Admin+）。创建者可能因跨空间转让而身处别的空间，
+// 仍允许再次转让；管理员只在知识库所属空间内可见。
 const canTransferKB = computed(() => {
   if (editorMode.value !== 'edit' || !activeKbId.value || authStore.isLiteMode) return false
-  if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
   // Owner path also needs the Contributor floor: a demoted creator (now
   // Viewer) is rejected by both OwnedKBOrAdmin and the service.
-  return (isKbOwner.value && authStore.hasRole('contributor')) || authStore.hasRole('admin')
+  if (isKbOwner.value) return authStore.hasRole('contributor')
+  if (Number(kbTenantId.value || 0) !== Number(authStore.currentTenantId || 0)) return false
+  return authStore.hasRole('admin')
 })
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
 const chunkingDirty = ref(false)
@@ -1096,8 +1101,10 @@ const isCurrentKBLoad = (generation: number, kbId: string) => (
 const handleOwnershipTransferred = async (event: { user_id: string; display_name: string }) => {
   kbCreatorId.value = event.user_id
   kbCreatorName.value = event.display_name || ''
-  const stillCanTransfer =
-    (isKbOwner.value && authStore.hasRole('contributor')) || authStore.hasRole('admin')
+  const stillCanTransfer = isKbOwner.value
+    ? authStore.hasRole('contributor')
+    : (Number(kbTenantId.value || 0) === Number(authStore.currentTenantId || 0)
+      && authStore.hasRole('admin'))
   if (!stillCanTransfer && currentSection.value === 'transfer') {
     currentSection.value = 'basic'
   }

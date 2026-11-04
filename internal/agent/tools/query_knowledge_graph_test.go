@@ -67,6 +67,12 @@ func (s *stubKnowledgeBaseService) TransferKnowledgeBaseOwnership(
 	return nil, nil
 }
 
+func (s *stubKnowledgeBaseService) ListKnowledgeBaseTransferCandidates(
+	context.Context, string, string, int,
+) ([]*types.KBTransferCandidate, error) {
+	return nil, nil
+}
+
 func (s *stubKnowledgeBaseService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {
 	return nil, nil
 }

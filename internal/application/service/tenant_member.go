@@ -268,6 +268,13 @@ func (s *tenantMemberService) ListByTenant(ctx context.Context, tenantID uint64)
 	return s.repo.ListByTenant(ctx, tenantID)
 }
 
+// ListActiveByTenantIDs proxies to the repository.
+func (s *tenantMemberService) ListActiveByTenantIDs(
+	ctx context.Context, tenantIDs []uint64, search string, limit int,
+) ([]*types.TenantMember, error) {
+	return s.repo.ListActiveByTenantIDs(ctx, tenantIDs, search, limit)
+}
+
 // ListMembersPage returns a slice plus total matching query (handlers parse
 // page/page_size; defensive clamps here mirror list handler limits).
 func (s *tenantMemberService) ListMembersPage(
