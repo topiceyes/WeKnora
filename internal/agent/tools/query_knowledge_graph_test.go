@@ -73,6 +73,18 @@ func (s *stubKnowledgeBaseService) ListKnowledgeBaseTransferCandidates(
 	return nil, nil
 }
 
+func (s *stubKnowledgeBaseService) BuildKnowledgeBaseWorkspaceTransferPlan(
+	context.Context, string, string,
+) (*types.KBWorkspaceTransferPlan, error) {
+	return nil, nil
+}
+
+func (s *stubKnowledgeBaseService) TransferKnowledgeBaseWorkspace(
+	context.Context, string, string,
+) (*types.KBWorkspaceTransferResult, error) {
+	return nil, nil
+}
+
 func (s *stubKnowledgeBaseService) TogglePinKnowledgeBase(context.Context, string) (*types.KnowledgeBase, error) {
 	return nil, nil
 }
