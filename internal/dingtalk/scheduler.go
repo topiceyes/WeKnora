@@ -78,8 +78,19 @@ func (s *Scheduler) Start() error {
 // runWithRetry 执行一轮 cron 同步；失败时隔 10 分钟补跑，最多补跑 2 次。
 // ErrSyncAlreadyRunning 属于正常并发保护（手动触发占了位），不补跑。
 func (s *Scheduler) runWithRetry(ctx context.Context) {
+	s.runWithRetryInterval(ctx, syncRetryDelay)
+}
+
+func (s *Scheduler) runWithRetryInterval(ctx context.Context, delay time.Duration) {
 	const totalAttempts = 1 + maxSyncRetries
 	for attempt := 1; ; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.done:
+			return
+		default:
+		}
 		_, err := s.sync.RunFullSync(ctx, SyncTriggerCron)
 		if err == nil {
 			if attempt > 1 {
@@ -96,15 +107,15 @@ func (s *Scheduler) runWithRetry(ctx context.Context) {
 			return
 		}
 		logger.Errorf(ctx, "DingTalk contact sync failed, retry in %s (attempt %d/%d): %v",
-			syncRetryDelay, attempt, totalAttempts, err)
-		if !s.waitRetry(syncRetryDelay) {
+			delay, attempt, totalAttempts, err)
+		if !s.waitRetry(ctx, delay) {
 			return
 		}
 	}
 }
 
 // waitRetry 等待补跑间隔；调度器停止时立即返回 false。
-func (s *Scheduler) waitRetry(d time.Duration) bool {
+func (s *Scheduler) waitRetry(ctx context.Context, d time.Duration) bool {
 	fired := make(chan struct{})
 	timer := time.AfterFunc(d, func() { close(fired) })
 	s.mu.Lock()
@@ -121,6 +132,9 @@ func (s *Scheduler) waitRetry(d time.Duration) bool {
 	case <-s.done:
 		timer.Stop()
 		return false
+	case <-ctx.Done():
+		timer.Stop()
+		return false
 	}
 }
 
@@ -129,8 +143,8 @@ func (s *Scheduler) Stop() {
 	if s.cron == nil {
 		return
 	}
-	<-s.cron.Stop().Done()
 	s.once.Do(func() { close(s.done) })
+	<-s.cron.Stop().Done()
 	s.mu.Lock()
 	for t := range s.timers {
 		t.Stop()

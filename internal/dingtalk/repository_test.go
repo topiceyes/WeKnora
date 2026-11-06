@@ -98,7 +98,7 @@ func TestListActiveBindingsJoinsUserFlags(t *testing.T) {
 	r.BindToUser(ctx, "corp-1", "ding-1", "union-1", "u-1", "张三", "", "")
 	r.BindToUser(ctx, "corp-1", "ding-2", "union-2", "u-2", "管理员", "", "")
 
-	bindings, err := r.ListActiveBindings(ctx)
+	bindings, err := r.ListActiveBindings(ctx, "corp-1")
 	if err != nil {
 		t.Fatalf("ListActiveBindings: %v", err)
 	}

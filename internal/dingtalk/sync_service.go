@@ -152,42 +152,54 @@ func (s *SyncService) executeSync(ctx context.Context, run *SyncRun) (*SyncRun, 
 		s.finishRun(ctx, run.ID, SyncStatusFailed, 0, 0, 0, 0, err.Error())
 		run.Status = SyncStatusFailed
 		run.ErrorMessage = err.Error()
+		now := time.Now()
+		run.FinishedAt = &now
 		return run, err
 	}
 
-	// 部门树落库（组织架构本地化）。失败仅告警不 fail 整轮：
-	// 对账禁用是关键路径，部门展示数据可等下一次同步补上。
+	// Preserve completed work and counters, but propagate every failed stage
+	// so the UI and scheduler do not mistake a partial run for success.
+	var stageErrors []error
 	if err := s.repo.ReplaceDepartments(ctx, s.corpID, deptTree); err != nil {
 		logger.Warnf(ctx, "DingTalk sync: persist departments failed: %v", err)
+		stageErrors = append(stageErrors, fmt.Errorf("persist departments: %w", err))
 	}
 
 	// 全员快照落库（dingtalk_contacts，含未绑定的人）——共享空间「从钉钉
-	// 组织架构添加」的浏览/导入数据源。与部门树同理 warn-only；只有拉取
-	// 成功后才走到这里，接口异常不会误清快照。
+	// 组织架构添加」的浏览/导入数据源。落库失败仍继续资料对账，但整轮
+	// 标记失败并补跑；只有拉取成功后才走到这里，接口异常不会误清快照。
 	if err := s.repo.ReplaceContacts(ctx, s.corpID, remote); err != nil {
 		logger.Warnf(ctx, "DingTalk sync: persist contacts snapshot failed: %v", err)
+		stageErrors = append(stageErrors, fmt.Errorf("persist contacts: %w", err))
 	}
 
-	created, updated := s.upsertRemoteUsers(ctx, remote)
-	deactivated, reconcileErr := s.reconcileDeparted(ctx, remote)
+	created, updated, upsertErr := s.upsertRemoteUsers(ctx, remote)
+	stageErrors = append(stageErrors, upsertErr)
+	deactivated := 0
+	if upsertErr == nil {
+		var reconcileErr error
+		deactivated, reconcileErr = s.reconcileDeparted(ctx, remote)
+		stageErrors = append(stageErrors, reconcileErr)
+	}
 
 	errMsg := ""
-	if reconcileErr != nil {
-		// 对账异常（含半量保护触发）不掩盖已完成的资料同步：
-		// 记录 error_message，run 仍记 success。
-		errMsg = reconcileErr.Error()
+	runErr := errors.Join(stageErrors...)
+	status := SyncStatusSuccess
+	if runErr != nil {
+		errMsg = runErr.Error()
+		status = SyncStatusFailed
 	}
-	s.finishRun(ctx, run.ID, SyncStatusSuccess, len(remote), created, updated, deactivated, errMsg)
+	s.finishRun(ctx, run.ID, status, len(remote), created, updated, deactivated, errMsg)
 
 	now := time.Now()
-	run.Status = SyncStatusSuccess
+	run.Status = status
 	run.FinishedAt = &now
 	run.TotalRemote = len(remote)
 	run.CreatedCount = created
 	run.UpdatedCount = updated
 	run.DeactivatedCount = deactivated
 	run.ErrorMessage = errMsg
-	return run, nil
+	return run, runErr
 }
 
 // fetchRemoteUsers 拉取企业全员 + 部门树：token → 递归部门（带名称）→
@@ -245,7 +257,7 @@ func (s *SyncService) fetchRemoteUsers(ctx context.Context) (map[string]*DeptUse
 // upsertRemoteUsers 第一遍对账：更新已有绑定的资料快照；无 userid 绑定
 // 但 unionid 能对上占位记录 → 升级成真实 userid；否则 email 匹配本地
 // 账号时补绑定（不主动为陌生人建账号）。
-func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*DeptUserDetail) (created, updated int) {
+func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*DeptUserDetail) (created, updated int, resultErr error) {
 	now := time.Now()
 	for dingUserID, du := range remote {
 		identity, err := s.repo.GetByDingUserID(ctx, s.corpID, dingUserID)
@@ -260,6 +272,7 @@ func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*
 			identity.LastSyncedAt = &now
 			if err := s.repo.Upsert(ctx, identity); err != nil {
 				logger.Warnf(ctx, "DingTalk sync: update identity %s failed: %v", dingUserID, err)
+				resultErr = errors.Join(resultErr, fmt.Errorf("update identity %s: %w", dingUserID, err))
 				continue
 			}
 			s.maybeRenameLegacyUsername(ctx, identity, du)
@@ -267,18 +280,28 @@ func (s *SyncService) upsertRemoteUsers(ctx context.Context, remote map[string]*
 		case errors.Is(err, ErrIdentityNotFound):
 			// user/list 的返回带 unionid：登录时因权限缺失只留下 "union:"
 			// 占位记录的，这里直接升级成真实 userid，无需等本人再扫码。
-			if s.repairPlaceholder(ctx, du, now) {
+			repaired, repairErr := s.repairPlaceholder(ctx, du, now)
+			if repairErr != nil {
+				resultErr = errors.Join(resultErr, repairErr)
+				continue
+			}
+			if repaired {
 				updated++
 				continue
 			}
-			if s.bindByEmail(ctx, du) {
+			bound, bindErr := s.bindByEmail(ctx, du)
+			if bindErr != nil {
+				resultErr = errors.Join(resultErr, bindErr)
+			}
+			if bound {
 				created++
 			}
 		default:
 			logger.Warnf(ctx, "DingTalk sync: lookup identity %s failed: %v", dingUserID, err)
+			resultErr = errors.Join(resultErr, fmt.Errorf("lookup identity %s: %w", dingUserID, err))
 		}
 	}
-	return created, updated
+	return created, updated, resultErr
 }
 
 // maybeRenameLegacyUsername 存量旧格式用户名改成规范格式 <姓名>-<工号>
@@ -333,14 +356,17 @@ func (s *SyncService) maybeRenameLegacyUsername(ctx context.Context, identity *I
 // repairPlaceholder 按 unionid 找到 "union:" 占位绑定并升级成真实 userid。
 // 走主键 Update 而非 Upsert：占位 ding_user_id 被替换后 Upsert 的匹配键
 // 会 miss，变成插新行 + 孤儿占位记录。
-func (s *SyncService) repairPlaceholder(ctx context.Context, du *DeptUserDetail, now time.Time) bool {
+func (s *SyncService) repairPlaceholder(ctx context.Context, du *DeptUserDetail, now time.Time) (bool, error) {
 	unionID := strings.TrimSpace(du.UnionID)
 	if unionID == "" {
-		return false
+		return false, nil
 	}
 	identity, err := s.repo.GetByUnionID(ctx, s.corpID, unionID)
 	if err != nil {
-		return false
+		if errors.Is(err, ErrIdentityNotFound) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lookup placeholder: %w", err)
 	}
 	identity.DingUserID = du.UserID
 	identity.Nick = du.Name
@@ -352,27 +378,32 @@ func (s *SyncService) repairPlaceholder(ctx context.Context, du *DeptUserDetail,
 	identity.LastSyncedAt = &now
 	if err := s.repo.Update(ctx, identity); err != nil {
 		logger.Warnf(ctx, "DingTalk sync: repair placeholder for union %s failed: %v", unionID, err)
-		return false
+		return false, fmt.Errorf("repair placeholder: %w", err)
 	}
 	logger.Infof(ctx, "DingTalk sync: upgraded placeholder binding (union %s) to userid %s", unionID, du.UserID)
-	return true
+	return true, nil
 }
 
 // bindByEmail 按 email 匹配本地账号补绑定。匹配不到 / 查询失败均跳过（下个周期再试）。
 // 本地账号已有绑定（如占位记录 unionid 与远端不一致）时改为原行覆盖，
 // 避免触碰 user_id 唯一索引。
-func (s *SyncService) bindByEmail(ctx context.Context, du *DeptUserDetail) bool {
+func (s *SyncService) bindByEmail(ctx context.Context, du *DeptUserDetail) (bool, error) {
 	email := strings.TrimSpace(du.Email)
 	if email == "" || s.userRepo == nil {
-		return false
+		return false, nil
 	}
 	user, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil || user == nil {
-		return false
+		return false, nil
 	}
 	// 本地账号已有绑定行（unionid 与远端不一致的占位记录等）时覆盖原行，
 	// 避免插入第二行触碰 user_id 唯一索引。
 	if existing, gerr := s.repo.GetByUserID(ctx, user.ID); gerr == nil && existing != nil {
+		// Email matching may find an account already bound to another corp.
+		// Do not rewrite that corp's identity during this sync.
+		if existing.CorpID != s.corpID {
+			return false, nil
+		}
 		now := time.Now()
 		existing.UnionID = du.UnionID
 		existing.DingUserID = du.UserID
@@ -382,24 +413,26 @@ func (s *SyncService) bindByEmail(ctx context.Context, du *DeptUserDetail) bool 
 		existing.LastSyncedAt = &now
 		if err := s.repo.Update(ctx, existing); err != nil {
 			logger.Warnf(ctx, "DingTalk sync: rebind user %s failed: %v", user.ID, err)
-			return false
+			return false, fmt.Errorf("rebind user %s: %w", user.ID, err)
 		}
 		logger.Infof(ctx, "DingTalk sync: rebound local user %s to ding user %s", user.ID, du.UserID)
-		return true
+		return true, nil
+	} else if gerr != nil && !errors.Is(gerr, ErrIdentityNotFound) {
+		return false, fmt.Errorf("lookup user binding %s: %w", user.ID, gerr)
 	}
 	if err := s.repo.BindToUser(ctx, s.corpID, du.UserID, du.UnionID, user.ID, du.Name, du.Mobile, email); err != nil {
 		logger.Warnf(ctx, "DingTalk sync: bind %s to user %s failed: %v", du.UserID, user.ID, err)
-		return false
+		return false, fmt.Errorf("bind user %s: %w", user.ID, err)
 	}
 	logger.Infof(ctx, "DingTalk sync: bound ding user %s to local user %s by email", du.UserID, user.ID)
-	return true
+	return true, nil
 }
 
 // reconcileDeparted 第二遍对账：本地活跃绑定与远端求差集 = 疑似离职，逐个禁用。
 // 返回 (禁用数, 对账异常)。半量保护触发 / ListActiveBindings 失败时返回 error，
-// 由调用方记入 run.error_message。
+// 由调用方标记失败、记录 run.error_message 并交给调度器补跑。
 func (s *SyncService) reconcileDeparted(ctx context.Context, remote map[string]*DeptUserDetail) (int, error) {
-	bindings, err := s.repo.ListActiveBindings(ctx)
+	bindings, err := s.repo.ListActiveBindings(ctx, s.corpID)
 	if err != nil {
 		return 0, fmt.Errorf("list active bindings: %w", err)
 	}
@@ -426,6 +459,7 @@ func (s *SyncService) reconcileDeparted(ctx context.Context, remote map[string]*
 	}
 
 	deactivated := 0
+	var failures []error
 	for _, b := range reconcilable {
 		if _, ok := remote[b.DingUserID]; ok {
 			continue
@@ -439,11 +473,12 @@ func (s *SyncService) reconcileDeparted(ctx context.Context, remote map[string]*
 		}
 		if err := s.deactivateUser(ctx, b.UserID); err != nil {
 			logger.Warnf(ctx, "DingTalk sync: deactivate user %s failed: %v", b.UserID, err)
+			failures = append(failures, err)
 			continue
 		}
 		deactivated++
 	}
-	return deactivated, nil
+	return deactivated, errors.Join(failures...)
 }
 
 // deactivateUser 禁用本地账号并撤销其全部令牌。令牌撤销失败不掩盖禁用结果
@@ -456,8 +491,9 @@ func (s *SyncService) deactivateUser(ctx context.Context, userID string) error {
 	if user == nil || !user.IsActive {
 		return nil
 	}
-	user.IsActive = false
-	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+	changed := *user
+	changed.IsActive = false
+	if err := s.userRepo.UpdateUser(ctx, &changed); err != nil {
 		return fmt.Errorf("update user %s: %w", userID, err)
 	}
 	if s.tokenRevoker != nil {

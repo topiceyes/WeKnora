@@ -47,7 +47,8 @@ func (m *mockContactClient) ListDeptUsers(_ context.Context, deptID, cursor, siz
 // mockUserRepo 内存 UserRepo。ListActiveBindings 读的是 sqlite users 表，
 // 所以测试需要同时 seed sqlite 与这里的 map（保持 is_active 初始一致）。
 type mockUserRepo struct {
-	users map[string]*types.User
+	users     map[string]*types.User
+	updateErr error
 	// usernameTaken 非空时优先调用，模拟「任意用户名都已被占用」等查重场景。
 	usernameTaken func(username string) bool
 }
@@ -86,6 +87,9 @@ func (m *mockUserRepo) GetUserByEmail(_ context.Context, email string) (*types.U
 }
 
 func (m *mockUserRepo) UpdateUser(_ context.Context, user *types.User) error {
+	if m.updateErr != nil {
+		return m.updateErr
+	}
 	if _, ok := m.users[user.ID]; !ok {
 		return errors.New("user not found")
 	}
@@ -297,8 +301,8 @@ func TestSyncHalfVolumeProtection(t *testing.T) {
 	bind(t, repo, "ding-3", "u-3", "丙")
 
 	run, err := svc.RunFullSync(context.Background(), SyncTriggerCron)
-	if err != nil {
-		t.Fatalf("RunFullSync: %v", err)
+	if err == nil || run.Status != SyncStatusFailed {
+		t.Fatalf("half-volume protection must fail the run for retry: run=%+v err=%v", run, err)
 	}
 	if run.DeactivatedCount != 0 {
 		t.Fatalf("half-volume protection should skip all deactivations, got %d", run.DeactivatedCount)

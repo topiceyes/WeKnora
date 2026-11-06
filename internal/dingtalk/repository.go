@@ -3,6 +3,7 @@ package dingtalk
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -126,14 +127,19 @@ type ActiveBinding struct {
 	UserAccessAll     bool `gorm:"column:user_can_access_all_tenants"`
 }
 
-// ListActiveBindings 返回所有已绑定且本地账号仍激活的记录（join users）。
-func (r *Repository) ListActiveBindings(ctx context.Context) ([]*ActiveBinding, error) {
+// ListActiveBindings returns only active local accounts bound to this corp.
+// A blank corp must never turn a scoped offboarding pass into a global scan.
+func (r *Repository) ListActiveBindings(ctx context.Context, corpID string) ([]*ActiveBinding, error) {
+	corpID = strings.TrimSpace(corpID)
+	if corpID == "" {
+		return nil, errors.New("dingtalk reconciliation requires corp ID")
+	}
 	var out []*ActiveBinding
 	err := r.db.WithContext(ctx).
 		Table("user_dingtalk_identities AS i").
 		Select("i.*, u.is_active AS user_is_active, u.is_system_admin AS user_is_system_admin, u.can_access_all_tenants AS user_can_access_all_tenants").
 		Joins("JOIN users u ON u.id = i.user_id").
-		Where("i.deleted_at IS NULL AND u.deleted_at IS NULL").
+		Where("i.corp_id = ? AND u.is_active = ? AND i.deleted_at IS NULL AND u.deleted_at IS NULL", corpID, true).
 		Scan(&out).Error
 	return out, err
 }
