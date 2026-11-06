@@ -1061,7 +1061,11 @@ async function handleSave() {
         locale: formData.value.locale,
         session_mode: formData.value.session_mode,
         knowledge_base_id: normalizeOptionalString(formData.value.knowledge_base_id),
-        credentials: formData.value.credentials,
+        // The list response omits secrets. An untouched form must not replace
+        // stored credentials with the empty object it was initialized with.
+        ...(Object.keys(formData.value.credentials).length > 0
+          ? { credentials: formData.value.credentials }
+          : {}),
         enabled: editingEnabled.value,
         ...(formData.value.target_agent_id ? { agent_id: formData.value.target_agent_id } : {}),
       });

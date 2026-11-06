@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
@@ -265,7 +266,12 @@ func (h *IMHandler) UpdateIMChannel(c *gin.Context) {
 		}
 	}
 	if req.Credentials != nil {
-		channel.Credentials = req.Credentials
+		credentials, err := updatedIMCredentials(channel.Credentials, req.Credentials)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "credentials must be an object"})
+			return
+		}
+		channel.Credentials = credentials
 	}
 	if req.Enabled != nil {
 		channel.Enabled = *req.Enabled
@@ -292,6 +298,23 @@ func (h *IMHandler) UpdateIMChannel(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": channel})
+}
+
+// Lists hide credentials, so older clients can submit {} after editing only
+// the channel name or agent. Treat that as unchanged rather than disconnecting
+// a working bot. Explicit non-empty objects still replace the credentials.
+func updatedIMCredentials(existing, incoming types.JSON) (types.JSON, error) {
+	if incoming == nil {
+		return existing, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(incoming, &fields); err != nil {
+		return nil, err
+	}
+	if len(fields) == 0 {
+		return existing, nil
+	}
+	return incoming, nil
 }
 
 func normalizeIMLocale(locale string) (string, error) {

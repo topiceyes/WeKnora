@@ -355,7 +355,10 @@ export interface IMChannel {
   locale?: '' | 'zh-CN' | 'zh-TW' | 'en-US' | 'ko-KR' | 'ja-JP' | 'ru-RU';
   session_mode?: 'user' | 'thread';
   knowledge_base_id?: string;
-  credentials: Record<string, any>;
+  // List endpoints return summaries without secrets. Only create/update
+  // responses include credentials.
+  credentials?: Record<string, any>;
+  credentials_configured?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -364,8 +367,8 @@ export function listIMChannels(agentId: string) {
   return get<{ data: IMChannel[] }>(`/api/v1/agents/${agentId}/im-channels`);
 }
 
-// Tenant-wide overview row. Credentials are intentionally omitted — use
-// listIMChannels(agentId) when you need to edit a specific channel.
+// Both tenant-wide and agent-scoped lists intentionally omit credentials.
+// An edit must omit unchanged credentials to preserve the stored values.
 export interface IMChannelOverview {
   id: string;
   tenant_id: number;
