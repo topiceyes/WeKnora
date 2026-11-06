@@ -25,6 +25,8 @@ import (
 
 // DataSourceService implements the DataSourceService interface
 type DataSourceService struct {
+	knowledgeMutationGuard
+
 	dsRepo            interfaces.DataSourceRepository
 	syncLogRepo       interfaces.SyncLogRepository
 	knowledgeService  interfaces.KnowledgeService
@@ -66,6 +68,12 @@ func NewDataSourceService(
 
 // CreateDataSource creates a new data source configuration
 func (s *DataSourceService) CreateDataSource(ctx context.Context, ds *types.DataSource) (*types.DataSource, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, ds)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if ds == nil {
 		return nil, datasource.ErrDataSourceInvalid
 	}
@@ -149,6 +157,12 @@ func (s *DataSourceService) ListDataSources(ctx context.Context, kbID string) ([
 
 // UpdateDataSource updates an existing data source
 func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.DataSource) (*types.DataSource, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, ds)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	return s.updateDataSource(ctx, ds, nil, nil)
 }
 
@@ -156,6 +170,12 @@ func (s *DataSourceService) UpdateDataSource(ctx context.Context, ds *types.Data
 func (s *DataSourceService) PatchDataSourceSyncSettings(
 	ctx context.Context, before, after *types.DataSource, fields []string,
 ) (*types.DataSource, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, after)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if before == nil || after == nil || before.ID != after.ID || len(fields) == 0 {
 		return nil, datasource.ErrDataSourceInvalid
 	}
@@ -275,6 +295,12 @@ func (s *DataSourceService) updateDataSource(
 func (s *DataSourceService) UpdateDataSourceCredentials(
 	ctx context.Context, id string, credentials map[string]interface{},
 ) (*types.DataSource, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		return nil, datasource.ErrDataSourceInvalid
 	}
@@ -316,6 +342,12 @@ func (s *DataSourceService) UpdateDataSourceCredentials(
 // ClearDataSourceCredentials wipes the connector credential map without
 // touching any other config field. Idempotent.
 func (s *DataSourceService) ClearDataSourceCredentials(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		return datasource.ErrDataSourceInvalid
 	}
@@ -357,6 +389,12 @@ func (s *DataSourceService) ClearDataSourceCredentials(ctx context.Context, id s
 
 // DeleteDataSource deletes a data source (soft delete)
 func (s *DataSourceService) DeleteDataSource(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	// Verify data source exists
 	existing, err := s.dsRepo.FindByID(ctx, id)
 	if err != nil {
@@ -385,6 +423,11 @@ func (s *DataSourceService) DeleteDataSource(ctx context.Context, id string) err
 
 // ValidateConnection tests the connection to an external data source
 func (s *DataSourceService) ValidateConnection(ctx context.Context, dsID string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
 	ds, err := s.GetDataSource(ctx, dsID)
 	if err != nil {
 		return err
@@ -489,6 +532,12 @@ func (s *DataSourceService) ResolveResourceAncestors(
 
 // ManualSync triggers an immediate sync for a data source
 func (s *DataSourceService) ManualSync(ctx context.Context, dsID string) (*types.SyncLog, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	ds, err := s.GetDataSource(ctx, dsID)
 	if err != nil {
 		return nil, err
@@ -558,6 +607,12 @@ func (s *DataSourceService) ManualSync(ctx context.Context, dsID string) (*types
 
 // PauseDataSource pauses a data source's scheduled syncs
 func (s *DataSourceService) PauseDataSource(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	ds, err := s.GetDataSource(ctx, id)
 	if err != nil {
 		return err
@@ -580,6 +635,12 @@ func (s *DataSourceService) PauseDataSource(ctx context.Context, id string) erro
 
 // ResumeDataSource resumes a paused data source
 func (s *DataSourceService) ResumeDataSource(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	ds, err := s.GetDataSource(ctx, id)
 	if err != nil {
 		return err
@@ -626,6 +687,15 @@ func (s *DataSourceService) GetSyncLog(ctx context.Context, syncLogID string) (*
 
 // ProcessSync handles the actual sync operation (called by asynq task)
 func (s *DataSourceService) ProcessSync(ctx context.Context, task *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, task)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.DataSourceSyncPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
 		logger.Errorf(ctx, "failed to unmarshal sync payload: %v", err)

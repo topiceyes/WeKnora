@@ -48,6 +48,8 @@ var (
 // knowledgeService implements the knowledge service interface
 // service 实现知识服务接口
 type knowledgeService struct {
+	knowledgeMutationGuard
+
 	config          *config.Config
 	retrieveEngine  interfaces.RetrieveEngineRegistry
 	ownership       retriever.TenantStoreOwnership
@@ -735,6 +737,12 @@ func (s *knowledgeService) ListKnowledgeTree(ctx context.Context,
 func (s *knowledgeService) MoveKnowledgeToFolder(ctx context.Context,
 	kbID string, ids []string, folderPath string,
 ) (int64, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return 0, mutationErr
+	}
+	defer finishMutation()
+
 	if len(ids) == 0 {
 		return 0, werrors.NewBadRequestError("knowledge_ids cannot be empty")
 	}
@@ -769,6 +777,12 @@ func (s *knowledgeService) MoveKnowledgeToFolder(ctx context.Context,
 func (s *knowledgeService) RenameKnowledgeFolder(ctx context.Context,
 	kbID string, from string, to string,
 ) (int64, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return 0, mutationErr
+	}
+	defer finishMutation()
+
 	source := types.NormalizeKnowledgeFolderPath(from)
 	if source == "" {
 		return 0, werrors.NewBadRequestError("源文件夹路径不能为空")
@@ -861,6 +875,12 @@ func (s *knowledgeService) GetKnowledgeFile(ctx context.Context, id string) (io.
 }
 
 func (s *knowledgeService) UpdateKnowledge(ctx context.Context, knowledge *types.Knowledge) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if knowledge == nil {
 		return werrors.NewBadRequestError("knowledge cannot be nil")
 	}
@@ -985,6 +1005,12 @@ func (s *knowledgeService) GetKnowledgeBatchWithSharedAccess(ctx context.Context
 
 // SetKnowledgeTags replaces all tags for a single knowledge entry.
 func (s *knowledgeService) SetKnowledgeTags(ctx context.Context, knowledgeID string, tagIDs []string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	return s.UpdateKnowledgeTag(ctx, knowledgeID, tagIDs)
 }
 
@@ -1084,6 +1110,12 @@ func (s *knowledgeService) GetKnowledgeTags(ctx context.Context, knowledgeIDs []
 
 // UpdateKnowledgeTag updates the tags assigned to a knowledge document.
 func (s *knowledgeService) UpdateKnowledgeTag(ctx context.Context, knowledgeID string, tagIDs []string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	knowledge, _, err := loadKnowledgeWrite(ctx, s.repo, s.kbService, knowledgeID)
 	if err != nil {
 		return err
@@ -1106,6 +1138,12 @@ func (s *knowledgeService) UpdateKnowledgeTagBatch(
 	authorizedKBID string,
 	updates map[string][]string,
 ) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if len(updates) == 0 {
 		return nil
 	}

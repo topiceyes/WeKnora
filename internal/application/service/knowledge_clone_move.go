@@ -232,6 +232,12 @@ func cleanupCopiedObjects(ctx context.Context, svc interfaces.FileService, paths
 }
 
 func (s *knowledgeService) CloneKnowledgeBase(ctx context.Context, srcID, dstID string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	source, target, err := s.kbService.CopyKnowledgeBase(ctx, srcID, dstID)
 	if err != nil {
 		return err
@@ -265,6 +271,12 @@ func (s *knowledgeService) CloneKnowledgeBase(ctx context.Context, srcID, dstID 
 // It also ensures that the chunk's relationships (like pre and next chunk IDs) are maintained
 // by mapping the source chunk IDs to the new target chunk IDs.
 func (s *knowledgeService) CloneChunk(ctx context.Context, src, dst *types.Knowledge) (err error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	sourceKB, err := knowledgeWriteKB(ctx, s.kbService, src)
 	if err != nil {
 		return err
@@ -479,6 +491,15 @@ func getKBCloneProgressKey(taskID string) string {
 
 // ProcessKBClone handles Asynq knowledge base clone tasks
 func (s *knowledgeService) ProcessKBClone(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KBClonePayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return fmt.Errorf("failed to unmarshal KB clone payload: %w", err)
@@ -1096,6 +1117,15 @@ func (s *knowledgeService) GetKnowledgeMoveProgress(ctx context.Context, taskID 
 
 // ProcessKnowledgeMove handles Asynq knowledge move tasks
 func (s *knowledgeService) ProcessKnowledgeMove(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KnowledgeMovePayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		return fmt.Errorf("invalid move payload: %v: %w", err, asynq.SkipRetry)

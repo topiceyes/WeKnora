@@ -102,6 +102,12 @@ type KnowledgeBaseTaskCanceller interface {
 	) (deleted int, cancelled int, err error)
 }
 
+// KnowledgeBaseTaskProbe is the read-only, fail-closed transfer preflight.
+// Unlike cancellation, cleanup tasks also block a workspace move.
+type KnowledgeBaseTaskProbe interface {
+	HasQueuedTasksForKnowledgeBase(ctx context.Context, kbID string, knowledgeIDs, dataSourceIDs []string) (bool, error)
+}
+
 // RuntimeTaskInspector is the optional operator surface implemented by queue
 // backends that retain inspectable task state. It is separate from
 // TaskInspector so Lite mode and light-weight tests do not need to implement

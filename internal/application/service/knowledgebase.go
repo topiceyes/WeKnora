@@ -32,6 +32,8 @@ const kbTaskCleanupTimeout = 5 * time.Second
 
 // knowledgeBaseService implements the knowledge base service interface
 type knowledgeBaseService struct {
+	knowledgeMutationGuard
+
 	repo            interfaces.KnowledgeBaseRepository
 	kgRepo          interfaces.KnowledgeRepository
 	chunkRepo       interfaces.ChunkRepository
@@ -133,6 +135,12 @@ func (s *knowledgeBaseService) GetRepository() interfaces.KnowledgeBaseRepositor
 func (s *knowledgeBaseService) CreateKnowledgeBase(ctx context.Context,
 	kb *types.KnowledgeBase,
 ) (*types.KnowledgeBase, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	// Generate UUID and set creation timestamps
 	if kb.ID == "" {
 		kb.ID = uuid.New().String()
@@ -586,6 +594,12 @@ func (s *knowledgeBaseService) UpdateKnowledgeBase(ctx context.Context,
 	config *types.KnowledgeBaseConfig,
 	vlmConfig *types.VLMConfig,
 ) (*types.KnowledgeBase, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		logger.Error(ctx, "Knowledge base ID is empty")
 		return nil, errors.New("knowledge base ID cannot be empty")
@@ -835,6 +849,11 @@ func (s *knowledgeBaseService) requireModelType(
 func (s *knowledgeBaseService) TogglePinKnowledgeBase(
 	ctx context.Context, id string,
 ) (*types.KnowledgeBase, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
 	if id == "" {
 		return nil, errors.New("knowledge base ID cannot be empty")
 	}
@@ -945,6 +964,12 @@ func (s *knowledgeBaseService) applyUserKBPins(
 // This method marks the knowledge base as deleted and enqueues an async task
 // to handle the heavy cleanup operations (embeddings, chunks, files, graph data)
 func (s *knowledgeBaseService) DeleteKnowledgeBase(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		logger.Error(ctx, "Knowledge base ID is empty")
 		return errors.New("knowledge base ID cannot be empty")
@@ -1053,6 +1078,15 @@ func (s *knowledgeBaseService) DeleteKnowledgeBase(ctx context.Context, id strin
 // ProcessKBDelete handles async knowledge base deletion task
 // This method performs heavy cleanup operations: deleting embeddings, chunks, files, and graph data
 func (s *knowledgeBaseService) ProcessKBDelete(ctx context.Context, t *asynq.Task) (err error) {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KBDeletePayload
 	if unmarshalErr := json.Unmarshal(t.Payload(), &payload); unmarshalErr != nil {
 		logger.Errorf(ctx, "Failed to unmarshal KB delete payload: %v", unmarshalErr)
@@ -1351,6 +1385,12 @@ func (s *knowledgeBaseService) deleteDataSourcesForKnowledgeBase(ctx context.Con
 
 // SetEmbeddingModel sets the embedding model for a knowledge base
 func (s *knowledgeBaseService) SetEmbeddingModel(ctx context.Context, id string, modelID string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		logger.Error(ctx, "Knowledge base ID is empty")
 		return errors.New("knowledge base ID cannot be empty")
@@ -1404,6 +1444,12 @@ func (s *knowledgeBaseService) SetEmbeddingModel(ctx context.Context, id string,
 func (s *knowledgeBaseService) CopyKnowledgeBase(ctx context.Context,
 	srcKB string, dstKB string,
 ) (*types.KnowledgeBase, *types.KnowledgeBase, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, nil, mutationErr
+	}
+	defer finishMutation()
+
 	destinationID, create, creatorID, err := access.CloneDestination(ctx, srcKB)
 	if err != nil {
 		return nil, nil, err
@@ -1502,6 +1548,12 @@ func (s *knowledgeBaseService) DuplicateKnowledgeBase(
 	ctx context.Context,
 	srcKB string,
 ) (*types.KnowledgeBase, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	srcKB = strings.TrimSpace(srcKB)
 	if srcKB == "" {
 		return nil, apperrors.NewBadRequestError("source knowledge base ID cannot be empty")

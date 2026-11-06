@@ -170,6 +170,12 @@ func deleteExtractedImages(
 
 // DeleteKnowledge deletes a knowledge entry and all related resources
 func (s *knowledgeService) DeleteKnowledge(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	plan, err := s.planKnowledgeDelete(ctx, []string{id})
 	if err != nil {
 		return err
@@ -465,6 +471,12 @@ func buildKnowledgeVectorDeleteGroups(
 
 // DeleteKnowledgeList deletes a knowledge entry and all related resources
 func (s *knowledgeService) DeleteKnowledgeList(ctx context.Context, ids []string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	plan, err := s.planKnowledgeDelete(ctx, ids)
 	if err != nil {
 		return err
@@ -770,6 +782,15 @@ func (s *knowledgeService) cleanupKnowledgeResources(ctx context.Context, knowle
 
 // ProcessKnowledgeListDelete handles Asynq knowledge list delete tasks
 func (s *knowledgeService) ProcessKnowledgeListDelete(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KnowledgeListDeletePayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		logger.Errorf(ctx, "Failed to unmarshal knowledge list delete payload: %v", err)

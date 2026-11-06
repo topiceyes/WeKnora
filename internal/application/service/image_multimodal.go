@@ -81,6 +81,8 @@ func buildVLMOCRPrompt(sourceType string, _ types.VLMConfig) string {
 // It reads images from storage (via FileService for provider:// URLs),
 // performs OCR and VLM caption, and creates child chunks.
 type ImageMultimodalService struct {
+	knowledgeMutationGuard
+
 	chunkService   interfaces.ChunkService
 	modelService   interfaces.ModelService
 	kbService      interfaces.KnowledgeBaseService
@@ -153,6 +155,15 @@ func (s *ImageMultimodalService) tracker() SpanTracker {
 
 // Handle implements asynq handler for TypeImageMultimodal.
 func (s *ImageMultimodalService) Handle(ctx context.Context, task *asynq.Task) (retErr error) {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, task)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.ImageMultimodalPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
 		return fmt.Errorf("unmarshal image multimodal payload: %w", err)

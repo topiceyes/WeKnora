@@ -28,6 +28,8 @@ var ErrChunkRevisionConflict = repository.ErrChunkRevisionConflict
 // It provides operations for managing document chunks in the knowledge base
 // Chunks are segments of documents that have been processed and prepared for indexing
 type chunkService struct {
+	knowledgeMutationGuard
+
 	chunkRepository interfaces.ChunkRepository // Repository for chunk data persistence
 	knowledgeRepo   interfaces.KnowledgeRepository
 	kbRepository    interfaces.KnowledgeBaseRepository
@@ -88,6 +90,12 @@ func (s *chunkService) GetRepository() interfaces.ChunkRepository {
 // Returns:
 //   - error: Any error encountered during chunk creation
 func (s *chunkService) CreateChunks(ctx context.Context, chunks []*types.Chunk) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if err := s.validateChunkWrites(ctx, chunks, true); err != nil {
 		return err
 	}
@@ -309,6 +317,12 @@ func resolveImageAssetSourceNames(
 //
 // This method handles the actual update logic for a chunk, including updating the vector database representation
 func (s *chunkService) UpdateChunk(ctx context.Context, chunk *types.Chunk) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if err := s.validateChunkWrites(ctx, []*types.Chunk{chunk}, false); err != nil {
 		return err
 	}
@@ -330,6 +344,12 @@ func (s *chunkService) UpdateChunk(ctx context.Context, chunk *types.Chunk) erro
 
 // UpdateChunks updates chunks in batch
 func (s *chunkService) UpdateChunks(ctx context.Context, chunks []*types.Chunk) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if err := s.validateChunkWrites(ctx, chunks, false); err != nil {
 		return err
 	}
@@ -360,6 +380,12 @@ func (s *chunkService) UpdateChunks(ctx context.Context, chunks []*types.Chunk) 
 // Returns:
 //   - error: Any error encountered during deletion
 func (s *chunkService) DeleteChunk(ctx context.Context, id string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if _, err := s.writableChunk(ctx, id); err != nil {
 		return err
 	}
@@ -384,6 +410,12 @@ func (s *chunkService) DeleteChunk(ctx context.Context, id string) error {
 // Returns:
 //   - error: Any error encountered during batch deletion
 func (s *chunkService) DeleteChunks(ctx context.Context, ids []string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if len(ids) == 0 {
 		return nil
 	}
@@ -420,6 +452,12 @@ func (s *chunkService) DeleteChunks(ctx context.Context, ids []string) error {
 // Returns:
 //   - error: Any error encountered during bulk deletion
 func (s *chunkService) DeleteChunksByKnowledgeID(ctx context.Context, knowledgeID string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if _, err := loadKnowledgeWriteBatch(ctx, s.knowledgeRepo, s.kbRepository, []string{knowledgeID}); err != nil {
 		return err
 	}
@@ -443,6 +481,12 @@ func (s *chunkService) DeleteChunksByKnowledgeID(ctx context.Context, knowledgeI
 }
 
 func (s *chunkService) DeleteByKnowledgeList(ctx context.Context, ids []string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if _, err := loadKnowledgeWriteBatch(ctx, s.knowledgeRepo, s.kbRepository, ids); err != nil {
 		return err
 	}
@@ -494,6 +538,12 @@ func (s *chunkService) ListChunkByParentID(
 func (s *chunkService) UpdateDocumentChunk(
 	ctx context.Context, chunkID string, content *string, isEnabled *bool, expectedRevision *int,
 ) (*types.Chunk, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	chunk, err := s.writableChunk(ctx, chunkID)
 	if err != nil {
 		return nil, err
@@ -683,6 +733,12 @@ func (s *chunkService) ListChunkRevisions(ctx context.Context, chunkID string) (
 func (s *chunkService) RevertDocumentChunk(
 	ctx context.Context, chunkID string, revision int, expectedRevision *int,
 ) (*types.Chunk, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	item, err := s.chunkRepository.GetChunkRevision(ctx, types.MustTenantIDFromContext(ctx), chunkID, revision)
 	if err != nil {
 		return nil, err
@@ -820,6 +876,12 @@ func (s *chunkService) syncChunkIndex(ctx context.Context, chunk *types.Chunk) e
 func (s *chunkService) UpsertGeneratedQuestion(
 	ctx context.Context, chunkID string, questionID string, question string,
 ) (*types.GeneratedQuestion, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return nil, fmt.Errorf("question cannot be empty")
@@ -875,6 +937,12 @@ func (s *chunkService) UpsertGeneratedQuestion(
 // DeleteGeneratedQuestion deletes a single generated question from a chunk by question ID
 // This updates the chunk metadata and removes the corresponding vector index
 func (s *chunkService) DeleteGeneratedQuestion(ctx context.Context, chunkID string, questionID string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	logger.Infof(ctx, "Deleting generated question, chunk ID: %s, question ID: %s", chunkID, questionID)
 
 	tenantID := types.MustTenantIDFromContext(ctx)

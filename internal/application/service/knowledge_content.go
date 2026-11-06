@@ -35,6 +35,12 @@ import (
 func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 	knowledgeID string, payload *types.KnowledgeContentPayload,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if payload == nil {
 		return nil, werrors.NewBadRequestError("请求内容不能为空")
 	}
@@ -143,6 +149,12 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 func (s *knowledgeService) RelearnKnowledge(ctx context.Context,
 	knowledgeID string,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	existing, kb, err := loadKnowledgeWrite(ctx, s.repo, s.kbService, knowledgeID)
 	if err != nil {
 		return nil, err
@@ -247,6 +259,11 @@ var contentImageExts = map[string]bool{
 func (s *knowledgeService) UploadContentImage(ctx context.Context,
 	kbID string, fileHeader *multipart.FileHeader,
 ) (string, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return "", mutationErr
+	}
+	defer finishMutation()
 	if fileHeader == nil {
 		return "", werrors.NewBadRequestError("请选择要上传的图片")
 	}

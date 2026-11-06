@@ -41,6 +41,12 @@ import (
 func (s *knowledgeService) ReplaceKnowledgeFile(ctx context.Context,
 	knowledgeID string, file *multipart.FileHeader, customFileName string, metadata map[string]string,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if file == nil {
 		return nil, werrors.NewBadRequestError("file is required")
 	}

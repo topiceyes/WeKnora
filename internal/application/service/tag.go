@@ -20,6 +20,8 @@ import (
 
 // knowledgeTagService implements KnowledgeTagService.
 type knowledgeTagService struct {
+	knowledgeMutationGuard
+
 	kbService      interfaces.KnowledgeBaseService
 	repo           interfaces.KnowledgeTagRepository
 	knowledgeRepo  interfaces.KnowledgeRepository
@@ -137,6 +139,12 @@ func (s *knowledgeTagService) CreateTag(
 	color string,
 	sortOrder int,
 ) (*types.KnowledgeTag, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	name = strings.TrimSpace(name)
 	if kbID == "" || name == "" {
 		return nil, werrors.NewBadRequestError("知识库ID和标签名称不能为空")
@@ -190,6 +198,12 @@ func (s *knowledgeTagService) UpdateTag(
 	color *string,
 	sortOrder *int,
 ) (*types.KnowledgeTag, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		return nil, werrors.NewBadRequestError("标签ID不能为空")
 	}
@@ -232,6 +246,12 @@ func (s *knowledgeTagService) UpdateTag(
 // For document-type knowledge bases, also deletes all knowledge files under this tag.
 // When contentOnly=true, only deletes the content under the tag but keeps the tag itself.
 func (s *knowledgeTagService) DeleteTag(ctx context.Context, id string, force bool, contentOnly bool, excludeIDs []string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if id == "" {
 		return werrors.NewBadRequestError("标签ID不能为空")
 	}
@@ -410,6 +430,15 @@ func (s *knowledgeTagService) enqueueIndexDeleteTask(ctx context.Context,
 
 // ProcessIndexDelete handles async index deletion task
 func (s *knowledgeTagService) ProcessIndexDelete(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.IndexDeletePayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		logger.Errorf(ctx, "Failed to unmarshal index delete payload: %v", err)
@@ -474,6 +503,12 @@ func (s *knowledgeTagService) ProcessIndexDelete(ctx context.Context, t *asynq.T
 
 // FindOrCreateTagByName finds a tag by name or creates it if not exists.
 func (s *knowledgeTagService) FindOrCreateTagByName(ctx context.Context, kbID string, name string) (*types.KnowledgeTag, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	name = strings.TrimSpace(name)
 	if kbID == "" || name == "" {
 		return nil, werrors.NewBadRequestError("知识库ID和标签名称不能为空")

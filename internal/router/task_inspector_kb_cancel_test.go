@@ -84,6 +84,38 @@ func TestMatchesKnowledgePreservesPerKnowledgeAllowList(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTransferQueueProbeIncludesQueuedAndCleanupWork(t *testing.T) {
+	for _, test := range []struct{ name, kind, payload string }{
+		{"faq", types.TypeFAQImport, `{"kb_id":"kb-1"}`},
+		{"batch", types.TypeKnowledgeListReparse, `{"knowledge_ids":["k-1"]}`},
+		{"source", types.TypeDataSourceSync, `{"data_source_id":"ds-1"}`},
+		{"clone source", types.TypeKBClone, `{"source_id":"kb-1"}`},
+		{"index cleanup", types.TypeIndexDelete, `{"knowledge_base_id":"kb-1"}`},
+		{"kb cleanup", types.TypeKBDelete, `{"knowledge_base_id":"kb-1"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+			queue := asynq.NewClientFromRedisClient(client)
+			inspector := &asynqTaskInspector{inspector: asynq.NewInspectorFromRedisClient(client), redis: client}
+			t.Cleanup(func() { _ = queue.Close(); _ = client.Close() })
+			queued, err := inspector.HasQueuedTasksForKnowledgeBase(context.Background(), "kb-1", []string{"k-1"}, []string{"ds-1"})
+			if err != nil || queued {
+				t.Fatalf("empty queue: %v %v", queued, err)
+			}
+			enqueueTask(t, queue, test.kind, test.payload, "task")
+			queued, err = inspector.HasQueuedTasksForKnowledgeBase(context.Background(), "kb-1", []string{"k-1"}, []string{"ds-1"})
+			if err != nil || !queued {
+				t.Fatalf("missed queued work: %v %v", queued, err)
+			}
+			queued, err = inspector.HasQueuedTasksForKnowledgeBase(context.Background(), "other", nil, nil)
+			if err != nil || queued {
+				t.Fatalf("unrelated queue blocked: %v %v", queued, err)
+			}
+		})
+	}
+}
+
 func TestCancelTasksForKnowledgeBaseRescansMutatedPages(t *testing.T) {
 	server := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: server.Addr()})

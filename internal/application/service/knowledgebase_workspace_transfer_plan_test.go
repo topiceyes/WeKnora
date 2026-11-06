@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/kbmutation"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/stretchr/testify/assert"
@@ -179,6 +180,7 @@ func TestBuildKnowledgeBaseWorkspaceTransferPlanSameTenant(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, plan.MovesWorkspace)
 	assert.Empty(t, plan.Blockers)
+	require.NoError(t, ConfigureKBMutationCoordination(&kbmutation.Coordinator{BaseDir: kbWorkspaceTransferBaseDir()}, db, svc))
 
 	_, err = svc.TransferKnowledgeBaseWorkspace(
 		transferTestCtx("creator", types.TenantRoleContributor, 10000), kb.ID, "member")

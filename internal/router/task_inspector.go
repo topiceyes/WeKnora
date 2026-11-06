@@ -159,6 +159,54 @@ func (a *asynqTaskInspector) CancelTasksForKnowledgeBase(
 	return deleted, cancelled, nil
 }
 
+func (a *asynqTaskInspector) HasQueuedTasksForKnowledgeBase(
+	ctx context.Context, kbID string, knowledgeIDs, dataSourceIDs []string,
+) (bool, error) {
+	if a == nil || a.inspector == nil {
+		return false, nil
+	}
+	kids, sources := make(map[string]struct{}), make(map[string]struct{})
+	for _, id := range knowledgeIDs {
+		kids[id] = struct{}{}
+	}
+	for _, id := range dataSourceIDs {
+		sources[id] = struct{}{}
+	}
+	for _, queue := range queuesScanned {
+		for _, state := range a.cancellableTaskStates() {
+			for page := 1; ; page++ {
+				if err := ctx.Err(); err != nil {
+					return false, err
+				}
+				tasks, err := state.list(queue, asynq.PageSize(listPageSize), asynq.Page(page))
+				if err != nil {
+					if isAsynqQueueNotFound(err) {
+						break
+					}
+					return false, fmt.Errorf("inspect transfer work in %s/%s: %w", queue, state.name, err)
+				}
+				for _, task := range tasks {
+					// The deletion matcher intentionally excludes these tasks;
+					// transfer must wait for them rather than abandoning cleanup.
+					if task.Type == types.TypeKBDelete || task.Type == types.TypeIndexDelete {
+						var p runtimeTaskPayloadProbe
+						if json.Unmarshal(task.Payload, &p) == nil && p.KnowledgeBaseID == kbID {
+							return true, nil
+						}
+					}
+					if matchesKnowledgeBase(task.Type, task.Payload, kbID, kids, sources) {
+						return true, nil
+					}
+				}
+				if len(tasks) < listPageSize {
+					break
+				}
+			}
+		}
+	}
+	return false, nil
+}
+
 // matchesKnowledgeListDelete identifies a knowledge:list_delete task whose
 // batch payload covers knowledgeID. Delete tasks carry knowledge_ids (plural)
 // and are deliberately outside taskTypesForKnowledgeCancel, so they need
@@ -1142,6 +1190,10 @@ func matchesKnowledgeBase(
 // they start; the checkpoint-based abort in worker code is the only
 // stop signal in that mode.
 type noopTaskInspector struct{}
+
+func (noopTaskInspector) HasQueuedTasksForKnowledgeBase(context.Context, string, []string, []string) (bool, error) {
+	return false, nil
+}
 
 // NewNoopTaskInspector returns a no-op TaskInspector for Lite mode.
 func NewNoopTaskInspector() interfaces.TaskInspector { return noopTaskInspector{} }

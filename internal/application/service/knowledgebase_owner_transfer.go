@@ -55,6 +55,12 @@ var (
 func (s *knowledgeBaseService) TransferKnowledgeBaseOwnership(
 	ctx context.Context, kbID, newOwnerUserID string,
 ) (*types.KnowledgeBase, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	kbID = strings.TrimSpace(kbID)
 	newOwnerUserID = strings.TrimSpace(newOwnerUserID)
 	if kbID == "" {

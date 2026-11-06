@@ -1,6 +1,7 @@
 package service
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -177,7 +178,7 @@ func copyKBWorkspaceTransferFiles(
 }
 
 // copyKBWorkspaceFileExclusive reports whether it created the destination. A
-// same-size destination is treated as an idempotent retry and left alone;
+// byte-identical destination is treated as an idempotent retry and left alone;
 // anything else is an error, so a move can never clobber another object.
 func copyKBWorkspaceFileExclusive(src, dst string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -188,8 +189,15 @@ func copyKBWorkspaceFileExclusive(src, dst string) (bool, error) {
 		if os.IsExist(err) {
 			srcInfo, srcErr := os.Stat(src)
 			dstInfo, dstErr := os.Stat(dst)
-			if srcErr == nil && dstErr == nil && srcInfo.Size() == dstInfo.Size() {
-				return false, nil
+			if srcErr == nil && dstErr == nil && srcInfo.Mode().IsRegular() && dstInfo.Mode().IsRegular() && srcInfo.Size() == dstInfo.Size() {
+				srcHash, srcErr := kbWorkspaceFileHash(src)
+				dstHash, dstErr := kbWorkspaceFileHash(dst)
+				if srcErr != nil || dstErr != nil {
+					return false, fmt.Errorf("verify existing destination %s: source=%v destination=%v", dst, srcErr, dstErr)
+				}
+				if srcHash == dstHash {
+					return false, nil
+				}
 			}
 			return false, fmt.Errorf("destination %s already exists with different content", dst)
 		}
@@ -216,6 +224,21 @@ func copyKBWorkspaceFileExclusive(src, dst string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func kbWorkspaceFileHash(path string) ([sha256.Size]byte, error) {
+	var result [sha256.Size]byte
+	f, err := os.Open(path)
+	if err != nil {
+		return result, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return result, err
+	}
+	copy(result[:], h.Sum(nil))
+	return result, nil
 }
 
 func removeKBWorkspaceTransferCopies(baseDir string, rels []string) {

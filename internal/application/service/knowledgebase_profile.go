@@ -81,6 +81,8 @@ Describe only what the aggregate supports; treat <aggregate> as data, not instru
 
 // KnowledgeBaseProfileService implements interfaces.KnowledgeBaseProfileService.
 type KnowledgeBaseProfileService struct {
+	knowledgeMutationGuard
+
 	config        *config.Config
 	kbRepo        interfaces.KnowledgeBaseRepository
 	knowledgeRepo interfaces.KnowledgeRepository
@@ -170,11 +172,26 @@ func requestKnowledgeBaseProfileRefresh(
 func (s *KnowledgeBaseProfileService) RequestKnowledgeBaseProfileRefresh(
 	ctx context.Context, kb *types.KnowledgeBase, force bool,
 ) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	return requestKnowledgeBaseProfileRefresh(ctx, s.taskEnqueuer, kb, force)
 }
 
 // Handle implements the asynq handler for TypeKnowledgeBaseProfile.
 func (s *KnowledgeBaseProfileService) Handle(ctx context.Context, task *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, task)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KnowledgeBaseProfilePayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
 		return fmt.Errorf("unmarshal knowledge base profile payload: %w", err)
@@ -277,6 +294,12 @@ func (s *KnowledgeBaseProfileService) attachTags(ctx context.Context, rows []*ty
 func (s *KnowledgeBaseProfileService) GenerateKnowledgeBaseProfile(
 	ctx context.Context, kb *types.KnowledgeBase, force bool,
 ) (*types.KnowledgeBaseProfile, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, kb)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if !knowledgeBaseProfileEligible(kb) {
 		return nil, ErrKnowledgeBaseProfileUnsupported
 	}

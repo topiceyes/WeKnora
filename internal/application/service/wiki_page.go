@@ -45,6 +45,8 @@ func stripWikiPageInlineChunkCitations(page *types.WikiPage) {
 
 // wikiPageService implements the WikiPageService interface
 type wikiPageService struct {
+	knowledgeMutationGuard
+
 	repo            interfaces.WikiPageRepository
 	chunkRepo       interfaces.ChunkRepository
 	kbService       interfaces.KnowledgeBaseService
@@ -76,6 +78,12 @@ func NewWikiPageService(
 
 // CreatePage creates a new wiki page
 func (s *wikiPageService) CreatePage(ctx context.Context, page *types.WikiPage) (*types.WikiPage, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, page)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if page.ID == "" {
 		page.ID = uuid.New().String()
 	}
@@ -127,6 +135,12 @@ func (s *wikiPageService) CreatePage(ctx context.Context, page *types.WikiPage) 
 // nothing, etc.) still persist through `UpdateMeta` but leave `version`
 // untouched so consumers can treat a bump as a real edit signal.
 func (s *wikiPageService) UpdatePage(ctx context.Context, page *types.WikiPage) (*types.WikiPage, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, page)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	existing, err := s.repo.GetBySlug(ctx, page.KnowledgeBaseID, page.Slug)
 	if err != nil {
 		return nil, fmt.Errorf("get existing page: %w", err)
@@ -292,6 +306,12 @@ func (s *wikiPageService) UpdatePage(ctx context.Context, page *types.WikiPage) 
 
 // UpdatePageMeta updates only metadata (status, source_refs) without version bump or link re-parse.
 func (s *wikiPageService) UpdatePageMeta(ctx context.Context, page *types.WikiPage) error {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, page)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	normalizeWikiHierarchy(page)
 	page.UpdatedAt = time.Now()
 	return s.repo.UpdateMeta(ctx, page)
@@ -303,6 +323,12 @@ func (s *wikiPageService) UpdatePageMeta(ctx context.Context, page *types.WikiPa
 // in-link references on target pages are refreshed so link navigation stays
 // consistent — only the user-facing revision counter is preserved.
 func (s *wikiPageService) UpdateAutoLinkedContent(ctx context.Context, page *types.WikiPage) error {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, page)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	existing, err := s.repo.GetBySlug(ctx, page.KnowledgeBaseID, page.Slug)
 	if err != nil {
 		return fmt.Errorf("get existing page: %w", err)
@@ -412,6 +438,12 @@ func (s *wikiPageService) GetRevision(
 func (s *wikiPageService) RevertPageToVersion(
 	ctx context.Context, kbID string, slug string, version int,
 ) (*types.WikiPage, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	page, err := s.repo.GetBySlug(ctx, kbID, slug)
 	if err != nil {
 		return nil, err
@@ -490,6 +522,12 @@ func (s *wikiPageService) ListPages(ctx context.Context, req *types.WikiPageList
 
 // DeletePage soft-deletes a wiki page
 func (s *wikiPageService) DeletePage(ctx context.Context, kbID string, slug string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	page, err := s.repo.GetBySlug(ctx, kbID, slug)
 	if err != nil {
 		return err
@@ -518,6 +556,12 @@ func (s *wikiPageService) DeletePage(ctx context.Context, kbID string, slug stri
 
 // GetIndex returns the index page for a knowledge base
 func (s *wikiPageService) GetIndex(ctx context.Context, kbID string) (*types.WikiPage, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	page, err := s.repo.GetBySlug(ctx, kbID, "index")
 	if err != nil {
 		if errors.Is(err, repository.ErrWikiPageNotFound) {
@@ -564,6 +608,12 @@ func (s *wikiPageService) GetIndexView(
 	limit int,
 	cursor string,
 ) (*types.WikiIndexResponse, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	indexPage, err := s.GetIndex(ctx, kbID)
 	if err != nil {
 		return nil, fmt.Errorf("load index page: %w", err)
@@ -1102,6 +1152,12 @@ func (s *wikiPageService) GetStats(ctx context.Context, kbID string) (*types.Wik
 
 // RebuildLinks re-parses all pages and rebuilds bidirectional link references
 func (s *wikiPageService) RebuildLinks(ctx context.Context, kbID string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	pages, err := s.repo.ListAll(ctx, kbID)
 	if err != nil {
 		return err
@@ -1687,6 +1743,12 @@ func removeString(slice []string, s string) types.StringArray {
 
 // CreateIssue logs a new issue for a wiki page
 func (s *wikiPageService) CreateIssue(ctx context.Context, issue *types.WikiPageIssue) (*types.WikiPageIssue, error) {
+	ctx, finishMutation, mutationErr := s.beginObjectMutation(ctx, issue)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if issue.ID == "" {
 		issue.ID = uuid.New().String()
 	}
@@ -1703,6 +1765,12 @@ func (s *wikiPageService) ListIssues(ctx context.Context, kbID string, slug stri
 
 // UpdateIssueStatus updates an issue's status
 func (s *wikiPageService) UpdateIssueStatus(ctx context.Context, kbID string, issueID string, status string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	return s.repo.UpdateIssueStatus(ctx, kbID, issueID, status)
 }
 
@@ -1841,6 +1909,12 @@ func validateFolderName(name string) (string, error) {
 func (s *wikiPageService) CreateFolder(
 	ctx context.Context, kbID string, tenantID uint64, parentID string, name string,
 ) (*types.WikiFolder, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	name, err := validateFolderName(name)
 	if err != nil {
 		return nil, err
@@ -1891,6 +1965,12 @@ func (s *wikiPageService) CreateFolder(
 func (s *wikiPageService) FindOrCreateFolderPath(
 	ctx context.Context, kbID string, tenantID uint64, path []string,
 ) (string, []string, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return "", nil, mutationErr
+	}
+	defer finishMutation()
+
 	clean := types.CleanWikiCategoryPath(path)
 	if len(clean) == 0 {
 		return types.WikiFolderRootID, nil, nil
@@ -1939,6 +2019,12 @@ func (s *wikiPageService) FindOrCreateFolderPath(
 func (s *wikiPageService) MovePage(
 	ctx context.Context, kbID string, slug string, folderID string,
 ) (*types.WikiPage, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	page, err := s.repo.GetBySlug(ctx, kbID, slug)
 	if err != nil {
 		return nil, err
@@ -1962,6 +2048,12 @@ func (s *wikiPageService) MovePage(
 func (s *wikiPageService) RenameOrMoveFolder(
 	ctx context.Context, kbID string, id string, newName string, newParentID string, moveParent bool,
 ) (*types.WikiFolder, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	folder, err := s.repo.GetFolderByID(ctx, kbID, id)
 	if err != nil {
 		return nil, err
@@ -2079,6 +2171,12 @@ func (s *wikiPageService) recomputePagesForFolders(ctx context.Context, kbID str
 // DeleteFolder removes a folder that has no pages and no child folders. The UI
 // must relocate contents first; this keeps deletion non-destructive.
 func (s *wikiPageService) DeleteFolder(ctx context.Context, kbID string, id string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if _, err := s.repo.GetFolderByID(ctx, kbID, id); err != nil {
 		return err
 	}
@@ -2108,6 +2206,12 @@ func (s *wikiPageService) DeleteFolder(ctx context.Context, kbID string, id stri
 func (s *wikiPageService) PruneEmptyFolderChains(
 	ctx context.Context, kbID string, folderIDs []string,
 ) ([]string, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if len(folderIDs) == 0 {
 		return nil, nil
 	}
@@ -2183,6 +2287,13 @@ func (s *wikiPageService) PruneEmptyFolderChains(
 // Shares the linkifyContent helper with the ingest pipeline so both paths honor
 // the same code-block / existing-link / word-boundary rules.
 func (s *wikiPageService) InjectCrossLinks(ctx context.Context, kbID string, affectedSlugs []string) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		logger.Warnf(ctx, "knowledge operation deferred during workspace transfer: %v", mutationErr)
+		return
+	}
+	defer finishMutation()
+
 	allPages, err := s.ListAllPages(ctx, kbID)
 	if err != nil || len(allPages) < 2 {
 		return
@@ -2240,6 +2351,12 @@ func (s *wikiPageService) InjectCrossLinks(ctx context.Context, kbID string, aff
 // completion, which is where we actually have the LLM + change description
 // context needed to rewrite it.
 func (s *wikiPageService) RebuildIndexPage(ctx context.Context, kbID string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	_ = ctx
 	_ = kbID
 	return nil

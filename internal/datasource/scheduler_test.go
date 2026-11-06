@@ -2,11 +2,13 @@ package datasource
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/kbmutation"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/hibiken/asynq"
 )
@@ -146,12 +148,14 @@ func (r *fakeSyncLogRepo) HasRunningSync(_ context.Context, dsID string) (bool, 
 
 // fakeTaskEnqueuer counts how many tasks are enqueued.
 type fakeTaskEnqueuer struct {
-	count     atomic.Int64
-	lastQueue atomic.Value
+	count       atomic.Int64
+	lastQueue   atomic.Value
+	lastPayload atomic.Value
 }
 
 func (e *fakeTaskEnqueuer) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error) {
 	e.count.Add(1)
+	e.lastPayload.Store(append([]byte(nil), task.Payload()...))
 	for _, opt := range opts {
 		if opt.Type() == asynq.QueueOpt {
 			if queue, ok := opt.Value().(string); ok {
@@ -160,6 +164,45 @@ func (e *fakeTaskEnqueuer) Enqueue(task *asynq.Task, opts ...asynq.Option) (*asy
 		}
 	}
 	return &asynq.TaskInfo{ID: "task-fake"}, nil
+}
+
+func TestSchedulerUsesFreshWorkspaceAndDefersDuringTransfer(t *testing.T) {
+	repo := newFakeDataSourceRepo()
+	logs := newFakeSyncLogRepo()
+	enqueue := &fakeTaskEnqueuer{}
+	coordinator := &kbmutation.Coordinator{BaseDir: t.TempDir()}
+	scheduler := NewScheduler(repo, logs, enqueue)
+	scheduler.SetMutationCoordinator(coordinator)
+	if err := repo.Create(context.Background(), &types.DataSource{ID: "ds", TenantID: 2, Status: types.DataSourceStatusActive}); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := coordinator.Exclusive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduler.triggerSync("ds", 1)
+	if enqueue.count.Load() != 0 || len(logs.logs) != 0 {
+		t.Fatal("scheduler created work during transfer")
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+	scheduler.triggerSync("ds", 1) // old cron closure still carries workspace 1
+	if enqueue.count.Load() != 1 {
+		t.Fatal("sync was not enqueued after transfer")
+	}
+	var payload types.DataSourceSyncPayload
+	if err := json.Unmarshal(enqueue.lastPayload.Load().([]byte), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TenantID != 2 {
+		t.Fatalf("queued old tenant: %d", payload.TenantID)
+	}
+	for _, log := range logs.logs {
+		if log.TenantID != 2 {
+			t.Fatalf("log uses old tenant: %d", log.TenantID)
+		}
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────

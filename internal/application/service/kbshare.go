@@ -35,6 +35,8 @@ var (
 // — Viewer in your own tenant cannot write — even when the access is
 // routed through cross-tenant sharing.
 type kbShareService struct {
+	knowledgeMutationGuard
+
 	shareRepo interfaces.KBShareRepository
 	orgRepo   interfaces.OrganizationRepository
 	kbRepo    interfaces.KnowledgeBaseRepository
@@ -100,6 +102,12 @@ func applyTenantRoleCap(p types.OrgMemberRole, callerTenantRole types.TenantRole
 // Caller must own the KB (its workspace, or creator after a cross-workspace
 // transfer) *and* be a member of the target org with at least editor role.
 func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, orgID string, userID string, tenantID uint64, permission types.OrgMemberRole) (*types.KnowledgeBaseShare, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	logger.Infof(ctx, "Sharing knowledge base %s to organization %s", kbID, orgID)
 
 	kb, err := s.kbRepo.GetKnowledgeBaseByID(ctx, kbID)
@@ -179,6 +187,12 @@ func (s *kbShareService) ShareKnowledgeBase(ctx context.Context, kbID string, or
 // UpdateSharePermission updates a share's permission. See canManageShare for
 // who may do so; an org admin outside the source tenant may only lower it.
 func (s *kbShareService) UpdateSharePermission(ctx context.Context, shareID string, permission types.OrgMemberRole, userID string, tenantID uint64) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	share, err := s.shareRepo.GetByID(ctx, shareID)
 	if err != nil {
 		if errors.Is(err, repository.ErrKBShareNotFound) {
@@ -223,6 +237,12 @@ func (s *kbShareService) UpdateSharePermission(ctx context.Context, shareID stri
 
 // RemoveShare removes a share. See canManageShare for who may do so.
 func (s *kbShareService) RemoveShare(ctx context.Context, shareID string, userID string, tenantID uint64) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	share, err := s.shareRepo.GetByID(ctx, shareID)
 	if err != nil {
 		if errors.Is(err, repository.ErrKBShareNotFound) {

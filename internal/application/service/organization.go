@@ -46,6 +46,8 @@ var (
 // the representative for UI/audit; permission decisions ride on the
 // tenant's role inside the org.
 type organizationService struct {
+	knowledgeMutationGuard
+
 	orgRepo        interfaces.OrganizationRepository
 	userRepo       interfaces.UserRepository
 	shareRepo      interfaces.KBShareRepository
@@ -79,6 +81,12 @@ func resolveInviteExpiry(validityDays int, now time.Time) *time.Time {
 // CreateOrganization creates a new organization. The creator's tenant
 // is enrolled at admin role and userID is recorded as the representative.
 func (s *organizationService) CreateOrganization(ctx context.Context, userID string, tenantID uint64, req *types.CreateOrganizationRequest) (*types.Organization, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	logger.Infof(ctx, "Creating organization: %s by user: %s in tenant: %d", req.Name, userID, tenantID)
 
 	validityDays := DefaultInviteCodeValidityDays
@@ -183,6 +191,12 @@ func (s *organizationService) ListTenantOrganizations(ctx context.Context, tenan
 // admin in this org; the operator user identity is logged for audit but
 // not used as the permission key.
 func (s *organizationService) UpdateOrganization(ctx context.Context, id string, userID string, tenantID uint64, req *types.UpdateOrganizationRequest) (*types.Organization, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	isAdmin, err := s.IsTenantOrgAdmin(ctx, id, tenantID)
 	if err != nil {
 		return nil, err
@@ -293,6 +307,12 @@ func (s *organizationService) SearchSearchableOrganizations(ctx context.Context,
 // code required). Plan 3: the *tenant* joins, with the calling user as
 // representative.
 func (s *organizationService) JoinByOrganizationID(ctx context.Context, orgID string, userID string, tenantID uint64, message string, requestedRole types.OrgMemberRole) (*types.Organization, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	org, err := s.orgRepo.GetByID(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, repository.ErrOrganizationNotFound) {
@@ -333,6 +353,12 @@ func (s *organizationService) JoinByOrganizationID(ctx context.Context, orgID st
 // rows where OwnerTenantID is still 0 we fall back to the old user-level
 // rule so pre-backfill orgs remain deletable by their original creator.
 func (s *organizationService) DeleteOrganization(ctx context.Context, id string, userID string, tenantID uint64) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	org, err := s.orgRepo.GetByID(ctx, id)
 	if err != nil {
 		return err
@@ -356,6 +382,12 @@ func (s *organizationService) DeleteOrganization(ctx context.Context, id string,
 
 // AddTenantMember enrols a tenant as a member of an organization.
 func (s *organizationService) AddTenantMember(ctx context.Context, orgID string, tenantID uint64, representativeUserID string, role types.OrgMemberRole) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if !role.IsValid() {
 		return ErrInvalidRole
 	}
@@ -396,6 +428,12 @@ func (s *organizationService) addTenantMemberWithinLimit(
 // When operatorTenantID == memberTenantID, it's "leave" (self-removal).
 // Otherwise the operator's tenant must be admin in the org.
 func (s *organizationService) RemoveTenantMember(ctx context.Context, orgID string, memberTenantID uint64, operatorUserID string, operatorTenantID uint64) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	org, err := s.orgRepo.GetByID(ctx, orgID)
 	if err != nil {
 		return err
@@ -442,6 +480,12 @@ func (s *organizationService) revokeTenantShares(ctx context.Context, orgID stri
 
 // UpdateTenantMemberRole updates the role for a (org, tenant) membership.
 func (s *organizationService) UpdateTenantMemberRole(ctx context.Context, orgID string, memberTenantID uint64, role types.OrgMemberRole, operatorUserID string, operatorTenantID uint64) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if !role.IsValid() {
 		return ErrInvalidRole
 	}
@@ -544,6 +588,12 @@ func (s *organizationService) joinAsViewerWithChecks(ctx context.Context, org *t
 
 // JoinByInviteCode allows a tenant to join via invite code.
 func (s *organizationService) JoinByInviteCode(ctx context.Context, inviteCode string, userID string, tenantID uint64) (*types.Organization, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	org, err := s.orgRepo.GetByInviteCode(ctx, inviteCode)
 	if err != nil {
 		if errors.Is(err, repository.ErrInviteCodeNotFound) {
@@ -703,6 +753,12 @@ func (s *organizationService) CountPendingJoinRequests(ctx context.Context, orgI
 // On approve the targeted tenant gets the assigned role; reviewerTenantID is
 // only used for audit (the gate is the route-level Admin guard).
 func (s *organizationService) ReviewJoinRequest(ctx context.Context, orgID string, requestID string, approved bool, reviewerID string, reviewerTenantID uint64, message string, assignRole *types.OrgMemberRole) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	request, err := s.orgRepo.GetJoinRequestByID(ctx, requestID)
 	if err != nil {
 		return ErrJoinRequestNotFound

@@ -142,6 +142,12 @@ func enqueueSummaryRefresh(
 func (s *knowledgeService) RequestKnowledgeSummaryRefresh(
 	ctx context.Context, knowledgeID string,
 ) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	tenantID := types.MustTenantIDFromContext(ctx)
 	knowledge, err := s.repo.GetKnowledgeByID(ctx, tenantID, knowledgeID)
 	if err != nil {

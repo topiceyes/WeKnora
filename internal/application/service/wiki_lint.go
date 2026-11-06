@@ -55,6 +55,8 @@ type WikiLintReport struct {
 
 // WikiLintService provides wiki health checking capabilities
 type WikiLintService struct {
+	knowledgeMutationGuard
+
 	wikiService      interfaces.WikiPageService
 	kbService        interfaces.KnowledgeBaseService
 	knowledgeService interfaces.KnowledgeService
@@ -92,6 +94,12 @@ const lintCursorBatch = 200
 // over the same predicate (kbID + status<>archived), so it gives the
 // same answer at a fraction of the cost.
 func (s *WikiLintService) RunLint(ctx context.Context, kbID string) (*WikiLintReport, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	// Validate KB
 	kb, err := s.kbService.GetKnowledgeBaseByIDOnly(ctx, kbID)
 	if err != nil {
@@ -344,6 +352,12 @@ func (s *WikiLintService) RunLint(ctx context.Context, kbID string) (*WikiLintRe
 
 // AutoFix attempts to automatically fix fixable issues
 func (s *WikiLintService) AutoFix(ctx context.Context, kbID string) (int, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return 0, mutationErr
+	}
+	defer finishMutation()
+
 	report, err := s.RunLint(ctx, kbID)
 	if err != nil {
 		return 0, err

@@ -26,6 +26,12 @@ func (s *knowledgeService) CreateKnowledgeFromFile(ctx context.Context,
 	kbID string, file *multipart.FileHeader, metadata map[string]string, enableMultimodel *bool, customFileName string, tagIDs []string, channel string,
 	processOverrides *types.KnowledgeProcessOverrides,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	logger.Info(ctx, "Start creating knowledge from file")
 
 	// Use custom filename if provided, otherwise use original filename. Folder
@@ -310,6 +316,12 @@ func (s *knowledgeService) CreateKnowledgeFromURL(ctx context.Context,
 	kbID string, rawURL string, fileName string, fileType string, enableMultimodel *bool, title string, tagIDs []string, channel string,
 	processOverrides *types.KnowledgeProcessOverrides,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	logger.Info(ctx, "Start creating knowledge from URL")
 	logger.Infof(ctx, "Knowledge base ID: %s, URL: %s", kbID, rawURL)
 
@@ -726,6 +738,12 @@ func (s *knowledgeService) createKnowledgeFromFileURL(
 func (s *knowledgeService) CreateKnowledgeFromPassage(ctx context.Context,
 	kbID string, passage []string, channel string,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	return s.createKnowledgeFromPassageInternal(ctx, kbID, passage, false, channel)
 }
 
@@ -733,6 +751,12 @@ func (s *knowledgeService) CreateKnowledgeFromPassage(ctx context.Context,
 func (s *knowledgeService) CreateKnowledgeFromPassageSync(ctx context.Context,
 	kbID string, passage []string, channel string,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	return s.createKnowledgeFromPassageInternal(ctx, kbID, passage, true, channel)
 }
 
@@ -740,6 +764,12 @@ func (s *knowledgeService) CreateKnowledgeFromPassageSync(ctx context.Context,
 func (s *knowledgeService) CreateKnowledgeFromManual(ctx context.Context,
 	kbID string, payload *types.ManualKnowledgePayload, channel string,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	logger.Info(ctx, "Start creating manual knowledge entry")
 
 	if payload == nil {
@@ -1014,6 +1044,12 @@ func (s *knowledgeService) createKnowledgeFromPassageInternal(ctx context.Contex
 func (s *knowledgeService) UpdateManualKnowledge(ctx context.Context,
 	knowledgeID string, payload *types.ManualKnowledgePayload,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	logger.Info(ctx, "Start updating manual knowledge entry")
 	if payload == nil {
 		return nil, werrors.NewBadRequestError("请求内容不能为空")
@@ -1424,8 +1460,12 @@ func (s *knowledgeService) triggerManualProcessing(ctx context.Context,
 		return s.processChunks(ctx, kb, knowledge, parsed, opts)
 	}
 
-	newCtx := logger.CloneContext(ctx)
+	newCtx, finishAsyncMutation, mutationErr := s.beginMutation(logger.CloneContext(ctx))
+	if mutationErr != nil {
+		return mutationErr
+	}
 	go func() {
+		defer finishAsyncMutation()
 		if err := s.processChunks(newCtx, kb, knowledge, parsed, opts); err != nil {
 			logger.Warnf(newCtx, "manual processing for knowledge %s: %v", knowledge.ID, err)
 		}

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/kbmutation"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/runtime"
 	"github.com/Tencent/WeKnora/internal/tracing/langfuse"
@@ -42,6 +43,7 @@ func ValidateSyncSchedule(schedule string) error {
 //  2. asynq.TaskID  — deterministic ID per (dataSourceID, minute). Redis ensures
 //     only one task with a given ID is enqueued. Losers get ErrTaskIDConflict.
 type Scheduler struct {
+	mutations    *kbmutation.Coordinator
 	cron         *cron.Cron
 	dsRepo       interfaces.DataSourceRepository
 	syncLogRepo  interfaces.SyncLogRepository
@@ -50,6 +52,9 @@ type Scheduler struct {
 	mu      sync.Mutex
 	entries map[string]cron.EntryID // dataSourceID → cron entry ID
 }
+
+// SetMutationCoordinator must run before Start, alongside content-service wiring.
+func (s *Scheduler) SetMutationCoordinator(c *kbmutation.Coordinator) { s.mutations = c }
 
 // NewScheduler creates a new Scheduler.
 func NewScheduler(
@@ -176,12 +181,21 @@ func (s *Scheduler) addEntryLocked(ds *types.DataSource) error {
 // at the same minute. The first Enqueue wins; others get ErrTaskIDConflict.
 func (s *Scheduler) triggerSync(dataSourceID string, tenantID uint64) {
 	ctx := context.Background()
+	ctx, release, err := s.mutations.Begin(ctx)
+	if err != nil {
+		logger.Infof(ctx, "[Scheduler] deferring sync during knowledge migration: %v", err)
+		return
+	}
+	defer release()
 
 	ds, err := s.dsRepo.FindByID(ctx, dataSourceID)
 	if err != nil || ds == nil || ds.Status != types.DataSourceStatusActive {
 		logger.Infof(ctx, "[Scheduler] skipping sync for ds=%s (not active or not found)", dataSourceID)
 		return
 	}
+	// A schedule in another process may still hold the pre-transfer tenant.
+	// The freshly loaded row is authoritative for both log and queued payload.
+	tenantID = ds.TenantID
 
 	// Layer 1: prevent overlap with a still-running sync
 	if running, _ := s.syncLogRepo.HasRunningSync(ctx, dataSourceID); running {

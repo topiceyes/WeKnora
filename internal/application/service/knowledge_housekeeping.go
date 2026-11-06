@@ -39,6 +39,8 @@ import (
 
 // HousekeepingService runs background sweeps to recover stuck rows.
 type HousekeepingService struct {
+	knowledgeMutationGuard
+
 	db   *gorm.DB
 	cfg  *config.Config
 	cron *cron.Cron
@@ -153,6 +155,13 @@ func (h *HousekeepingService) StopWithin(timeout time.Duration) {
 // runSweep is exported on the type for testability — tests can drive a
 // single sweep without waiting for the cron tick.
 func (h *HousekeepingService) runSweep(ctx context.Context) {
+	ctx, finishMutation, mutationErr := h.beginMutation(ctx)
+	if mutationErr != nil {
+		logger.Warnf(ctx, "knowledge operation deferred during workspace transfer: %v", mutationErr)
+		return
+	}
+	defer finishMutation()
+
 	threshold := h.staleThreshold()
 	cutoff := time.Now().Add(-threshold)
 

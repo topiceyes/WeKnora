@@ -21,6 +21,8 @@ import (
 // KnowledgePostProcessService acts as an orchestrator for all post-processing tasks
 // after a document has been parsed and split into chunks (including multimodal OCR/Caption).
 type KnowledgePostProcessService struct {
+	knowledgeMutationGuard
+
 	knowledgeRepo interfaces.KnowledgeRepository
 	kbService     interfaces.KnowledgeBaseService
 	chunkService  interfaces.ChunkService
@@ -81,6 +83,15 @@ func (s *KnowledgePostProcessService) finishRunningMultimodalStage(
 
 // Handle implements asynq handler for TypeKnowledgePostProcess.
 func (s *KnowledgePostProcessService) Handle(ctx context.Context, task *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, task)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KnowledgePostProcessPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
 		return fmt.Errorf("unmarshal knowledge post process payload: %w", err)

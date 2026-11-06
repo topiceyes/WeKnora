@@ -258,6 +258,15 @@ func (s *wikiIngestService) newWikiBatchContext(
 }
 
 func (s *wikiIngestService) ProcessWikiIngest(ctx context.Context, t *asynq.Task) (retErr error) {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	taskStartedAt := time.Now()
 	retryCount, _ := asynq.GetRetryCount(ctx)
 	maxRetry, _ := asynq.GetMaxRetry(ctx)
@@ -1047,6 +1056,15 @@ func (s *wikiIngestService) ProcessWikiIngest(ctx context.Context, t *asynq.Task
 // enqueueFinalize) so a burst of documents rebuilds the index ONCE instead of
 // once per 5-doc batch.
 func (s *wikiIngestService) ProcessWikiFinalize(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	startedAt := time.Now()
 	var payload WikiIngestPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {

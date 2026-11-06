@@ -30,6 +30,12 @@ import (
 func (s *knowledgeService) UpsertFAQEntries(ctx context.Context,
 	kbID string, payload *types.FAQBatchUpsertPayload,
 ) (string, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return "", mutationErr
+	}
+	defer finishMutation()
+
 	if payload == nil || len(payload.Entries) == 0 {
 		return "", werrors.NewBadRequestError("FAQ 条目不能为空")
 	}
@@ -2239,6 +2245,19 @@ func (s *knowledgeService) recordFAQImportKBActivity(
 
 // ProcessFAQImport handles Asynq FAQ import tasks (including dry run mode)
 func (s *knowledgeService) ProcessFAQImport(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			var obsolete types.FAQImportPayload
+			if json.Unmarshal(t.Payload(), &obsolete) == nil {
+				return s.clearRunningFAQImportInfoIfMatches(ctx, obsolete.KBID, obsolete.TaskID, obsolete.InstanceID, obsolete.EnqueuedAt)
+			}
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.FAQImportPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 		logger.Errorf(ctx, "failed to unmarshal FAQ import task payload: %v", err)
@@ -2865,6 +2884,12 @@ func (s *knowledgeService) GetFAQImportProgress(ctx context.Context, taskID stri
 
 // UpdateLastFAQImportResultDisplayStatus updates the display status of FAQ import result
 func (s *knowledgeService) UpdateLastFAQImportResultDisplayStatus(ctx context.Context, kbID string, displayStatus string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	// 验证displayStatus参数
 	if displayStatus != "open" && displayStatus != "close" {
 		return werrors.NewBadRequestError("invalid display status, must be 'open' or 'close'")

@@ -395,6 +395,12 @@ func newDeadLetterKnowledgeFailer(ks interfaces.KnowledgeService, tracker servic
 		if t == nil || taskErr == nil || errors.Is(taskErr, asynq.SkipRetry) {
 			return
 		}
+		ctx, releaseMutation, err := service.BeginKnowledgeMutation(ctx, ks)
+		if err != nil {
+			logger.Warnf(ctx, "dead-letter callback deferred during workspace transfer: %v", err)
+			return
+		}
+		defer releaseMutation()
 		if t.Type() == types.TypeKnowledgeListDelete {
 			markKnowledgeListDeleteFailed(ctx, repo, t, taskErr)
 			return

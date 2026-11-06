@@ -182,6 +182,8 @@ func enqueueDataTableSummaryIfNeeded(
 
 // ChunkExtractService is a service for extracting chunks
 type ChunkExtractService struct {
+	knowledgeMutationGuard
+
 	template          *types.PromptTemplateStructured
 	modelService      interfaces.ModelService
 	knowledgeBaseRepo interfaces.KnowledgeBaseRepository
@@ -224,6 +226,15 @@ func (s *ChunkExtractService) tracker() SpanTracker {
 
 // Handle handles the chunk extraction task
 func (s *ChunkExtractService) Handle(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var p types.ExtractChunkPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		logger.Errorf(ctx, "failed to unmarshal task payload: %v", err)
@@ -428,6 +439,8 @@ type DataTableSummaryPayload struct {
 
 // DataTableSummaryService is a service for extracting tables
 type DataTableSummaryService struct {
+	knowledgeMutationGuard
+
 	modelService         interfaces.ModelService
 	knowledgeBaseService interfaces.KnowledgeBaseService
 	knowledgeService     interfaces.KnowledgeService
@@ -470,6 +483,15 @@ func NewDataTableSummaryService(
 // Handle implements the TaskHandler interface for table extraction
 // 整体流程：初始化 -> 准备资源 -> 加载数据 -> 生成摘要 -> 创建索引
 func (s *DataTableSummaryService) Handle(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	// 1. 解析任务并初始化上下文
 	var payload DataTableSummaryPayload
 	if err := json.Unmarshal(t.Payload(), &payload); err != nil {

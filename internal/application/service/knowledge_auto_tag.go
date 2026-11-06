@@ -37,6 +37,8 @@ func normalizeAutoTagMaxTags(maxTags int) int {
 
 // KnowledgeAutoTagService classifies processed documents against existing knowledge-base tags.
 type KnowledgeAutoTagService struct {
+	knowledgeMutationGuard
+
 	knowledgeRepo interfaces.KnowledgeRepository
 	tagRepo       interfaces.KnowledgeTagRepository
 	kbService     interfaces.KnowledgeBaseService
@@ -110,6 +112,15 @@ type autoTagModelResponse struct {
 
 // Handle processes one automatic-tagging task.
 func (s *KnowledgeAutoTagService) Handle(ctx context.Context, task *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, task)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	var payload types.KnowledgeAutoTagPayload
 	if err := json.Unmarshal(task.Payload(), &payload); err != nil {
 		return fmt.Errorf("unmarshal knowledge auto tag payload: %w", err)

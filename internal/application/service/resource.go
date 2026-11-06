@@ -21,6 +21,7 @@ import (
 const defaultResourceGrantTTL = 2 * time.Hour
 
 type resourceCatalog struct {
+	knowledgeMutationGuard
 	repo interfaces.ResourceRepository
 }
 
@@ -48,6 +49,11 @@ func (s *resourceCatalog) Register(
 	physicalPath string,
 	meta interfaces.ResourceRegistration,
 ) (string, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return "", mutationErr
+	}
+	defer finishMutation()
 	physicalPath = strings.TrimSpace(physicalPath)
 	if tenantID == 0 || physicalPath == "" {
 		return "", fmt.Errorf("resource registration requires tenant and physical path")
@@ -171,6 +177,11 @@ func (s *resourceCatalog) ResolvePath(ctx context.Context, value string) (string
 }
 
 func (s *resourceCatalog) Bind(ctx context.Context, reference, ownerType, ownerID, relation string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
 	resource, err := s.Resolve(ctx, reference)
 	if err != nil {
 		return err
@@ -240,6 +251,11 @@ func (s *resourceCatalog) GetMessageFileBindings(
 func (s *resourceCatalog) Release(
 	ctx context.Context, reference, ownerType, ownerID string,
 ) (int64, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return -1, mutationErr
+	}
+	defer finishMutation()
 	if strings.TrimSpace(ownerType) == "" || strings.TrimSpace(ownerID) == "" {
 		return -1, fmt.Errorf("resource release requires owner type and id")
 	}
@@ -291,6 +307,11 @@ func (s *resourceCatalog) ListReferencesByOwner(
 }
 
 func (s *resourceCatalog) MarkDeleted(ctx context.Context, reference string) error {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
 	resource, err := s.Resolve(ctx, reference)
 	if err != nil {
 		return err
@@ -299,6 +320,11 @@ func (s *resourceCatalog) MarkDeleted(ctx context.Context, reference string) err
 }
 
 func (s *resourceCatalog) CreateAccessGrant(ctx context.Context, reference string, ttl time.Duration) (string, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return "", mutationErr
+	}
+	defer finishMutation()
 	resource, err := s.Resolve(ctx, reference)
 	if err != nil {
 		return "", err

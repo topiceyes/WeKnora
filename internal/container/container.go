@@ -503,7 +503,6 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		must(container.Invoke(registerLiteModelConcurrencyLimiter))
 	}
 	must(container.Provide(service.NewTemporaryDocumentService))
-	must(container.Invoke(startTemporaryDocumentCleanup))
 
 	// Chat pipeline components for processing chat requests
 	logger.Debugf(ctx, "[Container] Registering chat pipeline plugins...")
@@ -513,11 +512,14 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(initConnectorRegistry))
 	must(container.Provide(datasource.NewScheduler))
 	must(container.Provide(service.NewDataSourceService))
+	must(container.Provide(service.NewHousekeepingService))
+	must(container.Provide(newKnowledgeMutationCoordinator))
+	must(container.Invoke(wireKnowledgeMutationCoordination))
+	must(container.Invoke(startTemporaryDocumentCleanup))
 	must(container.Invoke(startDataSourceScheduler))
 	logger.Debugf(ctx, "[Container] Data source sync framework registered")
 	must(container.Invoke(startAuditLogRetention))
 	logger.Debugf(ctx, "[Container] Audit log retention runner registered")
-	must(container.Provide(service.NewHousekeepingService))
 	must(container.Invoke(startHousekeepingService))
 	logger.Debugf(ctx, "[Container] Knowledge housekeeping runner registered")
 	must(container.Provide(chatpipeline.NewEventManager))

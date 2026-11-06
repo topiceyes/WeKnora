@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -13,7 +14,9 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Cross-workspace transfer sentinels. The handler maps each to an HTTP status
@@ -37,9 +40,10 @@ var (
 	// (no database handle, or a storage layout outside local).
 	ErrKBWorkspaceTransferUnsupported = errors.New(
 		"kb workspace transfer: this deployment cannot move knowledge bases")
-	// ErrKBWorkspaceTransferInProgress: another transfer holds the per-KB lock.
+	// ErrKBWorkspaceTransferInProgress: admitted writes or another transfer
+	// prevent taking the exclusive operation gate.
 	ErrKBWorkspaceTransferInProgress = errors.New(
-		"kb workspace transfer: another transfer is already running for this knowledge base")
+		"kb workspace transfer: knowledge operations or another transfer are running; retry when idle")
 )
 
 // KBWorkspaceTransferBlockedError carries the hard preflight blockers. It is a
@@ -100,6 +104,7 @@ type kbWorkspaceTransferSnapshot struct {
 	sharesKept      int64
 	processingCount int64
 	pendingOps      int64
+	queuedWork      bool
 }
 
 type kbWorkspaceTransferResourceRow struct {
@@ -139,6 +144,18 @@ func (s *knowledgeBaseService) TransferKnowledgeBaseWorkspace(
 	}
 	defer lock.Unlock()
 
+	var result *types.KBWorkspaceTransferResult
+	err := s.withWorkspaceTransferLock(strings.TrimSpace(kbID), func() error {
+		var err error
+		result, err = s.transferKnowledgeBaseWorkspaceLocked(ctx, kbID, newOwnerUserID)
+		return err
+	})
+	return result, err
+}
+
+func (s *knowledgeBaseService) transferKnowledgeBaseWorkspaceLocked(
+	ctx context.Context, kbID, newOwnerUserID string,
+) (*types.KBWorkspaceTransferResult, error) {
 	tc, err := s.prepareWorkspaceTransfer(ctx, kbID, newOwnerUserID)
 	if err != nil {
 		return nil, err
@@ -439,6 +456,17 @@ func (s *knowledgeBaseService) collectWorkspaceTransferSnapshot(
 		Count(&snapshot.pendingOps).Error; err != nil {
 		return nil, err
 	}
+	if probe, ok := s.taskInspector.(interfaces.KnowledgeBaseTaskProbe); ok {
+		var dataSourceIDs []string
+		if err := db.Table("data_sources").Where("knowledge_base_id = ?", kb.ID).Pluck("id", &dataSourceIDs).Error; err != nil {
+			return nil, err
+		}
+		var err error
+		snapshot.queuedWork, err = probe.HasQueuedTasksForKnowledgeBase(ctx, kb.ID, snapshot.knowledgeIDs, dataSourceIDs)
+		if err != nil {
+			return nil, fmt.Errorf("verify queued workspace-transfer work: %w", err)
+		}
+	}
 	return snapshot, nil
 }
 
@@ -454,12 +482,17 @@ func (s *knowledgeBaseService) workspaceTransferBlockers(
 		})
 	}
 
-	if snapshot.processingCount > 0 || snapshot.pendingOps > 0 {
+	if s.mutations == nil {
+		add("write_barrier_unavailable", "Workspace transfer is unavailable because write coordination is not configured.", nil)
+	}
+
+	if snapshot.processingCount > 0 || snapshot.pendingOps > 0 || snapshot.queuedWork {
 		add("kb_processing",
 			"the knowledge base still has documents being processed or queued work",
 			map[string]any{
 				"documents":   snapshot.processingCount,
 				"pending_ops": snapshot.pendingOps,
+				"queued_work": snapshot.queuedWork,
 			})
 	}
 
@@ -1072,34 +1105,49 @@ func adjustKBWorkspaceTransferQuota(tx *gorm.DB, oldTenant, newTenant uint64, si
 	if size == 0 {
 		return nil
 	}
-	oldUsed, err := readKBWorkspaceTenantStorageUsed(tx, oldTenant)
-	if err != nil {
-		return err
+	if size < 0 || oldTenant == newTenant {
+		return errors.New("invalid workspace transfer storage adjustment")
 	}
-	newUsed, err := readKBWorkspaceTenantStorageUsed(tx, newTenant)
-	if err != nil {
-		return err
+	// Consistent lock order prevents opposite-direction transfers from
+	// deadlocking. These are the same tenant rows AdjustStorageUsed locks.
+	ids := []uint64{oldTenant, newTenant}
+	if ids[0] > ids[1] {
+		ids[0], ids[1] = ids[1], ids[0]
 	}
-	oldUsed -= size
-	if oldUsed < 0 {
-		oldUsed = 0
+	var target types.Tenant
+	for _, id := range ids {
+		var row types.Tenant
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("id", "storage_used", "storage_quota").First(&row, id).Error; err != nil {
+			return err
+		}
+		if id == newTenant {
+			target = row
+		}
 	}
-	newUsed += size
-	if err := tx.Table("tenants").Where("id = ?", oldTenant).
-		Update("storage_used", oldUsed).Error; err != nil {
-		return err
+	blocked := func() error {
+		return &KBWorkspaceTransferBlockedError{Blockers: []types.KBWorkspaceTransferBlocker{{
+			Code: "target_quota_exceeded", Message: "the target workspace does not have enough storage quota",
+			Details: map[string]any{"quota": target.StorageQuota, "used": target.StorageUsed, "required": size},
+		}}}
 	}
-	return tx.Table("tenants").Where("id = ?", newTenant).
-		Update("storage_used", newUsed).Error
-}
-
-func readKBWorkspaceTenantStorageUsed(tx *gorm.DB, tenantID uint64) (int64, error) {
-	var used int64
-	row := tx.Table("tenants").Select("storage_used").Where("id = ?", tenantID).Row()
-	if err := row.Scan(&used); err != nil {
-		return 0, err
+	// Recheck under the lock: preflight may have preceded a quota change or
+	// an upload. Subtraction also avoids overflowing the comparison itself.
+	if target.StorageUsed > math.MaxInt64-size || (target.StorageQuota > 0 &&
+		(target.StorageUsed > target.StorageQuota || size > target.StorageQuota-target.StorageUsed)) {
+		return blocked()
 	}
-	return used, nil
+	result := tx.Model(&types.Tenant{}).Where("id = ? AND storage_used <= ?", newTenant, math.MaxInt64-size).
+		Where("storage_quota <= 0 OR storage_used <= storage_quota - ?", size).
+		UpdateColumn("storage_used", gorm.Expr("storage_used + ?", size))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return blocked()
+	}
+	return tx.Model(&types.Tenant{}).Where("id = ?", oldTenant).
+		UpdateColumn("storage_used", gorm.Expr("CASE WHEN storage_used < ? THEN 0 ELSE storage_used - ? END", size, size)).Error
 }
 
 func (s *knowledgeBaseService) reregisterKBWorkspaceTransferDataSources(

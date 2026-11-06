@@ -386,6 +386,8 @@ type WikiPendingOp struct {
 // both of which are correctness-critical short-lived flags rather
 // than data the system should survive without.
 type wikiIngestService struct {
+	knowledgeMutationGuard
+
 	wikiService    interfaces.WikiPageService
 	kbService      interfaces.KnowledgeBaseService
 	knowledgeSvc   interfaces.KnowledgeService
@@ -719,6 +721,15 @@ func enqueueWikiRetract(
 // registered handler covers both the ingest batch and the debounced
 // KB-global finalize pass.
 func (s *wikiIngestService) Handle(ctx context.Context, t *asynq.Task) error {
+	ctx, finishMutation, mutationErr := s.beginTaskMutation(ctx, t)
+	if mutationErr != nil {
+		if mutationErr == errObsoleteKnowledgeTask {
+			return nil
+		}
+		return mutationErr
+	}
+	defer finishMutation()
+
 	switch t.Type() {
 	case types.TypeWikiFinalize:
 		return s.ProcessWikiFinalize(ctx, t)

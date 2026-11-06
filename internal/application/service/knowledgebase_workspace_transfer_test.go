@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/kbmutation"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -96,6 +97,36 @@ func TestKBWorkspaceFileSetCopyAndCleanup(t *testing.T) {
 	removeKBWorkspaceTransferCopies(baseDir, created)
 	assert.NoFileExists(t, filepath.Join(baseDir, "10001", "knowledge-1", "report.pdf"))
 	assert.NoFileExists(t, filepath.Join(baseDir, "10001", "exports", "image.png"))
+}
+
+func TestKBWorkspaceCopyRejectsSameSizeDifferentContent(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "src"), filepath.Join(dir, "dst")
+	require.NoError(t, os.WriteFile(src, []byte("original"), 0o600))
+	require.NoError(t, os.WriteFile(dst, []byte("different"[:8]), 0o600))
+	created, err := copyKBWorkspaceFileExclusive(src, dst)
+	require.Error(t, err)
+	assert.False(t, created)
+	contents, err := os.ReadFile(dst)
+	require.NoError(t, err)
+	assert.Equal(t, "differen", string(contents))
+}
+
+func TestKBWorkspaceTransferLockRejectsConcurrentInstance(t *testing.T) {
+	baseDir := t.TempDir()
+	t.Setenv("LOCAL_STORAGE_BASE_DIR", baseDir)
+	db := newKBWorkspaceTransferTestDB(t)
+	first := &knowledgeBaseService{db: db}
+	second := &knowledgeBaseService{db: db}
+	require.NoError(t, ConfigureKBMutationCoordination(&kbmutation.Coordinator{BaseDir: baseDir}, db, first, second))
+	err := first.withWorkspaceTransferLock("kb-1", func() error {
+		return second.withWorkspaceTransferLock("kb-1", func() error {
+			t.Fatal("second transfer acquired the lock")
+			return nil
+		})
+	})
+	require.ErrorIs(t, err, ErrKBWorkspaceTransferInProgress)
+	require.NoError(t, second.withWorkspaceTransferLock("kb-1", func() error { return nil }))
 }
 
 func newKBWorkspaceTransferTestDB(t *testing.T) *gorm.DB {

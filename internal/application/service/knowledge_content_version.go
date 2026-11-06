@@ -137,6 +137,12 @@ func (s *knowledgeService) GetKnowledgeContentVersion(ctx context.Context,
 func (s *knowledgeService) RestoreKnowledgeContentVersion(ctx context.Context,
 	knowledgeID string, version int,
 ) (*types.Knowledge, error) {
+	ctx, finishMutation, mutationErr := s.beginMutation(ctx)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	existing, _, err := loadKnowledgeWrite(ctx, s.repo, s.kbService, knowledgeID)
 	if err != nil {
 		return nil, err

@@ -115,6 +115,12 @@ const faqCreateIndexBudget = 5 * time.Second
 func (s *knowledgeService) CreateFAQEntry(ctx context.Context,
 	kbID string, payload *types.FAQEntryPayload,
 ) (*types.FAQEntry, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if payload == nil {
 		return nil, werrors.NewBadRequestError("请求体不能为空")
 	}
@@ -317,6 +323,12 @@ func (s *knowledgeService) GetFAQEntry(ctx context.Context,
 func (s *knowledgeService) UpdateFAQEntry(ctx context.Context,
 	kbID string, entrySeqID int64, payload *types.FAQEntryPayload,
 ) (*types.FAQEntry, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if payload == nil {
 		return nil, werrors.NewBadRequestError("请求体不能为空")
 	}
@@ -467,6 +479,12 @@ func (s *knowledgeService) UpdateFAQEntry(ctx context.Context,
 func (s *knowledgeService) AddSimilarQuestions(ctx context.Context,
 	kbID string, entrySeqID int64, questions []string,
 ) (*types.FAQEntry, error) {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return nil, mutationErr
+	}
+	defer finishMutation()
+
 	if len(questions) == 0 {
 		return nil, werrors.NewBadRequestError("相似问列表不能为空")
 	}
@@ -618,6 +636,12 @@ func (s *knowledgeService) AddSimilarQuestions(ctx context.Context,
 func (s *knowledgeService) UpdateFAQEntryStatus(ctx context.Context,
 	kbID string, entryID string, isEnabled bool,
 ) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	kb, ctx, err := s.writableFAQKnowledgeBase(ctx, kbID)
 	if err != nil {
 		return err
@@ -664,6 +688,12 @@ func (s *knowledgeService) UpdateFAQEntryStatus(ctx context.Context,
 func (s *knowledgeService) UpdateFAQEntryFieldsBatch(ctx context.Context,
 	kbID string, req *types.FAQEntryFieldsBatchUpdate,
 ) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if req == nil || (len(req.ByID) == 0 && len(req.ByTag) == 0) {
 		return nil
 	}
@@ -844,6 +874,12 @@ func (s *knowledgeService) UpdateFAQEntryFieldsBatch(ctx context.Context,
 
 // UpdateFAQEntryTag updates the tag assigned to an FAQ entry.
 func (s *knowledgeService) UpdateFAQEntryTag(ctx context.Context, kbID string, entryID string, tagID *string) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	kb, ctx, err := s.writableFAQKnowledgeBase(ctx, kbID)
 	if err != nil {
 		return err
@@ -892,6 +928,12 @@ func (s *knowledgeService) UpdateFAQEntryTag(ctx context.Context, kbID string, e
 // UpdateFAQEntryTagBatch updates tags for FAQ entries in batch.
 // Key: entry seq_id, Value: tag seq_id (nil to remove tag)
 func (s *knowledgeService) UpdateFAQEntryTagBatch(ctx context.Context, kbID string, updates map[int64]*int64) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	req := &types.FAQEntryFieldsBatchUpdate{ByID: make(map[int64]types.FAQEntryFieldsUpdate, len(updates))}
 	for id, tag := range updates {
 		value := int64(0) // nil in the tag API means remove the tag.
@@ -1241,6 +1283,12 @@ func (s *knowledgeService) SearchFAQEntries(ctx context.Context,
 func (s *knowledgeService) DeleteFAQEntries(ctx context.Context,
 	kbID string, entrySeqIDs []int64,
 ) error {
+	ctx, finishMutation, mutationErr := s.beginScopedMutation(ctx, kbID)
+	if mutationErr != nil {
+		return mutationErr
+	}
+	defer finishMutation()
+
 	if len(entrySeqIDs) == 0 {
 		return werrors.NewBadRequestError("请选择需要删除的 FAQ 条目")
 	}
