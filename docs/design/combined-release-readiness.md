@@ -1,0 +1,46 @@
+# 合并发布准备记录（2026-11-06）
+
+## 提交范围
+
+当前两个任务共用同一工作目录，改动已在同一工作区；无需在工作目录之间复制或覆盖文件。发布时一起纳入以下三组修复，建议按组提交，作为同一批版本发布：
+
+1. 跨空间迁移的写入协调、任务隔离、事务配额校验和相关权限边界。部署约束见 [workspace-transfer-coordination.md](workspace-transfer-coordination.md)。
+2. 钉钉通讯录同步失败状态、重试、当前企业内账号对账及调度器关闭。
+3. 钉钉 IM 编辑渠道时保留被列表接口隐藏的凭证。
+
+IM 修复涉及 `frontend/src/api/agent/index.ts`、`frontend/src/components/IMChannelPanel.vue`、`frontend/src/components/IMChannelPanel.test.ts`、`internal/handler/im.go`、`internal/handler/im_credentials_test.go`。前端不提交未修改的空凭证对象；后端兼容旧页面提交的空对象，保留数据库中的凭证。显式提交新凭证仍会替换原配置。
+
+## 已完成验证
+
+- 原任务记录：dingtalk、application/service、application/repository、datasource、middleware、router、container、handler、kbmutation 共 9 个包通过；错误的 `internal/access` 路径随后改为 `internal/application/access` 单独测试通过。
+- 原任务记录：钉钉同步和迁移配额定向竞态检测、相关 `go vet` 通过。
+- 合并工作区新增验证：handler 和 im 的凭证保留、语言及渠道安全定向测试通过。
+- 合并工作区新增验证：IMChannelPanel 与 useModalShell 共 10 项前端测试通过，`npm run type-check` 通过。
+- IM 修复曾在服务器源码快照上单独完成前端构建；这不能替代最终提交版本的 CI 构建。
+- `git diff --check` 通过。
+
+## 实际部署存储验证
+
+服务器：`192.168.11.141`。当前 app 将 Docker volume `weknora_data-files` 挂载至 `/data/files`，`LOCAL_STORAGE_BASE_DIR=/data/files`；该卷位于当前服务器的 XFS 文件系统。
+
+通过多个隔离临时容器，使用服务器当前 app 镜像中的 Python `fcntl.flock`，在同一个实际数据卷上验证与实现一致的非阻塞共享/独占锁：
+
+- 独占持有时，另一容器的共享锁和独占锁均被拒绝。
+- 共享锁可跨容器同时持有，并阻止独占锁。
+- 持锁进程正常退出后，新容器可取得独占锁。
+
+全部通过。仅使用独立探针文件 `/data/files/.kb-transfer-locks/release-probe-ba9c83c9cf154a81b6f4d66f1fcb0152.lock`，未访问正式协调锁或业务文件。此结论适用于当前单机 Docker volume；若改用 NFS、其他文件系统或跨主机挂载，需要重新验证。完整协调器的异常退出行为由本地测试覆盖，此次部署存储检查没有杀死业务进程。
+
+## 线上即时恢复与待完成事项
+
+钉钉渠道 `f67b8aaf-fb39-4f8b-bab9-b389277f1635` 的凭证此前在页面保存时被清空。已备份当前行，从同一工作区、同一机器人历史配置恢复凭证，通过现有 Redis 配置事件热更新；2026-11-06 16:59:10（Asia/Shanghai）日志确认重新连接。备份位于服务器 `/opt/WeKnora/backups/im-channel-before-recovery-20261106-165909.json`，其中可能包含配置敏感信息，不应提交版本库。
+
+代码修复尚未部署；旧页面仍可能在再次编辑后触发凭证清空。最终发布前还需：
+
+- 固定最终提交范围及版本，运行该提交对应的 CI；推送 main 会触发镜像发布工作流。
+- 测试环境验证渠道改名、改绑智能体后仍可接收消息，以及实际单聊、群聊问答。
+- 迁移前先停止所有旧版服务及任务消费者，统一升级所有参与进程，禁止混跑；确认全部实例共享同一锁存储。
+- 备份数据库、数据卷和当前镜像标识，明确维护窗口及回滚方式。若迁移已执行，镜像回滚不等于数据回滚，需要按备份及已完成迁移状态制定恢复步骤。
+- 用户当前“维基问答-机器人”配置为无限轮数；历史群聊曾反复检索 30 轮耗时约 4 分 53 秒并只输出过渡语。凭证修复不能证明回答质量或耗时问题已解决，仍需单独验收，未擅自修改其轮数或模型。
+
+本记录不表示已经提交、推送、CI 通过或生产部署。
