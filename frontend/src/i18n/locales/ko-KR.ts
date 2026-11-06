@@ -3156,6 +3156,8 @@ export default {
       longTermMemory: '장기 메모리',
       openConfiguration: '설정 열기',
       truncated: '전체 {total}개 중 앞 {shown}개만 표시합니다',
+      tenantWithName: '워크스페이스: {name} (ID: {id})',
+      tenantFallback: '워크스페이스 #{id}',
       bindings: {
         embedding_model: 'Embedding 모델',
         summary_model: '요약 모델',

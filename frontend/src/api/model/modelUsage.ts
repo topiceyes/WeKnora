@@ -21,6 +21,8 @@ export interface ModelUsageResource {
   id: string
   name: string
   bindings: string[]
+  /** Present for platform-wide built-in model usage returned across tenants. */
+  tenant_id?: number
 }
 
 export interface ModelUsageDetails {
@@ -66,7 +68,22 @@ function parseResources(value: unknown): ModelUsageResource[] | null {
     }
     const bindings = parseBindings(item.bindings)
     if (!bindings || bindings.length === 0) return null
-    resources.push({ id: item.id, name: item.name, bindings })
+
+    const hasTenantID = Object.prototype.hasOwnProperty.call(item, 'tenant_id')
+    if (hasTenantID && (
+      typeof item.tenant_id !== 'number'
+      || !Number.isSafeInteger(item.tenant_id)
+      || item.tenant_id <= 0
+    )) {
+      return null
+    }
+
+    resources.push({
+      id: item.id,
+      name: item.name,
+      bindings,
+      ...(hasTenantID ? { tenant_id: item.tenant_id as number } : {}),
+    })
   }
   return resources
 }
@@ -128,6 +145,23 @@ export type ModelUsageResourceKind = 'knowledge_base' | 'agent'
 
 export type KnowledgeBaseModelUsageSection = 'models' | 'multimodal' | 'asr'
 
+export const MODEL_USAGE_KB_SECTION_QUERY = 'model_usage_section'
+
+const knowledgeBaseModelUsageSections = new Set<KnowledgeBaseModelUsageSection>([
+  'models',
+  'multimodal',
+  'asr',
+])
+
+export function modelUsageKnowledgeBaseSectionFromQuery(
+  value: unknown,
+): KnowledgeBaseModelUsageSection | null {
+  return typeof value === 'string'
+    && knowledgeBaseModelUsageSections.has(value as KnowledgeBaseModelUsageSection)
+    ? value as KnowledgeBaseModelUsageSection
+    : null
+}
+
 export type AgentModelUsageSection = 'model' | 'multimodal' | 'suggestions'
 
 const knowledgeBaseUsageSections: Partial<Record<KnownModelUsageBinding, KnowledgeBaseModelUsageSection>> = {
@@ -173,9 +207,19 @@ export function modelUsageResourceRoute(
   kind: ModelUsageResourceKind,
   id: string,
   bindings: readonly string[] = [],
+  options: { knowledgeBaseSettingsDeepLink?: boolean } = {},
 ) {
   if (kind === 'knowledge_base') {
-    return { path: `/platform/knowledge-bases/${encodeURIComponent(id)}` }
+    return {
+      path: `/platform/knowledge-bases/${encodeURIComponent(id)}`,
+      ...(options.knowledgeBaseSettingsDeepLink
+        ? {
+            query: {
+              [MODEL_USAGE_KB_SECTION_QUERY]: modelUsageKnowledgeBaseSection(bindings),
+            },
+          }
+        : {}),
+    }
   }
   return {
     path: '/platform/agents',

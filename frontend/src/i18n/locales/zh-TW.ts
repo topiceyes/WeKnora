@@ -3158,6 +3158,8 @@ export default {
       longTermMemory: '長期記憶',
       openConfiguration: '打開設定',
       truncated: '僅顯示前 {shown} 個，共 {total} 個',
+      tenantWithName: '空間：{name}（ID：{id}）',
+      tenantFallback: '空間 #{id}',
       bindings: {
         embedding_model: 'Embedding 模型',
         summary_model: '摘要模型',

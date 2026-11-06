@@ -88,6 +88,10 @@ import { useI18n } from 'vue-i18n';
 import { useMarqueeSelect } from '@/hooks/useMarqueeSelect';
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext';
 import type { ParserEngineInfo } from '@/api/system';
+import {
+  MODEL_USAGE_KB_SECTION_QUERY,
+  modelUsageKnowledgeBaseSectionFromQuery,
+} from '@/api/model';
 const route = useRoute();
 const { t } = useI18n();
 const kbId = computed(() => (route.params as any).kbId as string || '');
@@ -101,6 +105,28 @@ const validTabs = ['documents', 'browse', 'wiki', 'graph', 'gallery'] as const
 type KbTab = typeof validTabs[number]
 const initTab = validTabs.includes(route.query.tab as any) ? (route.query.tab as KbTab) : 'documents'
 const activeKbTab = ref<KbTab>(initTab);
+
+// A cross-workspace model-usage link survives the hard tenant switch through
+// this one-shot query marker. Consume only known editor sections, then remove
+// the marker while retaining every unrelated query parameter.
+onMounted(() => {
+  // The editor watches visible changes without immediate initialization. Wait
+  // until its initial hidden mount before changing visibility for a deep-link.
+  watch(
+    [kbId, () => route.query[MODEL_USAGE_KB_SECTION_QUERY]],
+    ([activeKbId, rawSection]) => {
+      if (!activeKbId || rawSection === undefined) return
+      const section = modelUsageKnowledgeBaseSectionFromQuery(rawSection)
+      if (section) {
+        uiStore.openKBSettings(activeKbId, section)
+      }
+      const query = { ...route.query }
+      delete query[MODEL_USAGE_KB_SECTION_QUERY]
+      void router.replace({ query })
+    },
+    { immediate: true },
+  )
+})
 
 // Wiki 状态用于面包屑上的索引中指示。父组件自行拉取，避免依赖 WikiBrowser 挂载状态
 // （用户切到"文档" tab 时 WikiBrowser 会卸载，这里仍需持续反映后台索引进度）。

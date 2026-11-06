@@ -5695,6 +5695,8 @@ export default {
         longTermMemory: '長期メモリ',
         openConfiguration: '設定を開く',
         truncated: '{total}件中の最初の{shown}件を表示',
+        tenantWithName: 'ワークスペース：{name}（ID：{id}）',
+        tenantFallback: 'ワークスペース #{id}',
         bindings: {
           embedding_model: '埋め込みモデル',
           summary_model: '要約モデル',

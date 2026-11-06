@@ -2,11 +2,16 @@ import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import * as vue from 'vue'
 import * as stall from '../../utils/knowledgeProcessingStall.ts'
+import * as modelUsage from '../../api/model/modelUsage.ts'
 import { change, fixture, flush } from '../../test-utils/vueFixture.ts'
 
 async function setup(t: TestContext) {
   const f = fixture(t)
-  const route = vue.reactive({ params: { kbId: 'kb' }, query: {} })
+  const route = vue.reactive<any>({ params: { kbId: 'kb' }, query: {} })
+  const replace = t.mock.fn(async (location: { query?: Record<string, unknown> }) => {
+    if (location.query) route.query = location.query
+  })
+  const openKBSettings = t.mock.fn()
   const hook = {
     cardList: vue.ref([{ id: 'doc', parse_status: 'completed' }]), total: vue.ref(1), moreIndex: vue.ref(-1),
     details: vue.reactive({ id: 'doc' }), getKnowled: t.mock.fn(async () => {}),
@@ -19,11 +24,11 @@ async function setup(t: TestContext) {
     settle = () => resolve('completed')
   }))
   const page = f.component(new URL('./KnowledgeBase.vue', import.meta.url), {
-    'vue-router': { useRoute: () => route, useRouter: () => ({ replace() {} }) },
+    'vue-router': { useRoute: () => route, useRouter: () => ({ replace }) },
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
     'tdesign-vue-next': { MessagePlugin: {} },
     '@/hooks/useKnowledgeBase': () => hook,
-    '@/stores/ui': { useUIStore: () => ({ clearSelectedTagIds() {} }) },
+    '@/stores/ui': { useUIStore: () => ({ clearSelectedTagIds() {}, openKBSettings }) },
     '@/stores/organization': { useOrganizationStore: () => ({ sharedKnowledgeBases: [], getKBPermission: () => 'owner' }) },
     '@/stores/auth': { useAuthStore: () => ({ hasRole: () => true }) },
     '@/stores/chatResources': { useChatResourcesStore: () => ({
@@ -36,6 +41,7 @@ async function setup(t: TestContext) {
     '@/composables/useAssistantPageContext': { useAssistantPageContext() {} },
     '@/utils/kbPermission': {}, '@/utils/knowledgeDeletion': { waitForKnowledgeDeletion }, '@/utils/knowledgeTrace': {},
     '@/utils/knowledgeProcessingStall': stall, '@/api/wiki': {}, '@/api/knowledge-base': {},
+    '@/api/model': modelUsage,
     '@/api/knowledge-base/index': { listKnowledgeFolders, listKnowledgeTags: async () => ({ data: { data: [], total: 0 } }) },
   })
   await flush()
@@ -43,11 +49,42 @@ async function setup(t: TestContext) {
   hook.getKnowled.mock.resetCalls()
   listKnowledgeFolders.mock.resetCalls()
   fetchKnowledgeBaseById.mock.resetCalls()
+  replace.mock.resetCalls()
+  openKBSettings.mock.resetCalls()
   return {
-    ...f, ...page, route, hook, listKnowledgeFolders, fetchKnowledgeBaseById, waitForKnowledgeDeletion,
+    ...f, ...page, route, hook, replace, openKBSettings, listKnowledgeFolders, fetchKnowledgeBaseById, waitForKnowledgeDeletion,
     settleDeletion: () => settle(),
   }
 }
+
+test('consumes a valid model-usage settings section once and preserves other query parameters', async t => {
+  const f = await setup(t)
+  f.route.query = { model_usage_section: 'asr', tab: 'documents', source: 'usage' }
+  await flush()
+
+  assert.equal(f.openKBSettings.mock.callCount(), 1)
+  assert.deepEqual(Array.from(f.openKBSettings.mock.calls[0].arguments), ['kb', 'asr'])
+  assert.equal(f.replace.mock.callCount(), 1)
+  assert.deepEqual(structuredClone(f.replace.mock.calls[0].arguments[0]), {
+    query: { tab: 'documents', source: 'usage' },
+  })
+
+  await flush()
+  assert.equal(f.openKBSettings.mock.callCount(), 1)
+  assert.equal(f.replace.mock.callCount(), 1)
+})
+
+test('removes an invalid model-usage settings section without opening settings', async t => {
+  const f = await setup(t)
+  f.route.query = { model_usage_section: 'share', source: 'usage' }
+  await flush()
+
+  assert.equal(f.openKBSettings.mock.callCount(), 0)
+  assert.equal(f.replace.mock.callCount(), 1)
+  assert.deepEqual(structuredClone(f.replace.mock.calls[0].arguments[0]), {
+    query: { source: 'usage' },
+  })
+})
 
 test('refreshes files and folders for the open KB and ignores unrelated areas and KBs', async t => {
   const f = await setup(t)

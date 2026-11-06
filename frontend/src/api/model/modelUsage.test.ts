@@ -3,11 +3,13 @@ import test from 'node:test'
 
 import {
   MODEL_IN_USE_ERROR_CODE,
+  MODEL_USAGE_KB_SECTION_QUERY,
   ModelInUseError,
   modelInUseErrorFromRequest,
   modelUsageAgentSection,
   modelUsageBindingI18nKey,
   modelUsageKnowledgeBaseSection,
+  modelUsageKnowledgeBaseSectionFromQuery,
   modelUsageListTruncated,
   modelUsageResourceCount,
   modelUsageResourceRoute,
@@ -29,6 +31,33 @@ const details = {
 
 test('parses grouped model usage details without dropping multiple bindings', () => {
   assert.deepEqual(parseModelUsageDetails(details), details)
+})
+
+test('preserves valid tenant ids and keeps duplicate resource ids from different tenants', () => {
+  const crossTenantDetails = {
+    knowledge_bases: [],
+    agents: [
+      { id: 'builtin-agent', name: 'Agent A', bindings: ['chat_model'], tenant_id: 10035 },
+      { id: 'builtin-agent', name: 'Agent B', bindings: ['chat_model'], tenant_id: 10036 },
+    ],
+    long_term_memory: { bindings: [] },
+    agent_total: 2,
+  }
+  assert.deepEqual(parseModelUsageDetails(crossTenantDetails), {
+    ...crossTenantDetails,
+    knowledge_base_total: 0,
+  })
+})
+
+test('accepts omitted tenant ids but rejects unsafe or non-positive tenant ids', () => {
+  assert.deepEqual(parseModelUsageDetails(details), details)
+  for (const tenant_id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '10035', null]) {
+    assert.equal(parseModelUsageDetails({
+      knowledge_bases: [],
+      agents: [{ id: 'agent-1', name: 'Agent', bindings: ['chat_model'], tenant_id }],
+      long_term_memory: { bindings: [] },
+    }), null)
+  }
 })
 
 test('fills missing totals from the listed collections', () => {
@@ -99,6 +128,15 @@ test('keeps navigation and localization stable for all resource kinds', () => {
     { path: '/platform/knowledge-bases/kb%2Fwith%20slash' },
   )
   assert.deepEqual(
+    modelUsageResourceRoute('knowledge_base', 'kb-1', ['vlm_model'], {
+      knowledgeBaseSettingsDeepLink: true,
+    }),
+    {
+      path: '/platform/knowledge-bases/kb-1',
+      query: { [MODEL_USAGE_KB_SECTION_QUERY]: 'multimodal' },
+    },
+  )
+  assert.deepEqual(
     modelUsageResourceRoute('agent', 'agent-1'),
     { path: '/platform/agents', query: { edit: 'agent-1', section: 'model' } },
   )
@@ -124,6 +162,15 @@ test('maps knowledge-base bindings to the configuration section that owns them',
   assert.equal(modelUsageKnowledgeBaseSection(['asr_model']), 'asr')
   assert.equal(modelUsageKnowledgeBaseSection(['future_binding']), 'models')
   assert.equal(modelUsageKnowledgeBaseSection(['summary_model', 'vlm_model']), 'models')
+})
+
+test('accepts only known one-shot knowledge-base settings sections', () => {
+  assert.equal(modelUsageKnowledgeBaseSectionFromQuery('models'), 'models')
+  assert.equal(modelUsageKnowledgeBaseSectionFromQuery('multimodal'), 'multimodal')
+  assert.equal(modelUsageKnowledgeBaseSectionFromQuery('asr'), 'asr')
+  assert.equal(modelUsageKnowledgeBaseSectionFromQuery('share'), null)
+  assert.equal(modelUsageKnowledgeBaseSectionFromQuery(['models']), null)
+  assert.equal(modelUsageKnowledgeBaseSectionFromQuery(undefined), null)
 })
 
 test('maps agent bindings to the configuration section that owns them', () => {

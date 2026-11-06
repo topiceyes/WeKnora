@@ -1,28 +1,21 @@
 // Tenant-switch navigation helper.
 //
-// Switching the active tenant always lands the user on the platform's KB
-// list. 之前是「在当前路径 reload」+ 个别敏感路径回退到 KB 列表，但即便不带
-// resource id 的页面（设置、Agent 列表等）reload 后也常常因为新空间下没有
-// 对应数据出现空状态，体验跟跳到固定首页其实差不多——干脆统一跳到 KB 列表，
-// 用一次 full navigation 把所有 store / SSE / 请求都重置一遍。
+// Switching the active tenant normally lands on the platform's KB list. A
+// small number of explicit resource flows may provide a validated internal
+// deep-link. Both paths use a full navigation so every store / SSE / request
+// is reset under the new tenant.
 
 import { updateMyPreferences } from '@/api/auth'
+import { tenantSwitchTargetPath } from './tenantSwitchPath'
 
-const SAFE_FALLBACK_PATH = '/platform/knowledge-bases'
-
-/**
- * Return the URL to navigate to after a tenant switch. 目前始终返回 KB 列表
- * 作为登录页，保留函数签名是为了未来需要按路由做特殊处理时留个口子。
- */
-export function tenantSwitchTargetPath(_currentPath: string): string {
-  return SAFE_FALLBACK_PATH
-}
+export { tenantSwitchTargetPath } from './tenantSwitchPath'
 
 /**
- * Perform the post-switch navigation. 统一跳到 KB 列表。
+ * Perform the post-switch hard navigation, optionally to a validated platform
+ * deep-link. A full navigation resets tenant-scoped stores, SSE and requests.
  */
-export function navigateAfterTenantSwitch(): void {
-  window.location.href = tenantSwitchTargetPath(window.location.pathname)
+export function navigateAfterTenantSwitch(destination?: string): void {
+  window.location.href = tenantSwitchTargetPath(window.location.pathname, destination)
 }
 
 // 切换成功后的 toast 跨 hard reload 传递：调用方在 reload 前把信息塞进
@@ -75,12 +68,14 @@ export function switchToTenant(options: {
   roleLabel?: string
   /** Raw role enum, e.g. "owner". Drives the toast's chip colour. */
   roleEnum?: string
+  /** Optional same-origin `/platform/...` resource deep-link. */
+  destination?: string
 }): void {
-  const { tenantId, name, isHomeTenant, roleLabel, roleEnum } = options
+  const { tenantId, name, isHomeTenant, roleLabel, roleEnum, destination } = options
   stashTenantSwitchToast({ name, role: roleLabel, roleEnum })
   const persist = persistLastActiveTenantPreference(isHomeTenant ? null : tenantId)
   Promise.race([persist, new Promise((r) => setTimeout(r, 500))])
-    .finally(() => navigateAfterTenantSwitch())
+    .finally(() => navigateAfterTenantSwitch(destination))
 }
 
 export function consumePendingTenantSwitchToast(): PendingTenantSwitchToast | null {

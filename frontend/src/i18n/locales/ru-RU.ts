@@ -3156,6 +3156,8 @@ export default {
       longTermMemory: 'Долговременная память',
       openConfiguration: 'Открыть настройки',
       truncated: 'Показаны первые {shown} из {total}',
+      tenantWithName: 'Пространство: {name} (ID: {id})',
+      tenantFallback: 'Пространство #{id}',
       bindings: {
         embedding_model: 'Модель эмбеддингов',
         summary_model: 'Модель суммаризации',

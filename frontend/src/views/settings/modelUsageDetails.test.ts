@@ -19,8 +19,12 @@ test('model deletion renders structured usage groups and localized fallback erro
 })
 
 test('referenced knowledge bases and agents open their relevant configuration pages', () => {
-  assert.match(source, /openUsageResource\('knowledge_base', resource\.id, resource\.bindings\)/)
-  assert.match(source, /openUsageResource\('agent', resource\.id, resource\.bindings\)/)
+  assert.match(source, /openUsageResource\('knowledge_base', resource\)/)
+  assert.match(source, /openUsageResource\('agent', resource\)/)
+  assert.match(source, /:key="usageResourceKey\(resource\)"/)
+  assert.match(source, /usageResourceTenantLabel\(resource\)/)
+  assert.match(source, /tenantWithName/)
+  assert.match(source, /tenantFallback/)
   assert.match(source, /uiStore\.closeKBEditor\(\)/)
   assert.match(source, /uiStore\.closeSettings\(\)/)
   assert.match(source, /await nextTick\(\)/)
@@ -30,6 +34,11 @@ test('referenced knowledge bases and agents open their relevant configuration pa
   )
   assert.match(source, /await router\.push\(modelUsageResourceRoute\(kind, id, bindings\)\)/)
   assert.match(source, /uiStore\.openKBSettings\(id, knowledgeBaseSection\)/)
+  assert.match(
+    source,
+    /const destination = router\.resolve\(modelUsageResourceRoute[\s\S]*authStore\.setSelectedTenant\(targetTenantId, targetName \|\| null\)[\s\S]*switchToTenant\(\{[\s\S]*destination/,
+  )
+  assert.match(source, /knowledgeBaseSettingsDeepLink: kind === 'knowledge_base'/)
   assert.match(
     agentListSource,
     /editingAgent\.value\?\.id === agent\.id[\s\S]*focusAgentEditorSection\(requestedSection\)[\s\S]*editorVisible\.value = false\s*await nextTick\(\)\s*if \(generation !== editOpenGeneration\) return[\s\S]*editorVisible\.value = true/,

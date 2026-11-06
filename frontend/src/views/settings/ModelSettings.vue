@@ -205,9 +205,15 @@
               }) }}
             </h3>
             <ul>
-              <li v-for="resource in usageConflict.knowledge_bases" :key="resource.id">
+              <li
+                v-for="resource in usageConflict.knowledge_bases"
+                :key="usageResourceKey(resource)"
+              >
                 <div class="model-usage-resource">
                   <strong>{{ resource.name || resource.id }}</strong>
+                  <span v-if="resource.tenant_id" class="model-usage-resource__tenant">
+                    {{ usageResourceTenantLabel(resource) }}
+                  </span>
                   <div class="model-usage-bindings">
                     <t-tag
                       v-for="(binding, index) in resource.bindings"
@@ -223,7 +229,7 @@
                   theme="primary"
                   variant="text"
                   size="small"
-                  @click="openUsageResource('knowledge_base', resource.id, resource.bindings)"
+                  @click="openUsageResource('knowledge_base', resource)"
                 >
                   {{ $t('modelSettings.usage.openConfiguration') }}
                 </t-button>
@@ -245,9 +251,15 @@
               count: modelUsageResourceCount(usageConflict.agents, usageConflict.agent_total)
             }) }}</h3>
             <ul>
-              <li v-for="resource in usageConflict.agents" :key="resource.id">
+              <li
+                v-for="resource in usageConflict.agents"
+                :key="usageResourceKey(resource)"
+              >
                 <div class="model-usage-resource">
                   <strong>{{ resource.name || resource.id }}</strong>
+                  <span v-if="resource.tenant_id" class="model-usage-resource__tenant">
+                    {{ usageResourceTenantLabel(resource) }}
+                  </span>
                   <div class="model-usage-bindings">
                     <t-tag
                       v-for="(binding, index) in resource.bindings"
@@ -263,7 +275,7 @@
                   theme="primary"
                   variant="text"
                   size="small"
-                  @click="openUsageResource('agent', resource.id, resource.bindings)"
+                  @click="openUsageResource('agent', resource)"
                 >
                   {{ $t('modelSettings.usage.openConfiguration') }}
                 </t-button>
@@ -335,6 +347,7 @@ import {
   modelUsageResourceRoute,
   type ModelConfig,
   type ModelUsageDetails,
+  type ModelUsageResource,
   type ModelUsageResourceKind,
 } from '@/api/model'
 import { useAuthStore } from '@/stores/auth'
@@ -346,6 +359,7 @@ import { useModelProvidersStore } from '@/stores/modelProviders'
 import { docsUrl } from '@/utils/docsUrl'
 import { matchesResourceQuery } from '@/utils/resourceListSearch'
 import { useAssistantDataChange } from '@/utils/assistantDataChange'
+import { switchToTenant } from '@/utils/tenantSwitch'
 import {
   formatContextWindow,
   isDefaultContextWindow,
@@ -806,13 +820,67 @@ const deleteModel = async (_type: ModelType, modelId: string) => {
   }
 }
 
+const usageResourceKey = (resource: ModelUsageResource): string =>
+  `${resource.tenant_id ?? 'current'}:${resource.id}`
+
+const usageTenantName = (tenantId: number): string => {
+  const tenant = authStore.allTenants.find(item => Number(item.id) === tenantId)
+  if (tenant?.name) return tenant.name
+
+  const membership = authStore.memberships.find(item => Number(item.tenant_id) === tenantId)
+  if (membership?.tenant_name) return membership.tenant_name
+
+  if (Number(authStore.effectiveTenantId) === tenantId && authStore.currentTenantName) {
+    return authStore.currentTenantName
+  }
+  if (Number(authStore.tenant?.id) === tenantId && authStore.tenant?.name) {
+    return authStore.tenant.name
+  }
+  return ''
+}
+
+const usageResourceTenantLabel = (resource: ModelUsageResource): string => {
+  if (!resource.tenant_id) return ''
+  const name = usageTenantName(resource.tenant_id)
+  return name
+    ? t('modelSettings.usage.tenantWithName', { name, id: resource.tenant_id })
+    : t('modelSettings.usage.tenantFallback', { id: resource.tenant_id })
+}
+
 const openUsageResource = async (
   kind: ModelUsageResourceKind,
-  id: string,
-  bindings: readonly string[] = [],
+  resource: ModelUsageResource,
 ) => {
   showUsageDialog.value = false
+  const { id, bindings } = resource
   const knowledgeBaseSection = modelUsageKnowledgeBaseSection(bindings)
+  const targetTenantId = resource.tenant_id
+  const currentTenantId = authStore.effectiveTenantId
+
+  if (targetTenantId && Number(currentTenantId) !== targetTenantId) {
+    const destination = router.resolve(modelUsageResourceRoute(kind, id, bindings, {
+      knowledgeBaseSettingsDeepLink: kind === 'knowledge_base',
+    })).href
+    const targetName = usageTenantName(targetTenantId)
+    const membership = authStore.memberships.find(
+      item => Number(item.tenant_id) === targetTenantId,
+    )
+    const homeTenantId = authStore.user?.tenant_id
+      ? Number(authStore.user.tenant_id)
+      : null
+
+    uiStore.closeSettings()
+    authStore.setSelectedTenant(targetTenantId, targetName || null)
+    switchToTenant({
+      tenantId: targetTenantId,
+      name: targetName || `#${targetTenantId}`,
+      isHomeTenant: homeTenantId === targetTenantId,
+      roleEnum: membership?.role,
+      destination,
+    })
+    return
+  }
+
   // The UI store can outlive the route component that owns the KB editor.
   // Only focus an existing editor when the current route still mounts one;
   // otherwise a stale visible/id pair would make a direct Settings page no-op.
@@ -1477,12 +1545,20 @@ useAssistantDataChange(() => { void loadModels() }, { areas: ['model'] })
 
   strong {
     display: block;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
     overflow: hidden;
     color: var(--td-text-color-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+.model-usage-resource__tenant {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-xs);
+  line-height: 1.4;
 }
 
 .model-usage-bindings {

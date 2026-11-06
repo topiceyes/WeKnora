@@ -5695,6 +5695,8 @@ export default {
         longTermMemory: 'Long-term memory',
         openConfiguration: 'Open settings',
         truncated: 'Showing the first {shown} of {total}',
+        tenantWithName: 'Workspace: {name} (ID: {id})',
+        tenantFallback: 'Workspace #{id}',
         bindings: {
           embedding_model: 'Embedding model',
           summary_model: 'Summary model',
