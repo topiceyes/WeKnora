@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
@@ -19,6 +20,17 @@ func (e *AgentEngine) streamFinalAnswerToEventBus(
 	state *types.AgentState,
 	sessionID string,
 	conversation []chat.Message,
+) error {
+	return e.streamFinalAnswerWithNotice(ctx, query, state, sessionID, conversation, "")
+}
+
+func (e *AgentEngine) streamFinalAnswerWithNotice(
+	ctx context.Context,
+	query string,
+	state *types.AgentState,
+	sessionID string,
+	conversation []chat.Message,
+	extraNotice string,
 ) error {
 	totalToolCalls := countTotalToolCalls(state.RoundSteps)
 	logger.Infof(ctx, "[Agent][FinalAnswer] Synthesizing from %d steps, %d tool calls",
@@ -41,6 +53,9 @@ func (e *AgentEngine) streamFinalAnswerToEventBus(
 		"remaining work and explain any missing evidence. Use the user's requested " +
 		"language and format. Do not claim that an unperformed action " +
 		"succeeded.\"}</runtime_event>"
+	if extraNotice != "" {
+		runtimeNotice += "\n" + extraNotice
+	}
 
 	// Generate a single ID for this entire final answer stream
 	answerID := generateEventID("answer")
@@ -106,6 +121,9 @@ func (e *AgentEngine) streamFinalAnswerToEventBus(
 			"error":      err.Error(),
 		})
 		return err
+	}
+	if extraNotice != "" && len(llmResult.ToolCalls) > 0 {
+		return fmt.Errorf("final answer requested tools after retrieval was stopped")
 	}
 	if _, tail := splitter.Flush(); tail != "" {
 		_ = e.eventBus.Emit(ctx, event.Event{

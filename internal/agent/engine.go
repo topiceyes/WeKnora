@@ -534,6 +534,7 @@ func (e *AgentEngine) withinIterationBudget(round int) bool {
 // spinning without ever finishing: empty answers, the same answer repeated,
 // and rounds cut off at the completion-token cap.
 type loopGuards struct {
+	retrieval retrievalGuard
 	// emptyRetries counts nudges sent after a stop with no content.
 	emptyRetries         int
 	pendingRuntimeNotice string
@@ -865,17 +866,31 @@ func (e *AgentEngine) runReActIteration(
 	// text stays inside the protected tail) and before lastSentMsgCount is
 	// updated (the injected text counts as new delta tokens for the next
 	// call), so the very next LLM call sees the user's addition.
-	e.drainSteerMessages(ctx, state, messagesPtr, sessionID, assistantMessageID)
+	if e.drainSteerMessages(ctx, state, messagesPtr, sessionID, assistantMessageID) > 0 {
+		guards.retrieval = retrievalGuard{}
+		if guards.pendingRuntimeNotice == retrievalRepeatNotice {
+			guards.pendingRuntimeNotice = ""
+		}
+	}
 	if e.collaboration != nil {
 		events, err := e.collaboration.Poll(ctx)
 		if err != nil {
 			return iterOutcomeBreak, err
 		}
 		e.deliverCollaborationEvents(messagesPtr, events, len(state.RoundSteps), false)
+		if len(events) > 0 {
+			guards.retrieval = retrievalGuard{}
+			if guards.pendingRuntimeNotice == retrievalRepeatNotice {
+				guards.pendingRuntimeNotice = ""
+			}
+		}
 		e.holdCollaborationAnswer, err = e.collaboration.PendingAnswer(ctx)
 		if err != nil {
 			return iterOutcomeBreak, err
 		}
+	}
+	if guards.retrieval.repeatedRounds >= retrievalRepeatStopRounds {
+		return iterOutcomeBreak, e.finishRepeatedRetrieval(ctx, state, query, sessionID, *messagesPtr)
 	}
 	if guards.childAnswerRevised {
 		tools = nil
@@ -1001,6 +1016,7 @@ func (e *AgentEngine) runReActIteration(
 	// round, which used to land in the else branch and reset the counter, so
 	// the guard could never fire on the one shape that needs it most (#3446).
 	if len(response.ToolCalls) == 0 {
+		guards.retrieval = retrievalGuard{}
 		if guards.sawPlainRound && response.Content == guards.lastResponseContent {
 			guards.consecutiveSameContent++
 		} else {
@@ -1294,6 +1310,12 @@ func (e *AgentEngine) runReActIteration(
 	state.RoundSteps = append(state.RoundSteps, step)
 	*messagesPtr = e.appendToolResults(*messagesPtr, step)
 	*messagesPtr = e.appendToolImages(ctx, *messagesPtr, step)
+	if guards.retrieval.observe(step) {
+		guards.pendingRuntimeNotice = retrievalRepeatNotice
+		common.PipelineWarn(ctx, "Agent", "repeated_retrieval_warning", map[string]interface{}{
+			"iteration": state.CurrentRound, "repeated_rounds": guards.retrieval.repeatedRounds,
+		})
+	}
 	common.PipelineInfo(ctx, "Agent", "round_end", map[string]interface{}{
 		"iteration":   state.CurrentRound,
 		"round":       round,
