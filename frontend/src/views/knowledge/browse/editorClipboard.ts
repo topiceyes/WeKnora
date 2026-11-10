@@ -1,7 +1,8 @@
 import { Extension } from '@tiptap/core'
 import { Plugin } from '@tiptap/pm/state'
-import { Fragment, Slice } from '@tiptap/pm/model'
 import type { EditorProps } from '@tiptap/pm/view'
+import { isInTable } from '@tiptap/pm/tables'
+import { pasteTableCells, spreadsheetSlice, type TablePasteProblem } from './editorTablePaste'
 
 /** Restrict persisted CSS to opaque colors accepted by the document schema. */
 export function clipboardColor(value: string): string | null {
@@ -95,8 +96,10 @@ export function normalizeClipboardHTML(html: string, images?: { label: string; o
 }
 
 /** Excel/Sheets TSV supports quoted tabs, line breaks and escaped quotes. */
-export function clipboardTable(text: string): string[][] | null {
-  if (!text.includes('\t') || text.length > 500_000) return null
+export function clipboardTable(text: string, inTable = false, onLimit?: () => void): string[][] | null {
+  if (!text.includes('\t') && !(inTable && /[\r\n]/.test(text))) return null
+  const limit = () => { onLimit?.(); return null }
+  if (text.length > 500_000) return limit()
   const rows: string[][] = [], row: string[] = []
   let value = '', quoted = false, closed = false
   const input = text.replace(/\r\n?/g, '\n')
@@ -110,8 +113,8 @@ export function clipboardTable(text: string): string[][] | null {
     } else if (c === '"' && value === '' && !closed) quoted = true
     else if (c === '\t' || c === '\n') {
       row.push(value); value = ''; closed = false
-      if (row.length > 100) return null
-      if (c === '\n') { rows.push(row.splice(0)); if (rows.length > 500) return null }
+      if (row.length > 100) return limit()
+      if (c === '\n') { rows.push(row.splice(0)); if (rows.length > 500) return limit() }
     } else {
       if (closed) return null
       value += c
@@ -119,30 +122,38 @@ export function clipboardTable(text: string): string[][] | null {
   }
   if (quoted) return null
   if (value || row.length || !input.endsWith('\n')) { row.push(value); rows.push(row) }
-  if (rows.length < 2 || rows.length > 500 || rows[0]!.length < 2 || rows[0]!.length > 100 || rows.some(r => r.length !== rows[0]!.length)) return null
+  if (rows.length > 500 || rows.some(r => r.length > 100)) return limit()
+  if (!rows.length || rows.some(r => r.length !== rows[0]!.length)) return null
+  if (inTable ? rows.length * rows[0]!.length < 2 : rows.length < 2 || rows[0]!.length < 2) return null
   return rows
 }
 
 export const RichClipboard = Extension.create({
   name: 'richClipboard', priority: 1100,
-  addOptions() { return { imageLabel: 'Image', onUnsupportedImage: () => {} } },
+  addOptions() { return { imageLabel: 'Image', onUnsupportedImage: () => {}, onTablePasteRejected: (_problem: TablePasteProblem) => {} } },
   addProseMirrorPlugins() {
     return [new Plugin({ props: {
       transformPastedHTML: html => normalizeClipboardHTML(html, { label: this.options.imageLabel, onUnsupported: this.options.onUnsupportedImage }),
+      handlePaste: (view, event, slice) => {
+        if (!view.editable) return false
+        if (isInTable(view.state) && !view.state.selection.$from.parent.type.spec.code) {
+          let tooLarge = false
+          clipboardTable(event.clipboardData?.getData('text/plain') || '', true, () => { tooLarge = true })
+          if (tooLarge) { this.options.onTablePasteRejected('limit'); return true }
+        }
+        return pasteTableCells(view, event, slice, this.options.onTablePasteRejected)
+      },
       // ProseMirror's someProp dispatcher accepts null to continue to the next
       // parser (as tiptap-markdown does), though its public type omits null.
       clipboardTextParser: ((text, context, plainText, view) => {
         if (plainText || context.parent.type.spec.code) return null
+        let inTable = false
         for (let depth = context.depth; depth > 0; depth--) {
-          if (['tableCell', 'tableHeader'].includes(context.node(depth).type.name)) return null
+          if (['tableCell', 'tableHeader'].includes(context.node(depth).type.name)) { inTable = true; break }
         }
-        const rows = clipboardTable(text), s = view.state.schema.nodes
+        const rows = clipboardTable(text, inTable), s = view.state.schema.nodes
         if (!rows || !s.table || !s.tableRow || !s.tableCell || !s.paragraph) return null
-        const table = s.table.create(null, rows.map(row => s.tableRow!.create(null, row.map(text => {
-          const content = text.split('\n').map(line => s.paragraph!.create(null, line ? view.state.schema.text(line) : null))
-          return s.tableCell!.create(null, content)
-        }))))
-        return new Slice(Fragment.from(table), 0, 0)
+        return spreadsheetSlice(rows, view.state.schema)
       }) as NonNullable<EditorProps['clipboardTextParser']>,
     } })]
   },

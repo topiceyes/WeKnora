@@ -6,6 +6,7 @@ import { StarterKit } from '@tiptap/starter-kit'
 import { TaskList } from '@tiptap/extension-list'
 import * as table from '@tiptap/extension-table'
 import * as state from '@tiptap/pm/state'
+import * as history from '@tiptap/pm/history'
 import { Markdown } from 'tiptap-markdown'
 import * as documentLinks from '../../documents/documentLinks.ts'
 
@@ -20,7 +21,7 @@ test('editor setup registers menu watchers after the editor ref exists', t => {
     'tdesign-vue-next': { MessagePlugin: {} },
     '@tiptap/vue-3': { useEditor: (value: any) => { options = value; return editorRef }, EditorContent: {} },
     '@tiptap/starter-kit': { StarterKit }, '@tiptap/extension-list': { TaskList },
-    '@tiptap/extension-table': table, '@tiptap/pm/state': state,
+    '@tiptap/extension-table': table, '@tiptap/pm/state': state, '@tiptap/pm/history': history,
     'tiptap-markdown': { Markdown }, 'katex/dist/katex.min.css': {},
     '@/api/knowledge-base': {}, '@/views/documents/documentLinks': documentLinks, '@/utils/security': {}, './richDocument.less': {},
     './MermaidCodeBlock': { MermaidCodeBlock: { configure: () => ({}) } },

@@ -37,6 +37,18 @@ export default {
     "folderPath": "保存到"
 },
   richWriting: {
+    "imageAlignLeft": "左对齐",
+    "imageAlignCenter": "居中",
+    "imageAlignRight": "右对齐",
+    "imageWidth": "宽度",
+    "imageAutoSize": "自动",
+    "imageOriginalSize": "恢复原尺寸",
+    "imageResize": "调整图片大小（左右方向键调整，Home 恢复原尺寸）",
+    "imageWidthHint": "图片宽度须为 1–4096 的整数。",
+    "tablePasteHint": "可直接粘贴 Excel 多行多列；多格选区须与复制区域同尺寸，单值可填满选区。",
+    "tablePasteSelection": "复制区域与选中区域尺寸不一致，请选择同尺寸区域，或点击一个单元格后粘贴。",
+    "tablePasteMerged": "粘贴范围包含合并单元格，请先拆分后再粘贴。原内容未改动。",
+    "tablePasteLimit": "粘贴后会超出表格或文档容量限制，请分批粘贴或减少内容。原内容未改动。",
     "pasteImageNeedsUpload": "部分嵌入图片无法直接粘贴，已保留图片说明；请通过上传图片补充。",
     "highlight": "文字高亮",
     "textColor": "文字颜色",
@@ -75,6 +87,7 @@ export default {
     "newDraftHint": "首次保存前仅自动保存在此浏览器，不会提交到知识库。"
 },
   writingTools: {
+    "emptyHeading": "空标题",
     "blockType": "段落样式",
     "paragraph": "正文",
     "heading1": "一级标题",

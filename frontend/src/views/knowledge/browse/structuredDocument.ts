@@ -1,3 +1,5 @@
+import { imageDimension, imageLayoutStyle } from './imageLayout'
+
 export interface EditorMark { type: string; attrs?: Record<string, any> }
 export interface EditorNode { type: string; attrs?: Record<string, any>; content?: EditorNode[]; marks?: EditorMark[]; text?: string }
 export interface StructuredDocument { schema_version: 1; content: EditorNode }
@@ -133,7 +135,7 @@ export function documentHTML(document: StructuredDocument, renderMarkdown: (mark
       case 'taskItem': return `<li class="rich-document-task"><span class="rich-document-task-state" aria-label="${a.checked ? 'checked' : 'unchecked'}">${a.checked ? '☑' : '☐'}</span>${body}</li>`
       case 'hardBreak': return '<br>'
       case 'horizontalRule': return '<hr>'
-      case 'image': return safeURL(a.src, true) ? `<img src="${escapeHTML(a.src)}" alt="${escapeHTML(a.alt)}" title="${escapeHTML(a.title)}">` : ''
+      case 'image': return safeURL(a.src, true) ? `<img src="${escapeHTML(a.src)}" alt="${escapeHTML(a.alt)}" title="${escapeHTML(a.title)}"${imageDimension(a.width) ? ` width="${a.width}"` : ''} style="${imageLayoutStyle(a)}">` : ''
       case 'codeBlock': case 'blockMath': case 'inlineMath': {
         const html = renderMarkdown(nodeMarkdown(node))
         return node.type === 'inlineMath' ? html.replace(/^<p>|<\/p>\s*$/g, '') : html

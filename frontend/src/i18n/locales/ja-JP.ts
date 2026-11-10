@@ -37,6 +37,18 @@ export default {
     "folderPath": "Save to"
 },
   richWriting: {
+    "imageAlignLeft": "左揃え",
+    "imageAlignCenter": "中央揃え",
+    "imageAlignRight": "右揃え",
+    "imageWidth": "幅",
+    "imageAutoSize": "自動",
+    "imageOriginalSize": "元のサイズに戻す",
+    "imageResize": "画像のサイズ変更（左右キーで調整、Home で元に戻す）",
+    "imageWidthHint": "画像の幅は 1〜4096 の整数にしてください。",
+    "tablePasteHint": "表計算の複数行・列を直接貼り付けられます。複数セルの選択範囲はコピー範囲と同じサイズにしてください。単一の値は選択範囲全体に入力できます。",
+    "tablePasteSelection": "コピー範囲と選択範囲のサイズが異なります。同じサイズの範囲を選択するか、1 つのセルをクリックして貼り付けてください。",
+    "tablePasteMerged": "貼り付け範囲に結合セルがあります。先にセルを分割してください。元の内容は変更されていません。",
+    "tablePasteLimit": "貼り付けると表または文書の上限を超えます。内容を減らして貼り付けてください。元の内容は変更されていません。",
     "pasteImageNeedsUpload": "一部の埋め込み画像は貼り付けられませんでした。画像の説明は保持されています。画像をアップロードして追加してください。",
     "highlight": "ハイライト",
     "textColor": "文字色",
@@ -75,6 +87,7 @@ export default {
     "newDraftHint": "最初の保存までは、このブラウザーにのみ下書きを保存します。"
 },
   writingTools: {
+    "emptyHeading": "空の見出し",
     "blockType": "段落スタイル",
     "paragraph": "本文",
     "heading1": "見出し1",

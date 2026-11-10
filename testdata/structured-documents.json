@@ -499,5 +499,28 @@
       }
     },
     "markdown": "[发布规范](/platform/documents/open/12345678-1234-4234-8234-123456789abc) 以及 [接口说明](https://example.com/docs)"
+  },
+  {
+    "name": "image-layout",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "image",
+            "attrs": {
+              "src": "resource://synthetic-image",
+              "alt": "布局示例",
+              "title": "示意图片",
+              "width": 640,
+              "height": 320,
+              "align": "right"
+            }
+          }
+        ]
+      }
+    },
+    "markdown": "![布局示例](resource://synthetic-image)"
   }
 ]

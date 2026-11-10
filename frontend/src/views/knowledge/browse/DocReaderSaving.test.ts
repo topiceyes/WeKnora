@@ -69,6 +69,21 @@ test('automatic persistence stays in edit mode and saves against the current ver
   assert.equal(f.vm.editing, false)
 })
 
+test('outline jumps delegate to the active editor without making the document dirty or triggering saves', async t => {
+  const f = await setup(t)
+  f.vm.startEdit()
+  const jump = t.mock.fn()
+  f.vm.richEditorRef = { scrollToHeading: jump }
+  f.vm.scrollToHeading(2)
+  assert.equal(jump.mock.calls[0].arguments[0], 2)
+  assert.equal(f.vm.hasUnsavedChanges, false)
+  await flush(); t.mock.timers.tick(2000); await flush()
+  assert.equal(f.updateKnowledgeContent.mock.callCount(), 0)
+  await f.vm.saveEdit()
+  f.vm.scrollToHeading(1)
+  assert.equal(jump.mock.callCount(), 1)
+})
+
 test('typing during a save survives the response and gets backed up with the new baseline version', async t => {
   const f = await setup(t)
   let settle!: (value: any) => void
@@ -148,6 +163,28 @@ function highlighted(color: string): structured.StructuredDocument {
     { type: 'text', text: 'Same text', marks: [{ type: 'highlight', attrs: { color } }] },
   ] }] } }
 }
+
+test('image size and alignment edits autosave even when the Markdown projection is unchanged', async t => {
+  const f = await setup(t)
+  const original: structured.StructuredDocument = { schema_version: 1, content: { type: 'doc', content: [
+    { type: 'image', attrs: { src: 'resource://synthetic-image', alt: 'Example', width: 320, height: null, align: 'left' } },
+  ] } }
+  const changed = structuredClone(original)
+  changed.content.content![0]!.attrs!.width = 640
+  changed.content.content![0]!.attrs!.align = 'right'
+  const content = structured.documentMarkdown(original)
+  assert.equal(content, structured.documentMarkdown(changed))
+  f.vm.structuredDocument = original; f.vm.markdown = content; f.vm.startEdit()
+  f.vm.onEditorContent({ content, document: changed })
+  await flush()
+  assert.equal(f.vm.hasUnsavedChanges, true)
+  t.mock.timers.tick(1800); await flush()
+  assert.equal(f.updateKnowledgeContent.mock.callCount(), 1)
+  const payload = f.updateKnowledgeContent.mock.calls[0].arguments[1]
+  assert.equal(structured.sameDocument(payload.document, changed), true)
+  assert.equal(f.vm.hasUnsavedChanges, false)
+  assert.equal(structured.sameDocument(f.vm.baselineDocument, changed), true)
+})
 
 test('format-only edits autosave the structure and retain later colors during an in-flight save', async t => {
   const f = await setup(t)

@@ -37,6 +37,18 @@ export default {
     "folderPath": "Save to"
 },
   richWriting: {
+    "imageAlignLeft": "Align left",
+    "imageAlignCenter": "Center",
+    "imageAlignRight": "Align right",
+    "imageWidth": "Width",
+    "imageAutoSize": "Auto",
+    "imageOriginalSize": "Original size",
+    "imageResize": "Resize image (arrow keys adjust, Home resets)",
+    "imageWidthHint": "Image width must be a whole number from 1 to 4096.",
+    "tablePasteHint": "Paste spreadsheet rows and columns directly. A multi-cell selection must match the copied area; one value can fill the selection.",
+    "tablePasteSelection": "The copied area and selected cells have different dimensions. Select a matching area or click one cell before pasting.",
+    "tablePasteMerged": "The paste area includes merged cells. Split them before pasting. Existing content is unchanged.",
+    "tablePasteLimit": "The paste would exceed table or document limits. Paste less content at a time. Existing content is unchanged.",
     "pasteImageNeedsUpload": "Some embedded images could not be pasted. Their descriptions were kept; upload the images to add them.",
     "highlight": "Highlight",
     "textColor": "Text color",
@@ -75,6 +87,7 @@ export default {
     "newDraftHint": "Before the first save, drafts are stored in this browser only and are not submitted to the knowledge base."
 },
   writingTools: {
+    "emptyHeading": "Empty heading",
     "blockType": "Block style",
     "paragraph": "Paragraph",
     "heading1": "Heading 1",

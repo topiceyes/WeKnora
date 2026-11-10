@@ -37,6 +37,18 @@ export default {
     "folderPath": "Save to"
 },
   richWriting: {
+    "imageAlignLeft": "왼쪽 정렬",
+    "imageAlignCenter": "가운데 정렬",
+    "imageAlignRight": "오른쪽 정렬",
+    "imageWidth": "너비",
+    "imageAutoSize": "자동",
+    "imageOriginalSize": "원본 크기",
+    "imageResize": "이미지 크기 조정 (좌우 방향키로 조정, Home으로 초기화)",
+    "imageWidthHint": "이미지 너비는 1~4096 사이의 정수여야 합니다.",
+    "tablePasteHint": "스프레드시트의 여러 행과 열을 바로 붙여넣을 수 있습니다. 여러 셀을 선택한 경우 복사 영역과 크기가 같아야 하며, 값 하나는 선택 영역 전체에 채울 수 있습니다.",
+    "tablePasteSelection": "복사 영역과 선택 영역의 크기가 다릅니다. 같은 크기의 영역을 선택하거나 셀 하나를 클릭한 후 붙여넣으세요.",
+    "tablePasteMerged": "붙여넣을 영역에 병합된 셀이 있습니다. 먼저 셀을 분할하세요. 기존 내용은 변경되지 않았습니다.",
+    "tablePasteLimit": "붙여넣으면 표 또는 문서의 용량 제한을 초과합니다. 내용을 나누거나 줄여서 붙여넣으세요. 기존 내용은 변경되지 않았습니다.",
     "pasteImageNeedsUpload": "일부 포함된 이미지를 붙여넣을 수 없습니다. 이미지 설명은 유지되었습니다. 이미지를 업로드해 추가하세요.",
     "highlight": "강조 표시",
     "textColor": "글자 색",
@@ -75,6 +87,7 @@ export default {
     "newDraftHint": "처음 저장하기 전에는 이 브라우저에만 초안을 저장하며 지식 베이스에 제출하지 않습니다."
 },
   writingTools: {
+    "emptyHeading": "빈 제목",
     "blockType": "문단 스타일",
     "paragraph": "본문",
     "heading1": "제목 1",

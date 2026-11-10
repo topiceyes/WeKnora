@@ -1,4 +1,4 @@
-/** 浏览模式阅读器的大纲项（从渲染后的标题元素提取）。 */
+/** 阅读和编辑共用的标题大纲；编辑器位置仅在编辑器内解析。 */
 export interface OutlineItem {
   text: string
   level: number // 1-6

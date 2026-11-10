@@ -82,7 +82,9 @@
         </div>
         <t-input v-model="editTitle" class="doc-reader__edit-title" :maxlength="200" :disabled="manualSaving" clearable />
         <RichEditor ref="richEditorRef" v-model="editContent" :document="editDocument" :kb-id="kbId" :disabled="manualSaving || editorInvalid" class="doc-reader__edit-editor"
-          @content-change="onEditorContent" @content-error="editorInvalid = true" @busy-change="editorBusy = $event" />
+          @content-change="onEditorContent" @content-error="editorInvalid = true" @busy-change="editorBusy = $event"
+          @outline-change="items => { if (editing) emit('outline-change', items) }"
+          @outline-active="index => { if (editing) emit('outline-active', index) }" />
         <div class="doc-reader__edit-actions">
           <t-button variant="outline" :disabled="saving || editorBusy" @click="cancelEdit">
             {{ t(workspace ? 'documentSaving.backToReading' : 'knowledgeBase.browse.cancel') }}
@@ -503,6 +505,8 @@ const startEdit = () => {
   editBaselineTitle.value = editTitle.value
   editBaselineContent.value = editContent.value
   editing.value = true
+  emit('outline-change', [])
+  emit('outline-active', -1)
   saveConflict.value = false
   lastSaveFailed.value = false
   autosave.resume()
@@ -782,7 +786,7 @@ const handleMermaidClick = (e: Event) => {
 const runPostRender = async () => {
   await nextTick()
   const root = contentRef.value
-  if (!root) return
+  if (!root || editing.value) return
   const first = root.firstElementChild
   const normalize = (value: string) => value.replace(/\s+/g, ' ').trim()
   bodyHasTitle.value = first?.tagName === 'H1' && normalize(first.textContent || '') === normalize(displayTitle.value)
@@ -825,6 +829,7 @@ watch([renderedHtml, displayTitle, loading, editing], () => {
 
 // 滚动高亮：取滚动位置上方最后一个标题作为当前大纲项。
 const onScroll = () => {
+  if (editing.value) return
   const scrollEl = scrollRef.value
   if (!scrollEl || !headingEls.length) return
   const offset = scrollEl.scrollTop + 96
@@ -840,6 +845,7 @@ const onScroll = () => {
 }
 
 const scrollToHeading = (index: number) => {
+  if (editing.value) { richEditorRef.value?.scrollToHeading(index); return }
   const el = headingEls[index]
   const scrollEl = scrollRef.value
   if (!el || !scrollEl) return

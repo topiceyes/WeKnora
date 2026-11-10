@@ -118,22 +118,27 @@
       <div v-else-if="bookError" class="document-workspace__state" role="alert">
         <p>{{ bookError }}</p><t-button variant="outline" @click="loadBook">{{ t('knowledgeBase.browse.retry') }}</t-button>
       </div>
-      <section v-else-if="creating && canEdit" class="document-workspace__compose" @keydown="onSaveKeydown">
-        <DraftRecovery :drafts="newDraft.candidates.value" :disabled="saving || editorBusy"
-          @restore="restoreNewDraft" @discard="newDraft.discard" />
-        <div class="document-workspace__compose-heading">
-          <strong>{{ t('documentWorkspace.newDocument') }}</strong>
-          <div><t-button variant="outline" :disabled="saving || editorBusy" @click="cancelNew">{{ t('knowledgeBase.browse.cancel') }}</t-button>
-            <t-button theme="primary" :loading="saving" :disabled="editorBusy || editorInvalid || !newTitle.trim() || !newContent.trim()"
-              @click="saveNew">{{ t('knowledgeBase.browse.save') }}</t-button></div>
+      <section v-else-if="creating && canEdit" class="document-workspace__document" @keydown="onSaveKeydown">
+        <div class="document-workspace__compose">
+          <DraftRecovery :drafts="newDraft.candidates.value" :disabled="saving || editorBusy"
+            @restore="restoreNewDraft" @discard="newDraft.discard" />
+          <div class="document-workspace__compose-heading">
+            <strong>{{ t('documentWorkspace.newDocument') }}</strong>
+            <div><t-button variant="outline" :disabled="saving || editorBusy" @click="cancelNew">{{ t('knowledgeBase.browse.cancel') }}</t-button>
+              <t-button theme="primary" :loading="saving" :disabled="editorBusy || editorInvalid || !newTitle.trim() || !newContent.trim()"
+                @click="saveNew">{{ t('knowledgeBase.browse.save') }}</t-button></div>
+          </div>
+          <t-input v-model="newTitle" :maxlength="200" :disabled="saving" :placeholder="t('documentWorkspace.titlePlaceholder')"
+            :aria-label="t('documentWorkspace.titlePlaceholder')" />
+          <p class="document-workspace__draft-status" role="status" aria-live="polite">{{ newDraftStatus }}</p>
+          <t-select v-model="newFolder" :options="newFolderOptions" :disabled="saving" :aria-label="t('documentNavigation.destination')" />
+          <RichEditor ref="newEditorRef" v-model="newContent" :document="newDocumentBody" :kb-id="kbId" :disabled="saving || editorInvalid"
+            :placeholder="t('documentWorkspace.contentPlaceholder')" @busy-change="editorBusy = $event"
+            @content-change="onNewContent" @content-error="editorInvalid = true"
+            @outline-change="newOutlineItems = $event" @outline-active="newOutlineActive = $event" />
         </div>
-        <t-input v-model="newTitle" :maxlength="200" :disabled="saving" :placeholder="t('documentWorkspace.titlePlaceholder')"
-          :aria-label="t('documentWorkspace.titlePlaceholder')" />
-        <p class="document-workspace__draft-status" role="status" aria-live="polite">{{ newDraftStatus }}</p>
-        <t-select v-model="newFolder" :options="newFolderOptions" :disabled="saving" :aria-label="t('documentNavigation.destination')" />
-        <RichEditor ref="newEditorRef" v-model="newContent" :document="newDocumentBody" :kb-id="kbId" :disabled="saving || editorInvalid"
-          :placeholder="t('documentWorkspace.contentPlaceholder')" @busy-change="editorBusy = $event"
-          @content-change="onNewContent" @content-error="editorInvalid = true" />
+        <DocOutline :collapsed="newOutlineCollapsed" :items="newOutlineItems" :active-index="newOutlineActive"
+          @update:collapsed="layout.setOutline" @jump="newEditorRef?.scrollToHeading($event)" />
       </section>
       <section v-else class="document-workspace__document">
         <template v-if="folderView">
@@ -231,10 +236,13 @@ const editorBusy = ref(false)
 const reader = ref<InstanceType<typeof DocReader> | null>(null)
 const outlineItems = ref<OutlineItem[]>([])
 const outlineActive = ref(-1)
+const newOutlineItems = ref<OutlineItem[]>([])
+const newOutlineActive = ref(-1)
 const readerToolbar = ref<HTMLElement | null>(null)
 const layout = useWorkspaceLayout(() => auth.user?.id && auth.effectiveTenantId && kbId.value
   ? { user: auth.user.id, tenant: auth.effectiveTenantId, kb: kbId.value } : null)
 const outlineCollapsed = computed(() => layout.outline.value ?? outlineItems.value.length <= 2)
+const newOutlineCollapsed = computed(() => layout.outline.value ?? newOutlineItems.value.length <= 2)
 const scopes = computed(() => [
   { key: 'all', icon: 'book-open', label: t('documentWorkspace.allBooks') },
   { key: 'mine', icon: 'user', label: t('documentWorkspace.myBooks') },
@@ -472,6 +480,8 @@ watch(kbId, () => {
   if (kbId.value) void loadBook()
 }, { immediate: true })
 watch([kbId, creating], () => {
+  newOutlineItems.value = []
+  newOutlineActive.value = -1
   newTitle.value = ''
   newContent.value = ''
   newDocumentBody.value = null
@@ -600,10 +610,10 @@ onBeforeUnmount(() => {
 .document-workspace__state { flex: 1; display: flex; align-items: center; justify-content: center; flex-direction: column;
   gap: 16px; min-height: 240px; padding: 32px; color: var(--td-text-color-secondary); text-align: center;
 }
-.document-workspace__document { flex: 1; min-height: 0; display: flex;
+.document-workspace__document { flex: 1; min-width: 0; min-height: 0; display: flex;
   > :deep(.doc-outline) { margin: 16px 16px 16px 0; }
 }
-.document-workspace__compose { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 20px; padding: 24px 32px;
+.document-workspace__compose { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 20px; padding: 24px 32px;
   > :deep(.rich-editor) { flex: 1; min-height: 0; }
 }
 .document-workspace__compose-heading { display: flex; align-items: center; justify-content: space-between;

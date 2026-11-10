@@ -6,7 +6,7 @@ import { Editor, generateJSON } from '@tiptap/core'
 import { StarterKit } from '@tiptap/starter-kit'
 import { TaskList } from '@tiptap/extension-list'
 import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
-import { Image } from '@tiptap/extension-image'
+import { createEditorImage } from './editorImage.ts'
 import { Markdown } from 'tiptap-markdown'
 import { Callout, Highlight, RichTable, RichTaskItem, TextColor } from './richDocumentExtensions.ts'
 import { documentHTML, documentMarkdown, readStructuredDocument, sameDocument, type StructuredDocument } from './structuredDocument.ts'
@@ -23,7 +23,7 @@ before(() => {
 })
 function extensions() {
   return [StarterKit.configure({ heading: { levels: [1, 2, 3, 4] } }), TaskList, RichTaskItem.configure({ nested: true }),
-      Image, Highlight, TextColor, Callout, RichTable.configure({ resizable: false }), TableRow, TableCell, TableHeader,
+      createEditorImage(() => {}), Highlight, TextColor, Callout, RichTable.configure({ resizable: false }), TableRow, TableCell, TableHeader,
       buildBlockMathExtension(() => {}), buildInlineMathExtension(() => {}), Markdown.configure({ html: false })]
 }
 function editor(document: StructuredDocument) {

@@ -9,6 +9,8 @@ import { Highlight, RichTable, TextColor } from './richDocumentExtensions.ts'
 import { clipboardColor, clipboardTable, normalizeClipboardHTML, RichClipboard } from './editorClipboard.ts'
 import { documentHTML, documentMarkdown, type StructuredDocument } from './structuredDocument.ts'
 import { createEditorToolkit } from './editorToolkit.ts'
+import { TableMap, CellSelection } from '@tiptap/pm/tables'
+import type { TablePasteProblem } from './editorTablePaste.ts'
 
 before(() => {
   const dom = new JSDOM('<html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
@@ -17,14 +19,222 @@ before(() => {
     ClipboardEvent: class extends dom.window.Event { clipboardData = null },
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window) })
 })
-function editor() {
+function editor(onTablePasteRejected: (problem: TablePasteProblem) => void = () => {}) {
   return new Editor({ element: document.body.appendChild(document.createElement('div')), extensions: [
-    StarterKit, RichClipboard, Highlight, TextColor, RichTable.configure({ resizable: false }), TableRow, TableCell, TableHeader,
+    StarterKit, RichClipboard.configure({ onTablePasteRejected }), Highlight, TextColor, RichTable.configure({ resizable: false }), TableRow, TableCell, TableHeader,
     createEditorToolkit({ placeholder: () => '', uploading: () => '', onFiles: () => { throw new Error('HTML must not be replaced by preview image') }, onKeyDown: () => false }),
     Markdown.configure({ html: false, transformPastedText: true }),
   ] })
 }
 function snapshot(e: Editor): StructuredDocument { return { schema_version: 1, content: e.getJSON() as StructuredDocument['content'] } }
+
+function grid(e: Editor) {
+  const table = e.state.doc.firstChild!, map = TableMap.get(table)
+  return Array.from({ length: map.height }, (_, y) => Array.from({ length: map.width }, (_, x) =>
+    table.nodeAt(map.map[y * map.width + x]!)!.textContent))
+}
+function setTable(e: Editor, rows = 3, cols = 3) {
+  e.commands.setContent({ type: 'doc', content: [{ type: 'table', content: Array.from({ length: rows }, (_, y) => ({
+    type: 'tableRow', content: Array.from({ length: cols }, (_, x) => ({
+      type: y ? 'tableCell' : 'tableHeader', attrs: { colwidth: [120 + x * 20] },
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: `${y}:${x}` }] }],
+    })),
+  })) }] })
+}
+function selectCell(e: Editor, row: number, col: number, endRow?: number, endCol?: number) {
+  const map = TableMap.get(e.state.doc.firstChild!)
+  const pos = 1 + map.map[row * map.width + col]!
+  if (endRow !== undefined) e.commands.setCellSelection({ anchorCell: pos, headCell: 1 + map.map[endRow * map.width + endCol!]! })
+  else e.commands.setTextSelection(pos + 2)
+}
+function paste(e: Editor, text: string, html = '') {
+  const event = new window.Event('paste', { bubbles: true, cancelable: true })
+  Object.assign(event, { clipboardData: { files: [], getData: (type: string) => type === 'text/plain' ? text : type === 'text/html' ? html : '' } })
+  e.view.dom.dispatchEvent(event)
+  return event
+}
+
+test('spreadsheet paste fills existing cells, preserves headers and widths, and undoes as one isolated action', () => {
+  const e = editor()
+  try {
+    setTable(e)
+    selectCell(e, 0, 1)
+    e.commands.insertContent('before paste')
+    const before = snapshot(e)
+    assert.equal(paste(e, 'Name\tNote\n"A\tB"\t"line1\nline2"').defaultPrevented, true)
+    assert.deepEqual(grid(e), [['0:0', 'Name', 'Note'], ['1:0', 'A\tB', 'line1line2'], ['2:0', '2:1', '2:2']])
+    const table = e.state.doc.firstChild!
+    assert.equal(table.child(0).child(1).type.name, 'tableHeader')
+    assert.deepEqual(table.child(0).child(1).attrs.colwidth, [140])
+    assert.deepEqual(table.child(1).child(2).attrs.colwidth, [160])
+    assert.equal(table.child(1).child(2).childCount, 2)
+    const after = snapshot(e)
+    assert.equal(e.commands.undo(), true); assert.deepEqual(snapshot(e), before)
+    assert.equal(e.commands.redo(), true); assert.deepEqual(snapshot(e), after)
+    selectCell(e, 2, 2); e.commands.insertContent('after paste')
+    assert.equal(e.commands.undo(), true); assert.deepEqual(snapshot(e), after)
+    assert.equal(e.commands.undo(), true); assert.deepEqual(snapshot(e), before)
+  } finally { e.destroy() }
+})
+
+test('one selected cell anchors the complete matrix and grows rows and columns without touching surrounding values', () => {
+  const e = editor()
+  try {
+    setTable(e, 2, 2); selectCell(e, 1, 1, 1, 1)
+    paste(e, 'A\tB\nC\tD')
+    assert.deepEqual(grid(e), [['0:0', '0:1', ''], ['1:0', 'A', 'B'], ['', 'C', 'D']])
+    assert.equal(TableMap.get(e.state.doc.firstChild!).problems, null)
+    let tables = 0
+    e.state.doc.descendants(node => { if (node.type.name === 'table') tables++ })
+    assert.equal(tables, 1)
+    const saved = snapshot(e)
+    const reloaded = editor()
+    try { reloaded.commands.setContent(saved.content); assert.deepEqual(snapshot(reloaded), saved) } finally { reloaded.destroy() }
+    assert.match(documentMarkdown(saved), /A.*B/)
+    assert.match(documentHTML(saved, x => x), /<td[^>]*><p>D<\/p>/)
+  } finally { e.destroy() }
+})
+
+test('single rows, single columns, trailing empty cells and formula-like strings remain literal cell values', () => {
+  const e = editor()
+  try {
+    setTable(e); selectCell(e, 0, 0); paste(e, '=SUM(A1:A2)\t+1\t')
+    assert.deepEqual(grid(e)[0], ['=SUM(A1:A2)', '+1', ''])
+    selectCell(e, 0, 2); paste(e, 'first\r\nsecond\r\nthird\r\n')
+    assert.deepEqual(grid(e).map(row => row[2]), ['first', 'second', 'third'])
+    assert.deepEqual(clipboardTable('single\trow', true), [['single', 'row']])
+    assert.deepEqual(clipboardTable('a\nb\n', true), [['a'], ['b']])
+  } finally { e.destroy() }
+})
+
+test('expanding a header row retains header types and existing alignment', () => {
+  const e = editor()
+  try {
+    setTable(e, 2, 2); selectCell(e, 0, 1)
+    e.commands.setCellAttribute('align', 'right')
+    paste(e, 'A\tB\tC')
+    assert.deepEqual(grid(e)[0], ['0:0', 'A', 'B', 'C'])
+    const row = e.state.doc.firstChild!.child(0)
+    row.forEach(cell => assert.equal(cell.type.name, 'tableHeader'))
+    assert.equal(row.child(1).attrs.align, 'right')
+    assert.equal(TableMap.get(e.state.doc.firstChild!).problems, null)
+  } finally { e.destroy() }
+})
+
+test('rectangular selection accepts matching matrices and single values but rejects clipping or implicit repetition', () => {
+  const errors: TablePasteProblem[] = [], e = editor(problem => errors.push(problem))
+  try {
+    setTable(e); selectCell(e, 0, 0, 1, 1)
+    const before = snapshot(e), selection = e.state.selection.toJSON()
+    paste(e, 'A\tB\tC\nD\tE\tF')
+    assert.deepEqual(errors, ['selection']); assert.deepEqual(snapshot(e), before)
+    assert.deepEqual(e.state.selection.toJSON(), selection)
+    paste(e, 'one\ttwo')
+    assert.deepEqual(errors, ['selection', 'selection']); assert.deepEqual(snapshot(e), before)
+    paste(e, 'A\tB\nC\tD')
+    assert.deepEqual(grid(e), [['A', 'B', '0:2'], ['C', 'D', '1:2'], ['2:0', '2:1', '2:2']])
+    selectCell(e, 0, 0, 1, 1); paste(e, 'all')
+    assert.deepEqual(grid(e).slice(0, 2).map(row => row.slice(0, 2)), [['all', 'all'], ['all', 'all']])
+    selectCell(e, 0, 0, 1, 1); paste(e, 'bold', '<table><tr><td><b>bold</b></td></tr></table>')
+    assert.deepEqual(grid(e).slice(0, 2).map(row => row.slice(0, 2)), [['bold', 'bold'], ['bold', 'bold']])
+    assert.ok(e.state.doc.firstChild!.child(1).child(1).firstChild!.firstChild!.marks.some(mark => mark.type.name === 'bold'))
+  } finally { e.destroy() }
+})
+
+test('HTML spreadsheet paste retains rich cell content while preserving destination widths and header types', () => {
+  const e = editor()
+  try {
+    setTable(e); selectCell(e, 0, 0)
+    paste(e, 'Bold\tRed\nC\tD', '<table><tr><td><b>Bold</b></td><td><span style="color:#ff0000">Red</span></td></tr><tr><td>C</td><td>D</td></tr></table>')
+    assert.deepEqual(grid(e), [['Bold', 'Red', '0:2'], ['C', 'D', '1:2'], ['2:0', '2:1', '2:2']])
+    assert.equal(e.state.doc.firstChild!.child(0).child(0).type.name, 'tableHeader')
+    assert.deepEqual(e.state.doc.firstChild!.child(0).child(1).attrs.colwidth, [140])
+    assert.match(JSON.stringify(snapshot(e)), /#ff0000/)
+    assert.match(documentMarkdown(snapshot(e)), /\*\*Bold\*\*/)
+  } finally { e.destroy() }
+})
+
+test('merged destination cells reject the whole paste without changes, while unrelated merged cells remain intact', () => {
+  const errors: TablePasteProblem[] = [], e = editor(problem => errors.push(problem))
+  try {
+    setTable(e); selectCell(e, 0, 0, 0, 1); e.commands.mergeCells()
+    selectCell(e, 0, 0)
+    const before = snapshot(e)
+    paste(e, 'A\tB\nC\tD')
+    assert.deepEqual(errors, ['merged']); assert.deepEqual(snapshot(e), before)
+    selectCell(e, 1, 1); paste(e, 'A\tB\nC\tD')
+    assert.deepEqual(grid(e)[2], ['2:0', 'C', 'D'])
+    assert.equal(e.state.doc.firstChild!.child(0).child(0).attrs.colspan, 2)
+    assert.equal(TableMap.get(e.state.doc.firstChild!).problems, null)
+  } finally { e.destroy() }
+})
+
+test('source merged cells remain valid when pasted into unmerged destinations', () => {
+  const e = editor()
+  try {
+    setTable(e); selectCell(e, 0, 0)
+    paste(e, '', '<table><tr><td colspan="2">merged</td></tr><tr><td>A</td><td>B</td></tr></table>')
+    assert.equal(e.state.doc.firstChild!.child(0).child(0).attrs.colspan, 2)
+    assert.deepEqual(e.state.doc.firstChild!.child(0).child(0).attrs.colwidth, [120, 140])
+    assert.equal(TableMap.get(e.state.doc.firstChild!).problems, null)
+    assert.doesNotThrow(() => documentMarkdown(snapshot(e)))
+  } finally { e.destroy() }
+})
+
+test('native copied cell slices retain a rectangular selection and support reversed selections', () => {
+  const source = editor(), target = editor()
+  try {
+    setTable(source); selectCell(source, 2, 2, 1, 1)
+    assert.ok(source.state.selection instanceof CellSelection)
+    const copied = source.view.serializeForClipboard(source.state.selection.content())
+    setTable(target); selectCell(target, 1, 1, 0, 0)
+    paste(target, copied.text, copied.dom.innerHTML)
+    assert.deepEqual(grid(target), [['1:1', '1:2', '0:2'], ['2:1', '2:2', '1:2'], ['2:0', '2:1', '2:2']])
+    assert.equal(TableMap.get(target.state.doc.firstChild!).problems, null)
+  } finally { source.destroy(); target.destroy() }
+})
+
+test('plain paste, code inside a cell and a disabled editor bypass spreadsheet filling', () => {
+  const e = editor()
+  try {
+    setTable(e); selectCell(e, 0, 0)
+    e.view.dom.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Shift', keyCode: 16, shiftKey: true, bubbles: true }))
+    paste(e, 'A\tB\nC\tD')
+    e.view.dom.dispatchEvent(new window.KeyboardEvent('keyup', { key: 'Shift', keyCode: 16, bubbles: true }))
+    assert.equal(grid(e)[0]![1], '0:1')
+    setTable(e); selectCell(e, 0, 0); e.commands.setCodeBlock()
+    paste(e, 'A\tB\nC\tD')
+    assert.equal(grid(e)[0]![1], '0:1')
+    assert.match(e.state.doc.firstChild!.child(0).child(0).textContent, /A\tB\nC\tD/)
+    setTable(e); selectCell(e, 0, 0); e.setEditable(false)
+    const before = snapshot(e)
+    paste(e, 'A\tB\nC\tD')
+    assert.deepEqual(snapshot(e), before)
+  } finally { e.destroy() }
+})
+
+test('table dimension and document complexity limits reject atomically, including raw oversized TSV', () => {
+  const errors: TablePasteProblem[] = [], e = editor(problem => errors.push(problem))
+  try {
+    setTable(e); selectCell(e, 2, 2)
+    const before = snapshot(e)
+    paste(e, Array.from({ length: 99 }, () => 'x').join('\t'))
+    assert.deepEqual(errors, ['limit']); assert.deepEqual(snapshot(e), before)
+    paste(e, Array.from({ length: 101 }, () => 'x').join('\t'))
+    assert.deepEqual(errors, ['limit', 'limit']); assert.deepEqual(snapshot(e), before)
+    paste(e, Array.from({ length: 501 }, () => 'x').join('\n'))
+    paste(e, Array.from({ length: 250 }, () => Array.from({ length: 30 }, () => 'x').join('\t')).join('\n'))
+    assert.deepEqual(errors, ['limit', 'limit', 'limit', 'limit']); assert.deepEqual(snapshot(e), before)
+    paste(e, '', '<table><tr><td>' + '汉'.repeat(710_000) + '</td></tr></table>')
+    assert.equal(errors.at(-1), 'limit'); assert.deepEqual(snapshot(e), before)
+    paste(e, 'x\t' + 'y'.repeat(500_000))
+    assert.equal(errors.length, 6); assert.deepEqual(snapshot(e), before)
+    const tallMerge = '<table><tr><td rowspan="101">merged</td><td>top</td></tr>' + '<tr><td>row</td></tr>'.repeat(100) + '</table>'
+    paste(e, '', tallMerge)
+    assert.equal(errors.length, 7); assert.deepEqual(snapshot(e), before)
+    assert.ok(e.state.selection.empty)
+  } finally { e.destroy() }
+})
 
 test('opaque CSS colors normalize without persisting CSS expressions or transparency', () => {
   assert.equal(clipboardColor('#F80'), '#ff8800')

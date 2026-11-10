@@ -36,14 +36,15 @@
         class="doc-outline__item"
         :class="{ active: index === activeIndex }"
         :style="{ '--outline-level': Math.min(item.level - 1, 5) }"
-        :title="item.text"
+        :title="item.text || t('writingTools.emptyHeading')"
+        :aria-current="index === activeIndex ? 'location' : undefined"
         role="button"
         tabindex="0"
         @click="emit('jump', index)"
         @keydown.enter.self="emit('jump', index)"
         @keydown.space.prevent.self="emit('jump', index)"
       >
-        {{ item.text }}
+        {{ item.text || t('writingTools.emptyHeading') }}
       </div>
     </div>
   </aside>

@@ -159,6 +159,7 @@
       <button v-for="action in tableActions" :key="action.key" type="button" :class="{ 'is-danger': action.key === 'deleteTable' }"
         :disabled="!canTableCommand(action.key)" @click="tableCommand(action.key)">{{ action.label }}</button>
     </div>
+    <p v-if="isActive('table')" class="rich-editor__table-hint">{{ t('richWriting.tablePasteHint') }}</p>
     <div v-if="isActive('callout')" class="rich-editor__context" @mousedown="preserveSelection">
       <span>{{ t('richWriting.callout') }}</span>
       <button v-for="kind in calloutKinds" :key="kind" type="button" @click="editor?.chain().focus().updateAttributes('callout', { kind }).run()">{{ t(`richWriting.${kind}`) }}</button>
@@ -172,6 +173,13 @@
     </div>
     <div v-if="isActive('image')" class="rich-editor__context" @mousedown="preserveSelection">
       <span>{{ t('writingTools.imageTools') }}</span>
+      <button v-for="align in imageAlignments" :key="align" type="button" :class="{ 'is-active': selectedImageAlignment === align }"
+        :aria-pressed="selectedImageAlignment === align" @click="updateImageLayout({ align })">{{ t(`richWriting.imageAlign${align === 'left' ? 'Left' : align === 'center' ? 'Center' : 'Right'}`) }}</button>
+      <label class="rich-editor__image-width">{{ t('richWriting.imageWidth') }}
+        <input type="number" min="1" max="4096" step="1" :value="selectedImageWidth ?? ''" :placeholder="t('richWriting.imageAutoSize')"
+          :aria-label="t('richWriting.imageWidth')" @change="changeImageWidth" @keydown.enter.prevent="($event.target as HTMLInputElement).blur()" />px
+      </label>
+      <button type="button" @click="updateImageLayout({ width: null, height: null })">{{ t('richWriting.imageOriginalSize') }}</button>
       <button type="button" @click="editImage">{{ t('writingTools.imageDescription') }}</button>
       <button type="button" class="is-danger" @click="editor?.chain().focus().deleteSelection().run()">{{ t('writingTools.removeImage') }}</button>
     </div>
@@ -254,6 +262,7 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { NodeSelection, TextSelection, type SelectionBookmark } from '@tiptap/pm/state'
+import { closeHistory } from '@tiptap/pm/history'
 import { StarterKit } from '@tiptap/starter-kit'
 import { TaskList } from '@tiptap/extension-list'
 import { TableRow, TableCell, TableHeader } from '@tiptap/extension-table'
@@ -265,6 +274,9 @@ import { MermaidCodeBlock } from './MermaidCodeBlock'
 import { buildBlockMathExtension, buildInlineMathExtension } from './editorMathExtensions'
 import { createEditorToolkit, editorToolkitKey, slashQuery } from './editorToolkit'
 import { createEditorImage } from './editorImage'
+import { createEditorOutline, jumpToEditorHeading } from './editorOutline'
+import type { OutlineItem } from './types'
+import { imageAlignment, imageDimension, type ImageAlignment } from './imageLayout'
 import { Callout, Highlight, RichTable, RichTaskItem, TextColor } from './richDocumentExtensions'
 import { RichClipboard } from './editorClipboard'
 import { documentMarkdown, sameDocument, type StructuredDocument } from './structuredDocument'
@@ -308,6 +320,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  'outline-change': [items: OutlineItem[]]
+  'outline-active': [index: number]
   'update:modelValue': [value: string]
   'busy-change': [busy: boolean]
   'content-change': [value: { content: string; document: StructuredDocument }]
@@ -425,6 +439,9 @@ function toggleCallout() {
 const codeLanguages = ['', 'plaintext', 'javascript', 'typescript', 'python', 'go', 'java', 'bash', 'sql', 'json', 'yaml', 'html', 'css', 'rust', 'cpp', 'mermaid']
 const codeLanguage = computed(() => { void stateNonce.value; return editor.value?.getAttributes('codeBlock').language || '' })
 const imageEdit = reactive({ visible: false, alt: '', pos: 0 })
+const imageAlignments: ImageAlignment[] = ['left', 'center', 'right']
+const selectedImageWidth = computed(() => { void stateNonce.value; return imageDimension(editor.value?.getAttributes('image').width) })
+const selectedImageAlignment = computed(() => { void stateNonce.value; return imageAlignment(editor.value?.getAttributes('image').align) })
 const matchCount = computed(() => { void stateNonce.value; return editor.value ? editorToolkitKey.getState(editor.value.state)?.matches.length || 0 : 0 })
 const activeMatch = computed(() => { void stateNonce.value; return editor.value ? editorToolkitKey.getState(editor.value.state)?.active || 0 : 0 })
 
@@ -456,6 +473,22 @@ function editImage() {
   imageEdit.pos = e.state.selection.from
   imageEdit.alt = e.state.selection.node.attrs.alt || ''
   imageEdit.visible = true
+}
+function updateImageLayout(patch: { width?: number | null; height?: null; align?: ImageAlignment }) {
+  const e = editor.value
+  if (!e?.isEditable || !(e.state.selection instanceof NodeSelection) || e.state.selection.node.type.name !== 'image') return
+  const { from, node } = e.state.selection
+  e.view.dispatch(closeHistory(e.state.tr.setNodeMarkup(from, undefined, { ...node.attrs, ...patch })))
+  e.view.dispatch(closeHistory(e.state.tr))
+  e.commands.focus()
+}
+function changeImageWidth(event: Event) {
+  const input = event.target as HTMLInputElement
+  const width = input.value === '' ? null : imageDimension(Number(input.value))
+  if (input.value !== '' && width == null) {
+    MessagePlugin.warning(t('richWriting.imageWidthHint')); input.value = String(selectedImageWidth.value ?? ''); return
+  }
+  updateImageLayout({ width, height: null })
 }
 function confirmImageEdit() {
   const e = editor.value
@@ -572,7 +605,14 @@ const editor = useEditor({
   enableContentCheck: true,
   onContentError: () => { emit('content-error'); MessagePlugin.error(t('richWriting.unsupportedDocument')) },
   extensions: [
-    RichClipboard.configure({ imageLabel: t('knowledgeBase.browse.editor.image'), onUnsupportedImage: () => MessagePlugin.warning(t('richWriting.pasteImageNeedsUpload')) }),
+    createEditorOutline(items => emit('outline-change', items), index => emit('outline-active', index)),
+    RichClipboard.configure({
+      imageLabel: t('knowledgeBase.browse.editor.image'),
+      onUnsupportedImage: () => MessagePlugin.warning(t('richWriting.pasteImageNeedsUpload')),
+      onTablePasteRejected: problem => MessagePlugin.warning(t({
+        selection: 'richWriting.tablePasteSelection', merged: 'richWriting.tablePasteMerged', limit: 'richWriting.tablePasteLimit',
+      }[problem])),
+    }),
     createEditorToolkit({
       placeholder: () => props.placeholder || t('writingTools.placeholder'),
       uploading: () => t('writingTools.uploadingImage'),
@@ -591,7 +631,7 @@ const editor = useEditor({
     buildInlineMathExtension(openMathEditor),
     TaskList,
     RichTaskItem.configure({ nested: true }),
-    createEditorImage(root => { void hydrateProtectedFileImages(root, { mode: 'knowledgeBase', kbId: props.kbId }) }),
+    createEditorImage(root => { void hydrateProtectedFileImages(root, { mode: 'knowledgeBase', kbId: props.kbId }) }, { resize: t('richWriting.imageResize') }),
     Highlight, TextColor, Callout,
     RichTable.configure({ resizable: true, cellMinWidth: 60 }),
     TableRow,
@@ -772,7 +812,8 @@ function snapshot() {
   const document: StructuredDocument = { schema_version: 1, content: e.getJSON() as StructuredDocument['content'] }
   return { document, content: documentMarkdown(document) }
 }
-defineExpose({ snapshot })
+function scrollToHeading(index: number) { jumpToEditorHeading(editor.value, index) }
+defineExpose({ snapshot, scrollToHeading })
 </script>
 
 <style lang="less">
@@ -813,6 +854,11 @@ defineExpose({ snapshot })
   input { width: 160px; font: inherit; padding: 5px 8px; border: 1px solid var(--td-component-stroke);
     border-radius: var(--app-radius-xs); color: var(--td-text-color-primary); background: var(--td-bg-color-container); }
 }
+.rich-editor__table-hint { margin: 0; padding: 4px 12px; color: var(--td-text-color-secondary); font-size: var(--app-text-xs); }
+.rich-editor__image-width { display: inline-flex; align-items: center; gap: 4px;
+  input { width: 68px; font: inherit; padding: 3px; color: var(--td-text-color-primary); background: var(--td-bg-color-container); border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-xs); }
+}
+.rich-editor__context button[aria-pressed='true'] { color: var(--td-brand-color); background: var(--td-brand-color-light); }
 .rich-editor__status { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px;
   border-top: 1px solid var(--td-component-stroke); color: var(--td-text-color-placeholder); font-size: var(--app-text-xs);
 }
@@ -820,6 +866,20 @@ defineExpose({ snapshot })
   p.is-editor-empty::before { content: attr(data-placeholder); float: left; height: 0; color: var(--td-text-color-placeholder); pointer-events: none; }
   .editor-search-match { background: var(--td-warning-color-light); &.is-current { outline: 2px solid var(--td-warning-color); } }
   .editor-image-uploading { display: inline-block; padding: 12px; border: 1px dashed var(--td-component-stroke); color: var(--td-text-color-secondary); }
+  .editor-image { display: flex; justify-content: flex-start; margin: 12px 0;
+    &[data-align='center'] { justify-content: center; }
+    &[data-align='right'] { justify-content: flex-end; .editor-image__resize { left: 0; right: auto; cursor: nesw-resize; } }
+    &.is-resizing { user-select: none; }
+  }
+  .editor-image__frame { display: block; position: relative; max-width: 100%; line-height: 0;
+    img { display: block; margin: 0; }
+  }
+  .editor-image__resize { position: absolute; bottom: 0; right: 0; width: 14px; height: 14px; padding: 0;
+    background: var(--td-brand-color); border: 2px solid var(--td-bg-color-container); cursor: nwse-resize; touch-action: none;
+    &:focus-visible { outline: 2px solid var(--app-focus-border); outline-offset: 2px; }
+    &[hidden] { display: none; }
+  }
+  &[contenteditable='false'] .editor-image__resize { display: none; }
   .column-resize-handle { position: absolute; top: 0; right: -2px; bottom: 0; width: 4px; background: var(--td-brand-color); pointer-events: none; }
   &.resize-cursor { cursor: col-resize; }
   .tableWrapper { overflow-x: auto; }

@@ -37,6 +37,18 @@ export default {
     "folderPath": "Save to"
 },
   richWriting: {
+    "imageAlignLeft": "靠左",
+    "imageAlignCenter": "置中",
+    "imageAlignRight": "靠右",
+    "imageWidth": "寬度",
+    "imageAutoSize": "自動",
+    "imageOriginalSize": "恢復原始尺寸",
+    "imageResize": "調整圖片大小（左右方向鍵調整，Home 恢復原始尺寸）",
+    "imageWidthHint": "圖片寬度須為 1–4096 的整數。",
+    "tablePasteHint": "可直接貼上 Excel 多行多列；多格選取範圍須與複製區域同尺寸，單值可填滿選取範圍。",
+    "tablePasteSelection": "複製區域與選取範圍尺寸不一致，請選取同尺寸區域，或點擊一個儲存格後貼上。",
+    "tablePasteMerged": "貼上範圍包含合併儲存格，請先拆分後再貼上。原內容未變更。",
+    "tablePasteLimit": "貼上後將超出表格或文件容量限制，請分批貼上或減少內容。原內容未變更。",
     "pasteImageNeedsUpload": "部分嵌入圖片無法直接貼上，已保留圖片說明；請透過上傳圖片補充。",
     "highlight": "文字醒目提示",
     "textColor": "文字顏色",
@@ -75,6 +87,7 @@ export default {
     "newDraftHint": "首次儲存前僅自動儲存在此瀏覽器，不會提交至知識庫。"
 },
   writingTools: {
+    "emptyHeading": "空標題",
     "blockType": "段落樣式",
     "paragraph": "內文",
     "heading1": "一級標題",
