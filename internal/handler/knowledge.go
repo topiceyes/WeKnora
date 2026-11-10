@@ -670,8 +670,9 @@ func (h *KnowledgeHandler) GetKnowledge(c *gin.Context) {
 	logger.Infof(ctx, "Knowledge retrieved successfully, ID: %s, title: %s",
 		secutils.SanitizeForLog(knowledge.ID), secutils.SanitizeForLog(knowledge.Title))
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    knowledge,
+		"document_schema_version": 1,
+		"success":                 true,
+		"data":                    knowledge,
 	})
 }
 
@@ -1611,8 +1612,9 @@ func (h *KnowledgeHandler) ListKnowledgeTree(c *gin.Context) {
 	logger.Infof(ctx, "Knowledge tree retrieved, kb_id=%s folders=%d documents=%d",
 		secutils.SanitizeForLog(kbID), len(tree.Folders), len(tree.Documents))
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    tree,
+		"document_schema_version": 1,
+		"success":                 true,
+		"data":                    tree,
 	})
 }
 

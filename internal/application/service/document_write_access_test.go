@@ -188,7 +188,7 @@ func newDocumentWriteFixture(t *testing.T) *documentWriteFixture {
 	require.NoError(
 		t,
 		db.AutoMigrate(
-			&types.Knowledge{},
+			&types.Knowledge{}, &types.KnowledgeComment{},
 			&types.Chunk{},
 			&types.KnowledgeTag{},
 			&types.KnowledgeTagRelation{},

@@ -725,9 +725,14 @@ func (s *knowledgeService) ListKnowledgeTree(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+	nav, err := s.repo.GetKnowledgeNavigation(ctx, tenantID, kbID)
+	if err != nil {
+		return nil, err
+	}
 	return &types.KnowledgeTree{
 		KnowledgeFolderTree: types.BuildKnowledgeFolderTree(counts),
-		Documents:           docs,
+		NavigationRevision:  nav.Revision, SiblingOrders: nav.Orders,
+		Documents: docs,
 	}, nil
 }
 

@@ -25,5 +25,7 @@ type KnowledgeTreeDocument struct {
 // group documents by folder_path to hang them under the folder nodes.
 type KnowledgeTree struct {
 	*KnowledgeFolderTree
-	Documents []*KnowledgeTreeDocument `json:"documents"`
+	Documents          []*KnowledgeTreeDocument `json:"documents"`
+	NavigationRevision int64                    `json:"navigation_revision"`
+	SiblingOrders      map[string][]string      `json:"sibling_orders"`
 }

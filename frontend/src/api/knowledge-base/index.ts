@@ -2,6 +2,7 @@ import { get, post, put, del, postUpload, getDown } from "../../utils/request";
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 import type { AuditLog, AuditOutcome, ListAuditLogResponse } from '@/api/tenant/audit-log';
 import { buildListKnowledgeFilesQuery } from './knowledgeFileListQuery';
+import type { StructuredDocument } from '@/views/knowledge/browse/structuredDocument';
 
 export { buildListKnowledgeFilesQuery } from './knowledgeFileListQuery';
 
@@ -622,6 +623,7 @@ export function createManualKnowledge(
   data: {
     title: string
     content: string
+    document?: StructuredDocument
     status: string
     tag_ids?: string[]
     process_config?: KnowledgeProcessOverrides
@@ -698,7 +700,22 @@ export interface KnowledgeTreeDocument {
 
 /** Browse-mode tree payload: folder hierarchy plus every document, flat. */
 export interface KnowledgeTree extends KnowledgeFolderTree {
+	/** Shared directory revision; mutations reject stale versions. */
+	navigation_revision?: number;
+	sibling_orders?: Record<string, string[]>;
   documents: KnowledgeTreeDocument[];
+}
+
+export interface NavigationMutation {
+  action: 'create_folder' | 'delete_folder' | 'move_folder' | 'move_documents' | 'reorder';
+  base_revision: number;
+  from?: string;
+  to?: string;
+  knowledge_ids?: string[];
+  items?: string[];
+}
+export function updateKnowledgeNavigation(kbId: string, data: NavigationMutation) {
+  return put(`/api/v1/knowledge-bases/${kbId}/knowledge/navigation`, data);
 }
 
 export function getKnowledgeTree(kbId: string) {
@@ -771,7 +788,7 @@ export function reparseKnowledge(id: string, data?: { process_config?: Knowledge
 // 返回 409（error.code=1005，error.details.current_version 为真实当前版本）。
 export function updateKnowledgeContent(
   id: string,
-  data: { title?: string; content: string; base_version?: number },
+  data: { title?: string; content: string; base_version?: number; document?: StructuredDocument },
 ) {
   return put(`/api/v1/knowledge/${id}/content`, data);
 }
@@ -801,6 +818,7 @@ export interface KnowledgeContentVersionSummary {
 
 export interface KnowledgeContentVersion extends KnowledgeContentVersionSummary {
   content: string;
+  document?: StructuredDocument | null;
 }
 
 export function listKnowledgeContentVersions(id: string) {
@@ -1113,4 +1131,52 @@ export function batchReparseKnowledge(kbId: string, ids: string[], processConfig
     ids,
     process_config: processConfig,
   });
+}
+
+export interface DocumentCommentAnchor {
+  quote: string;
+  prefix: string;
+  suffix: string;
+  content_version: number;
+}
+export interface DocumentComment extends DocumentCommentAnchor {
+  id: string;
+  knowledge_id: string;
+  parent_id: string;
+  author_id: string;
+  author_name: string;
+  body: string;
+  resolved: boolean;
+  deleted: boolean;
+  revision: number;
+  created_at: string;
+  replies?: DocumentComment[];
+}
+export interface DocumentCommentPage { items: DocumentComment[]; next_offset: number; has_more: boolean }
+export function listDocumentComments(id: string, offset = 0, status = 'all') {
+  return get(`/api/v1/knowledge/${encodeURIComponent(id)}/comments?offset=${offset}&status=${encodeURIComponent(status)}`);
+}
+export function createDocumentComment(id: string, input: { client_id: string; body: string; parent_id?: string } & Partial<DocumentCommentAnchor>) {
+  return post(`/api/v1/knowledge/${encodeURIComponent(id)}/comments`, input);
+}
+export function mutateDocumentComment(id: string, commentId: string, input: { action: 'delete' | 'resolve'; base_revision: number; resolved?: boolean }) {
+  return put(`/api/v1/knowledge/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, input);
+}
+
+export interface DocumentSearchItem {
+  id: string;
+  knowledge_base_id: string;
+  title: string;
+  folder_path: string;
+  updated_at: string;
+  snippet: string;
+  match_field: 'title' | 'body' | 'reference';
+}
+export interface DocumentSearchPage { items: DocumentSearchItem[]; next_offset: number; has_more: boolean }
+export function searchDocuments(kbId: string, query: string, offset = 0) {
+  const params = new URLSearchParams({ query, offset: String(offset) });
+  return get(`/api/v1/knowledge-bases/${encodeURIComponent(kbId)}/knowledge/document-search?${params}`);
+}
+export function documentBacklinks(id: string, offset = 0) {
+  return get(`/api/v1/knowledge/${encodeURIComponent(id)}/backlinks?offset=${offset}`);
 }

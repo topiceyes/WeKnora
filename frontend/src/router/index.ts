@@ -92,6 +92,19 @@ const router = createRouter({
       meta: { requiresInit: true, requiresAuth: true }
     },
     {
+      path: "/platform/documents/open/:documentId",
+      name: "documentLink",
+      component: () => import("../views/documents/DocumentLinkResolver.vue"),
+      meta: { requiresInit: true, requiresAuth: true }
+    },
+    {
+      // Documents own the full viewport rather than inheriting the AI platform shell.
+      path: "/platform/documents/:kbId?",
+      name: "documentWorkspace",
+      component: () => import("../views/documents/DocumentWorkspace.vue"),
+      meta: { requiresInit: true, requiresAuth: true }
+    },
+    {
       path: "/platform",
       name: "Platform",
       redirect: "/platform/knowledge-bases",

@@ -79,8 +79,10 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		// 原始文件下载沿用单文件下载的 Contributor + Editor 权限边界。
 		kbRead.POST("/batch-download", g.Contributor(), g.KBAccessWrite("id"), handler.BatchDownloadKnowledge)
 		kbRead.GET("/folders", g.Viewer(), g.KBAccessRead("id"), handler.ListKnowledgeFolders)
+		kbRead.GET("/document-search", g.Viewer(), g.KBAccessRead("id"), handler.SearchDocuments)
 		kbRead.GET("/tree", g.Viewer(), g.KBAccessRead("id"), handler.ListKnowledgeTree)
 		kb.PUT("/folders", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.RenameKnowledgeFolder)
+		kb.PUT("/navigation", g.OwnedKBOrAdmin(), g.KBAccessWrite("id"), handler.UpdateKnowledgeNavigation)
 		// Clearing all contents under a KB is a destructive op. Mirror
 		// DeleteKnowledgeBase: a workspace Admin, or the KB's designated
 		// creator (who may hold it from another workspace). The handler
@@ -135,6 +137,12 @@ func RegisterKnowledgeRoutes(r *gin.RouterGroup, handler *handler.KnowledgeHandl
 		k.PUT("/:id/content", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.UpdateKnowledgeContent)
 		k.POST("/:id/relearn", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.RelearnKnowledge)
 		// Browse-mode version history (P3): list/preview are reads, restore is a write.
+		kRead.GET("/:id/backlinks", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.DocumentBacklinks)
+		kRead.GET("/:id/comments", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.ListKnowledgeComments)
+		k.POST("/:id/comments", g.OwnedKnowledgeKBOrAdmin(),
+			g.KBAccessWriteFromKnowledgeIDParam("id"), handler.CreateKnowledgeComment)
+		k.PUT("/:id/comments/:comment_id", g.OwnedKnowledgeKBOrAdmin(),
+			g.KBAccessWriteFromKnowledgeIDParam("id"), handler.MutateKnowledgeComment)
 		kRead.GET("/:id/content-versions", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.ListKnowledgeContentVersions)
 		kRead.GET("/:id/content-versions/:version", g.Viewer(), g.KBAccessReadFromKnowledgeIDParam("id"), handler.GetKnowledgeContentVersion)
 		k.POST("/:id/content-versions/:version/restore", g.OwnedKnowledgeKBOrAdmin(), g.KBAccessWriteFromKnowledgeIDParam("id"), handler.RestoreKnowledgeContentVersion)

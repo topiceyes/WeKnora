@@ -45,7 +45,10 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 		return nil, werrors.NewBadRequestError("请求内容不能为空")
 	}
 
-	cleanContent := secutils.CleanMarkdown(payload.Content)
+	cleanContent, contentErr := prepareEditorContent(payload.Content, payload.Document)
+	if contentErr != nil {
+		return nil, contentErr
+	}
 	if strings.TrimSpace(cleanContent) == "" {
 		return nil, werrors.NewValidationError("内容不能为空")
 	}
@@ -108,6 +111,11 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 				})
 		}
 	}
+	prior, _ := existing.ManualMetadata()
+	if payload.Document == nil && prior != nil && prior.Document != nil &&
+		!payload.AllowMarkdownReplacement && cleanContent != prior.Content {
+		return nil, werrors.NewBadRequestError("该文档包含丰富格式，请在文档工作台编辑，或同时提交 document 结构")
+	}
 
 	// Draft documents have never been indexed, so nothing can be stale yet;
 	// everything else gets the "待重建" marker until relearn runs.
@@ -115,6 +123,11 @@ func (s *knowledgeService) UpdateKnowledgeContent(ctx context.Context,
 	if err := existing.SetContentMetadata(cleanContent, version, indexStale); err != nil {
 		logger.Errorf(ctx, "Failed to set content metadata: %v", err)
 		return nil, err
+	}
+	if payload.Document != nil || payload.AllowMarkdownReplacement {
+		if err := existing.SetStructuredDocument(payload.Document); err != nil {
+			return nil, err
+		}
 	}
 
 	if safeTitle != "" {

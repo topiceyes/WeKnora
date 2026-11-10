@@ -37,9 +37,11 @@ var versionedSQLiteTables = []string{
 	"tenant_skill_snapshots",
 	"tenant_skill_catalog",
 	"tenant_user_env_vars",
-	"user_dingtalk_identities",   // 000900 (fork, 900 号段为 fork 专用，原 000036)
-	"dingtalk_sync_runs",         // 000900
-	"dingtalk_departments",       // 000901 (fork, 原 000037)
+	"user_dingtalk_identities", // 000900 (fork, 900 号段为 fork 专用，原 000036)
+	"dingtalk_sync_runs",       // 000900
+	"dingtalk_departments",     // 000901 (fork, 原 000037)
+	"knowledge_comments",
+	"knowledge_navigation",       // 000905 empty folders and navigation order
 	"knowledge_content_versions", // 000902 (fork, 浏览模式 P3 版本历史)
 	"dingtalk_contacts",          // 000903 (fork, 钉钉通讯录全员快照)
 	"agent_prompts",
@@ -50,13 +52,15 @@ var versionedSQLiteTables = []string{
 // versionedSQLiteColumns maps each existing table to the columns that the
 // versioned migrations add and the SQLite baseline was missing.
 var versionedSQLiteColumns = map[string][]string{
-	"model_catalog_configs": {"version", "overlay", "history", "updated_by", "updated_at"}, // 000031
-	"memory_subjects":       {"extraction_state"},                                          // 000094
-	"memory_items":          {"replaces_id"},                                               // 000094
-	"tenants":               {"api_principal_config"},                                      // 000064
-	"users":                 {"is_system_admin"},                                           // 000053
-	"knowledges":            {"pending_subtasks_count", "profile"},                         // 000056, 000101
-	"knowledge_bases":       {"profile_config", "generated_profile"},                       // 000101
+	// 000904 structured editor snapshots
+	"knowledge_content_versions": {"document"},
+	"model_catalog_configs":      {"version", "overlay", "history", "updated_by", "updated_at"}, // 000031
+	"memory_subjects":            {"extraction_state"},                                          // 000094
+	"memory_items":               {"replaces_id"},                                               // 000094
+	"tenants":                    {"api_principal_config"},                                      // 000064
+	"users":                      {"is_system_admin"},                                           // 000053
+	"knowledges":                 {"pending_subtasks_count", "profile"},                         // 000056, 000101
+	"knowledge_bases":            {"profile_config", "generated_profile"},                       // 000101
 	// 000034/085/097/105/119
 	"messages": {"attachments", "usage", "sandbox_checkpoint", "context_checkpoint", "run_state"},
 	"sessions": {
@@ -82,10 +86,10 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-// 903 = upstream 000041 (agent_collaborations) + fork 迁移（900 号段：
-// 000900/000901 钉钉、000902 版本历史、000903 钉钉通讯录快照）。fork 迁移固定
+// 906 = upstream 000041 (agent_collaborations) + fork 迁移（900 号段：
+// 000900/000901 钉钉、000902 版本历史、000903 钉钉通讯录快照、000904 结构化正文、000905 导航、000906 评论）。fork 迁移固定
 // 在 900+，上游新增迁移不再改变本常量——只有 fork 自己加迁移时才需要更新。
-const expectedSQLiteMigrationVersion = 903
+const expectedSQLiteMigrationVersion = 906
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)

@@ -11,6 +11,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrKnowledgeNotFound = errors.New("knowledge not found")
@@ -41,7 +42,9 @@ func escapeLikeKeyword(keyword string) string {
 // counter jump back up and never reach zero (the "stuck
 // pending_subtasks_count / never promoted to completed" bug). Omitting
 // the column here means Save can never touch it.
-var omitFieldsOnUpdate = []string{"DeletedAt", "PendingSubtasksCount"}
+// FolderPath belongs to navigation mutations. Enrichment/autosave may have
+// loaded a stale path before the user moved the document.
+var omitFieldsOnUpdate = []string{"DeletedAt", "PendingSubtasksCount", "FolderPath"}
 
 // knowledgeRepository implements knowledge base and knowledge repository interface
 type knowledgeRepository struct {
@@ -271,6 +274,13 @@ func (r *knowledgeRepository) ListKnowledgeFolderCounts(
 		Find(&counts).Error; err != nil {
 		return nil, err
 	}
+	nav, err := r.GetKnowledgeNavigation(ctx, tenantID, kbID)
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range nav.Folders {
+		counts = append(counts, &types.KnowledgeFolderCount{FolderPath: path})
+	}
 	return counts, nil
 }
 
@@ -319,14 +329,19 @@ func (r *knowledgeRepository) UpdateKnowledgeFolderPath(
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	result := r.db.WithContext(ctx).
-		Model(&types.Knowledge{}).
-		Where("tenant_id = ? AND knowledge_base_id = ? AND id IN (?)", tenantID, kbID, ids).
-		Updates(map[string]interface{}{"folder_path": folderPath, "updated_at": time.Now()})
-	if result.Error != nil {
-		return 0, result.Error
+	var matched []string
+	if err := r.db.WithContext(ctx).Model(&types.Knowledge{}).
+		Where("tenant_id = ? AND knowledge_base_id = ? AND id IN ? AND parse_status <> ?",
+			tenantID, kbID, ids, types.ParseStatusDeleting).
+		Pluck("id", &matched).Error; err != nil {
+		return 0, err
 	}
-	return result.RowsAffected, nil
+	if len(matched) == 0 {
+		return 0, nil
+	}
+	return r.MutateKnowledgeNavigation(ctx, tenantID, kbID, &types.KnowledgeNavigationMutation{
+		Action: "move_documents", IDs: matched, To: folderPath,
+	})
 }
 
 // RenameKnowledgeFolderPath rewrites folder_path for a folder and every folder
@@ -339,49 +354,9 @@ func (r *knowledgeRepository) RenameKnowledgeFolderPath(
 	from string,
 	to string,
 ) (int64, error) {
-	if from == "" {
-		return 0, errors.New("source folder path is required")
-	}
-
-	// The rewrite is done row by row rather than with SQL string functions so it
-	// behaves identically on PostgreSQL and SQLite.
-	var rows []*types.Knowledge
-	if err := r.db.WithContext(ctx).
-		Select("id", "folder_path").
-		Where("tenant_id = ? AND knowledge_base_id = ? AND (folder_path = ? OR folder_path LIKE ? ESCAPE ?)",
-			tenantID, kbID, from, escapeLikeKeyword(from)+"/%", likeEscapeChar).
-		Find(&rows).Error; err != nil {
-		return 0, err
-	}
-	if len(rows) == 0 {
-		return 0, nil
-	}
-
-	// Group by destination so each distinct rewrite is a single UPDATE.
-	byTarget := map[string][]string{}
-	for _, row := range rows {
-		suffix := strings.TrimPrefix(row.FolderPath, from)
-		byTarget[types.NormalizeKnowledgeFolderPath(to+suffix)] = append(
-			byTarget[types.NormalizeKnowledgeFolderPath(to+suffix)], row.ID)
-	}
-
-	var affected int64
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		for target, targetIDs := range byTarget {
-			result := tx.Model(&types.Knowledge{}).
-				Where("tenant_id = ? AND knowledge_base_id = ? AND id IN (?)", tenantID, kbID, targetIDs).
-				Updates(map[string]interface{}{"folder_path": target, "updated_at": time.Now()})
-			if result.Error != nil {
-				return result.Error
-			}
-			affected += result.RowsAffected
-		}
-		return nil
+	return r.MutateKnowledgeNavigation(ctx, tenantID, kbID, &types.KnowledgeNavigationMutation{
+		Action: "move_folder", From: from, To: to, AllowMerge: true,
 	})
-	if err != nil {
-		return 0, err
-	}
-	return affected, nil
 }
 
 // saveKnowledgeRow persists the whole in-memory knowledge struct on db (which
@@ -417,12 +392,25 @@ func (r *knowledgeRepository) UpdateKnowledgeBatch(ctx context.Context, knowledg
 
 // DeleteKnowledge deletes knowledge
 func (r *knowledgeRepository) DeleteKnowledge(ctx context.Context, tenantID uint64, id string) error {
-	return r.db.WithContext(ctx).Where("tenant_id = ? AND id = ?", tenantID, id).Delete(&types.Knowledge{}).Error
+	return r.DeleteKnowledgeList(ctx, tenantID, []string{id})
 }
 
 // DeleteKnowledge deletes knowledge
 func (r *knowledgeRepository) DeleteKnowledgeList(ctx context.Context, tenantID uint64, ids []string) error {
-	return r.db.WithContext(ctx).Where("tenant_id = ? AND id in ?", tenantID, ids).Delete(&types.Knowledge{}).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Scope through persisted documents; comments never introduce a second
+		// authorization binding that could become stale during a move.
+		var documents []types.Knowledge
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").
+			Where("tenant_id = ? AND id IN ?", tenantID, ids).Find(&documents).Error; err != nil {
+			return err
+		}
+		scoped := tx.Model(&types.Knowledge{}).Select("id").Where("tenant_id = ? AND id IN ?", tenantID, ids)
+		if err := tx.Where("knowledge_id IN (?)", scoped).Delete(&types.KnowledgeComment{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("tenant_id = ? AND id IN ?", tenantID, ids).Delete(&types.Knowledge{}).Error
+	})
 }
 
 // GetKnowledgeBatch gets knowledge in batch

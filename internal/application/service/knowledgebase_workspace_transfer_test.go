@@ -139,6 +139,7 @@ func newKBWorkspaceTransferTestDB(t *testing.T) *gorm.DB {
 		&types.Chunk{},
 		&types.KnowledgeTag{},
 		&types.KnowledgeContentVersion{},
+		&types.KnowledgeNavigation{},
 		&types.WikiPage{},
 		&types.WikiFolder{},
 		&types.WikiPageIssue{},
@@ -235,6 +236,10 @@ func TestMoveKnowledgeBaseWorkspaceTx(t *testing.T) {
 	require.NoError(t, db.Create(&types.KnowledgeContentVersion{
 		ID: "kcv1", TenantID: 10000, KnowledgeBaseID: kb.ID, KnowledgeID: "k-live", Version: 1,
 	}).Error)
+	require.NoError(t, db.Create(&types.KnowledgeNavigation{
+		TenantID: 10000, KnowledgeBaseID: kb.ID, Folders: []string{"Empty"},
+		Orders: map[string][]string{"": {"f:Empty"}},
+	}).Error)
 	require.NoError(t, db.Create(&types.KnowledgeTag{
 		ID: "tag1", TenantID: 10000, KnowledgeBaseID: kb.ID, Name: "tag",
 	}).Error)
@@ -329,7 +334,7 @@ func TestMoveKnowledgeBaseWorkspaceTx(t *testing.T) {
 	assert.Equal(t, "new-backend", *movedKB.StorageBackendID)
 
 	for _, table := range []string{
-		"knowledges", "chunks", "chunk_revisions", "knowledge_content_versions",
+		"knowledges", "chunks", "chunk_revisions", "knowledge_content_versions", "knowledge_navigation",
 		"knowledge_tags", "wiki_folders", "wiki_pages", "wiki_page_issues",
 		"wiki_page_revisions", "data_sources", "chunk_images",
 	} {

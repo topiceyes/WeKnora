@@ -905,6 +905,7 @@ func (s *knowledgeBaseService) moveKnowledgeBaseWorkspaceTx(
 			"chunks",
 			"chunk_revisions",
 			"knowledge_content_versions",
+			"knowledge_navigation",
 			"knowledge_tags",
 			"wiki_folders",
 			"wiki_pages",

@@ -776,7 +776,10 @@ func (s *knowledgeService) CreateKnowledgeFromManual(ctx context.Context,
 		return nil, werrors.NewBadRequestError("请求内容不能为空")
 	}
 
-	cleanContent := secutils.CleanMarkdown(payload.Content)
+	cleanContent, contentErr := prepareEditorContent(payload.Content, payload.Document)
+	if contentErr != nil {
+		return nil, contentErr
+	}
 	if strings.TrimSpace(cleanContent) == "" {
 		return nil, werrors.NewValidationError("内容不能为空")
 	}
@@ -815,9 +818,15 @@ func (s *knowledgeService) CreateKnowledgeFromManual(ctx context.Context,
 	}
 
 	fileName := ensureManualFileName(title)
+	folderPath, err := normalizeTargetFolderPath(ctx, payload.FolderPath)
+	if err != nil {
+		return nil, err
+	}
 	meta := types.NewManualKnowledgeMetadata(cleanContent, status, 1)
+	meta.Document = payload.Document
 
 	knowledge := &types.Knowledge{
+		FolderPath:       folderPath,
 		TenantID:         tenantID,
 		KnowledgeBaseID:  kbID,
 		Type:             types.KnowledgeTypeManual,
@@ -1055,7 +1064,10 @@ func (s *knowledgeService) UpdateManualKnowledge(ctx context.Context,
 		return nil, werrors.NewBadRequestError("请求内容不能为空")
 	}
 
-	cleanContent := secutils.CleanMarkdown(payload.Content)
+	cleanContent, contentErr := prepareEditorContent(payload.Content, payload.Document)
+	if contentErr != nil {
+		return nil, contentErr
+	}
 	if strings.TrimSpace(cleanContent) == "" {
 		return nil, werrors.NewValidationError("内容不能为空")
 	}
@@ -1097,6 +1109,13 @@ func (s *knowledgeService) UpdateManualKnowledge(ctx context.Context,
 	}
 
 	meta := types.NewManualKnowledgeMetadata(cleanContent, status, version)
+	meta.Document = payload.Document
+	if prior, _ := existing.ManualMetadata(); prior != nil && prior.Document != nil && payload.Document == nil {
+		if cleanContent != prior.Content {
+			return nil, werrors.NewBadRequestError("该文档包含丰富格式，请在文档工作台编辑")
+		}
+		meta.Document = prior.Document
+	}
 	if err := existing.SetManualMetadata(meta); err != nil {
 		logger.Errorf(ctx, "Failed to set manual metadata during update: %v", err)
 		return nil, err

@@ -1,0 +1,503 @@
+[
+  {
+    "name": "color-and-callout",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "团队约定"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "重点",
+                "marks": [
+                  {
+                    "type": "highlight",
+                    "attrs": {
+                      "color": "#fff3a3"
+                    }
+                  },
+                  {
+                    "type": "textColor",
+                    "attrs": {
+                      "color": "#1677ff"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "callout",
+            "attrs": {
+              "kind": "warning"
+            },
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "先备份，再执行。"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "markdown": "## 团队约定\n\n重点\n\n> [!WARNING]\n> 先备份，再执行。"
+  },
+  {
+    "name": "merged-table",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableHeader",
+                    "attrs": {
+                      "colspan": 2,
+                      "rowspan": 1,
+                      "colwidth": [
+                        160,
+                        240
+                      ],
+                      "align": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "合并标题"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableCell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "align": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "第一列"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "align": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "第二列"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "markdown": "| 合并标题 |  |\n| --- | --- |\n| 第一列 | 第二列 |"
+  },
+  {
+    "name": "rowspan-and-paragraphs",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "table",
+            "content": [
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableCell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 2,
+                      "colwidth": null,
+                      "align": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "跨行"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "tableCell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "align": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "A"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "tableRow",
+                "content": [
+                  {
+                    "type": "tableCell",
+                    "attrs": {
+                      "colspan": 1,
+                      "rowspan": 1,
+                      "colwidth": null,
+                      "align": null
+                    },
+                    "content": [
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "B"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "paragraph",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "C"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "markdown": "| 跨行 | A |\n| --- | --- |\n|  | B C |"
+  },
+  {
+    "name": "lists-code-math-resources",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": true
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "已完成"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "未完成"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "codeBlock",
+            "attrs": {
+              "language": "python"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "print(\"hello\")"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "公式 "
+              },
+              {
+                "type": "inlineMath",
+                "attrs": {
+                  "latex": "E=mc^2"
+                }
+              }
+            ]
+          },
+          {
+            "type": "image",
+            "attrs": {
+              "src": "resource://file-123",
+              "alt": "示意图",
+              "title": null
+            }
+          }
+        ]
+      }
+    },
+    "markdown": "- [x] 已完成\n- [ ] 未完成\n\n```python\nprint(\"hello\")\n```\n\n公式 $E=mc^2$\n\n![示意图](resource://file-123)"
+  },
+  {
+    "name": "escapes-links-inline-marks",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a_*[]|#<>\\"
+              },
+              {
+                "type": "text",
+                "text": "链接",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/a(b)",
+                      "target": "_blank",
+                      "rel": "noopener",
+                      "class": null
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "强调",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "x`y",
+                "marks": [
+                  {
+                    "type": "code"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "markdown": "a\\_\\*\\[\\]\\|\\#&lt;&gt;\\\\[链接](https://example.com/a%28b%29)**强调**`` x`y ``"
+  },
+  {
+    "name": "pasted-list-spacing",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bulletList",
+            "attrs": {
+              "tight": true
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "紧凑列表"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": 3,
+              "type": null,
+              "tight": false
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "有序列表"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "markdown": "- 紧凑列表\n\n3. 有序列表"
+  },
+  {
+    "name": "document-link-with-tiptap-default-attributes",
+    "document": {
+      "schema_version": 1,
+      "content": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "发布规范",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "/platform/documents/open/12345678-1234-4234-8234-123456789abc",
+                      "target": "_blank",
+                      "rel": "noopener noreferrer nofollow",
+                      "class": null,
+                      "title": null
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " 以及 "
+              },
+              {
+                "type": "text",
+                "text": "接口说明",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/docs",
+                      "target": "_blank",
+                      "rel": "noopener noreferrer nofollow",
+                      "class": null,
+                      "title": "接口说明与示例"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "markdown": "[发布规范](/platform/documents/open/12345678-1234-4234-8234-123456789abc) 以及 [接口说明](https://example.com/docs)"
+  }
+]

@@ -19,11 +19,13 @@ import { sanitizeHTML, safeMarkdownToHTML, hydrateProtectedFileImages } from '@/
 import { continueListOnEnter, countContent, indentOnTab } from '@/utils/markdownEditing'
 import { useI18n } from 'vue-i18n'
 import { useAssistantStore } from '@/stores/assistant'
+import { useRouter } from 'vue-router'
 
 interface KnowledgeBaseOption {
   label: string
   value: string
 }
+const documentRouter = useRouter()
 
 interface KnowledgeDetailResponse {
   id: string
@@ -717,6 +719,12 @@ const loadKnowledgeContent = async () => {
     }
 
     form.kbId = data.knowledge_base_id || form.kbId
+    const bodyMetadata = typeof data.metadata === 'string' ? JSON.parse(data.metadata) : data.metadata
+    if (bodyMetadata && typeof bodyMetadata === 'object' && 'document' in bodyMetadata && bodyMetadata.document) {
+      uiStore.closeManualEditor()
+      await documentRouter.push({ name: 'documentWorkspace', params: { kbId: form.kbId }, query: { doc: currentKnowledgeId.value } })
+      return
+    }
     const meta = parseManualMetadata(data.metadata)
     form.title =
       data.title ||

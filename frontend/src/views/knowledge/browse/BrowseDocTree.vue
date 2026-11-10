@@ -1,5 +1,5 @@
 <template>
-  <aside class="browse-doc-tree">
+  <aside ref="rootRef" class="browse-doc-tree">
     <div class="browse-doc-tree__header">
       <span class="browse-doc-tree__title">{{ t('knowledgeBase.browse.treeTitle') }}</span>
       <span v-if="tree && !loading" class="browse-doc-tree__total">
@@ -18,6 +18,8 @@
     </div>
 
     <div class="browse-doc-tree__body">
+      <button v-if="manage" type="button" class="browse-tree-root" :class="{ active: selectedFolder === '' }"
+        @click="emit('folder-select', '')" @dragover.prevent @drop.prevent="dropAt($event, null, 'inside')">{{ t('documentNavigation.root') }}</button>
       <template v-if="loading && !tree">
         <div v-for="n in 8" :key="'tree-skel-' + n" class="browse-doc-tree__skeleton">
           <t-skeleton animation="gradient" :row-col="[{ width: '100%', height: '16px' }]" />
@@ -34,11 +36,17 @@
           :class="{
             'is-folder': row.kind === 'folder',
             active: row.kind === 'doc' && row.id === selectedDocId,
+            'is-selected-folder': row.kind === 'folder' && row.path === selectedFolder,
+            'is-drop-target': dropTarget === rowKey(row),
           }"
           :style="{ '--browse-row-depth': row.depth }"
           :title="row.kind === 'folder' ? row.path : row.title"
           role="button"
           tabindex="0"
+          :data-node-key="rowKey(row)" :data-folder-path="row.kind === 'folder' ? row.path : undefined"
+          :draggable="manage && !busy && sortBy === 'manual' && !query.trim()"
+          @dragstart="dragStart($event, row)" @dragend="dropTarget = ''"
+          @dragover="dragOver($event, row)" @dragleave="dropTarget = ''" @drop.prevent="dropAt($event, row)"
           @click="onRowClick(row)"
           @keydown.enter.self="onRowClick(row)"
           @keydown.space.prevent.self="onRowClick(row)"
@@ -68,16 +76,21 @@
             :class="{ 'is-doc': row.kind === 'doc' }"
           />
           <span class="browse-tree-row__label">{{ row.kind === 'folder' ? row.name : row.title }}</span>
+          <input v-if="manage && row.kind === 'doc'" type="checkbox" class="browse-tree-row__check" :checked="selectedIds.includes(row.id)" :disabled="busy"
+            :aria-label="`${t('documentNavigation.select')} ${row.title}`" @click.stop @change="emit('toggle-selection', row.id)" />
+          <t-dropdown v-if="manage" trigger="click" :options="menuOptions(row)" @click="(data: any) => emit('action', data.value, asItem(row))">
+            <button type="button" class="browse-tree-row__menu" :disabled="busy" :aria-label="`${t('documentNavigation.actions')} ${row.kind === 'folder' ? row.name : row.title}`" @click.stop @keydown.stop><t-icon name="more" /></button>
+          </t-dropdown>
           <t-icon
-            v-if="row.kind === 'doc' && isDocProcessing(row.doc)"
+            v-if="showProcessingStatus && row.kind === 'doc' && isDocProcessing(row.doc)"
             name="loading"
             class="browse-tree-row__status is-processing"
           />
-          <t-tooltip v-else-if="row.kind === 'doc' && row.doc.parse_status === 'failed'"
+          <t-tooltip v-else-if="showProcessingStatus && row.kind === 'doc' && row.doc.parse_status === 'failed'"
             :content="t('knowledgeBase.browse.parseFailed')" placement="top">
             <t-icon name="error-circle" class="browse-tree-row__status is-failed" />
           </t-tooltip>
-          <t-tooltip v-if="row.kind === 'doc' && row.doc.index_stale"
+          <t-tooltip v-if="showProcessingStatus && row.kind === 'doc' && row.doc.index_stale"
             :content="t('knowledgeBase.browse.staleDot')" placement="top">
             <span class="browse-tree-row__stale-dot" aria-hidden="true" />
           </t-tooltip>
@@ -88,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type {
   KnowledgeFolderNode,
@@ -97,6 +110,7 @@ import type {
 } from '@/api/knowledge-base'
 import { folderAncestorPaths, ROOT_FOLDER_PATH } from '../folderTree'
 import { browseDocIcon } from './docIcon'
+import { directItems, itemKey, orderItems, type NavigationItem, type NavigationSort } from '../../documents/navigationModel'
 
 type TreeRow =
   | { kind: 'folder'; path: string; name: string; depth: number; hasChildren: boolean }
@@ -106,17 +120,69 @@ const props = withDefaults(defineProps<{
   tree: KnowledgeTree | null
   selectedDocId?: string
   loading?: boolean
+  query?: string
+  showProcessingStatus?: boolean
+  manage?: boolean
+  selectedFolder?: string
+  selectedIds?: string[]
+  sortBy?: NavigationSort
+  busy?: boolean
+  scope?: string
 }>(), {
   selectedDocId: '',
   loading: false,
+  query: '',
+  showProcessingStatus: true,
+  manage: false, selectedFolder: '', selectedIds: () => [], sortBy: 'manual', busy: false, scope: '',
 })
 
 const emit = defineEmits<{
   select: [docId: string]
   refresh: []
+  'folder-select': [path: string]
+  'toggle-selection': [id: string]
+  action: [key: string, item: NavigationItem]
+  drop: [source: NavigationItem, target: NavigationItem | null, position: 'inside' | 'before' | 'after']
 }>()
 
 const { t } = useI18n()
+const dropTarget = ref('')
+function asItem(row: TreeRow): NavigationItem { return row.kind === 'folder' ? row : { kind: 'doc', id: row.id, title: row.title, folder_path: row.doc.folder_path || '' } }
+const rowKey = (row: TreeRow) => itemKey(asItem(row))
+function menuOptions(row: TreeRow) {
+  const keys = row.kind === 'folder' ? ['create', 'newDocument', 'rename', 'move', 'delete'] : ['move']
+  if (props.sortBy === 'manual') keys.push('up', 'down')
+  return keys.map(value => ({ value, content: t(`documentNavigation.${value}`) }))
+}
+function dragStart(event: DragEvent, row: TreeRow) {
+  if (!props.manage || props.busy || props.query.trim() || !event.dataTransfer) { event.preventDefault(); return }
+  event.dataTransfer.setData('application/x-weknora-navigation', JSON.stringify({ scope: props.scope, key: rowKey(row) }))
+  event.dataTransfer.effectAllowed = 'move'
+}
+function dragOver(event: DragEvent, row: TreeRow) {
+  if (!props.manage || props.busy || props.query.trim() || !event.dataTransfer?.types.includes('application/x-weknora-navigation')) return
+  event.preventDefault(); event.dataTransfer.dropEffect = 'move'; dropTarget.value = rowKey(row)
+}
+function dropAt(event: DragEvent, row: TreeRow | null, forced?: 'inside') {
+  dropTarget.value = ''
+  if (!props.manage || props.busy || props.query.trim() || props.sortBy !== 'manual') return
+  let key = ''
+  try { const data = JSON.parse(event.dataTransfer?.getData('application/x-weknora-navigation') || '{}'); if (data.scope !== props.scope) return; key = data.key } catch { return }
+  if (!key) return
+  // Resolve against the current tree; never trust cross-book drag payloads.
+  const all: NavigationItem[] = []
+  const visit = (parent: string) => { for (const item of directItems(props.tree, parent)) { all.push(item); if (item.kind === 'folder') visit(item.path) } }
+  visit('')
+  const source = all.find(item => itemKey(item) === key)
+  if (!source) return
+  let position: 'inside' | 'before' | 'after' = forced || 'inside'
+  if (row && !forced) {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const ratio = (event.clientY - rect.top) / rect.height
+    position = row.kind === 'folder' && ratio > .25 && ratio < .75 ? 'inside' : ratio < .5 ? 'before' : 'after'
+  }
+  emit('drop', source, row ? asItem(row) : null, position)
+}
 
 // Folders start expanded at the top level so the uploaded structure is visible
 // without a click; ancestors of the selected document are kept expanded below.
@@ -131,46 +197,35 @@ const toggle = (path: string) => {
   expanded.value = next
 }
 
-const docsByFolder = computed(() => {
-  const map = new Map<string, KnowledgeTreeDocument[]>()
-  for (const doc of props.tree?.documents ?? []) {
-    const key = doc.folder_path || ROOT_FOLDER_PATH
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(doc)
-  }
-  return map
-})
-
 const isDocProcessing = (doc: KnowledgeTreeDocument) =>
   doc.parse_status === 'pending' || doc.parse_status === 'processing'
 
 const rows = computed<TreeRow[]>(() => {
   const out: TreeRow[] = []
-  const pushDocs = (path: string, depth: number) => {
-    for (const doc of docsByFolder.value.get(path) ?? []) {
-      out.push({ kind: 'doc', id: doc.id, title: doc.title || doc.file_name || doc.id, depth, doc })
+  const query = props.query.trim().toLocaleLowerCase()
+  const matches = (doc: KnowledgeTreeDocument) => !query ||
+    `${doc.title} ${doc.file_name} ${doc.folder_path}`.toLocaleLowerCase().includes(query)
+  const matchingDocs = (props.tree?.documents ?? []).filter(matches)
+  const orderedWalk = (parent: string, depth: number) => {
+    let items = directItems(props.tree, parent)
+    // Sorting is read-only; manual order is restored when switched back.
+    if (props.sortBy !== 'manual') items = orderItems(items, props.tree, parent, props.sortBy)
+    for (const item of items) {
+      if (item.kind === 'doc') { const doc = props.tree!.documents.find(d => d.id === item.id)!; if (matches(doc)) out.push({ kind: 'doc', id: doc.id, title: item.title, depth, doc }); continue }
+      if (query && !matchingDocs.some(doc => doc.folder_path === item.path || doc.folder_path.startsWith(item.path + '/')) && !item.path.toLocaleLowerCase().includes(query)) continue
+      const hasChildren = directItems(props.tree, item.path).length > 0
+      out.push({ ...item, depth, hasChildren })
+      if (hasChildren && (query || expanded.value.has(item.path))) orderedWalk(item.path, depth + 1)
     }
   }
-  const walk = (folders: KnowledgeFolderNode[], depth: number) => {
-    for (const folder of folders) {
-      const childDocs = docsByFolder.value.get(folder.path)?.length ?? 0
-      const hasChildren = (folder.children?.length ?? 0) > 0 || childDocs > 0
-      out.push({ kind: 'folder', path: folder.path, name: folder.name, depth, hasChildren })
-      if (hasChildren && expanded.value.has(folder.path)) {
-        pushDocs(folder.path, depth + 1)
-        walk(folder.children ?? [], depth + 1)
-      }
-    }
-  }
-  walk(props.tree?.folders ?? [], 0)
-  // 根目录文档排在文件夹之后，与「管理」视图的目录浏览顺序一致。
-  pushDocs(ROOT_FOLDER_PATH, 0)
+  orderedWalk('', 0)
   return out
 })
 
 const onRowClick = (row: TreeRow) => {
   if (row.kind === 'folder') {
     toggle(row.path)
+    emit('folder-select', row.path)
   } else {
     emit('select', row.id)
   }
@@ -202,9 +257,25 @@ watch(
   },
   { immediate: true },
 )
+
+function expandAll() { const next = new Set<string>(['']); const visit = (folders: KnowledgeFolderNode[]) => folders.forEach(f => { next.add(f.path); visit(f.children || []) }); visit(props.tree?.folders || []); expanded.value = next }
+function collapseAll() { expanded.value = new Set(['']) }
+function revealFolder(path: string) { const next = new Set(expanded.value); folderAncestorPaths(path).forEach(p => next.add(p)); expanded.value = next }
+function locate() {
+  const doc = props.tree?.documents.find(d => d.id === props.selectedDocId)
+  if (doc) { const next = new Set(expanded.value); folderAncestorPaths(doc.folder_path).forEach(p => next.add(p)); expanded.value = next }
+  nextTick(() => rootRef.value?.querySelector('.browse-tree-row.active')?.scrollIntoView({ block: 'nearest' }))
+}
+const rootRef = ref<HTMLElement | null>(null)
+defineExpose({ expandAll, collapseAll, locate, revealFolder })
 </script>
 
 <style scoped lang="less">
+.browse-tree-root { width: 100%; text-align: left; border: 0; background: transparent; color: var(--td-text-color-secondary); padding: 8px; cursor: pointer; }
+.browse-tree-root.active, .is-selected-folder { background: var(--td-bg-color-container-hover); }
+.browse-tree-row.is-drop-target { outline: 2px solid var(--td-brand-color); }
+.browse-tree-row__menu { border: 0; padding: 4px; background: transparent; color: var(--td-text-color-secondary); cursor: pointer; }
+.browse-tree-row__check { flex: none; accent-color: var(--td-brand-color); }
 .browse-doc-tree {
   --browse-row-indent: 14px;
   display: flex;

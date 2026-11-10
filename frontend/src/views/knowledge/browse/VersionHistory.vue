@@ -93,7 +93,7 @@
             <p>{{ t('knowledgeBase.browse.history.compareHint') }}</p>
           </div>
           <div v-else-if="!hasDiffChanges" class="version-history__state version-history__state--hint">
-            <p>{{ t('knowledgeBase.browse.history.noDifference') }}</p>
+            <p>{{ t(formatOnlyChange ? 'richWriting.formatOnlyDiff' : 'knowledgeBase.browse.history.noDifference') }}</p>
           </div>
           <div v-else class="version-history__diff">
             <div
@@ -130,6 +130,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { documentFingerprint, documentHTML, readStructuredDocument } from './structuredDocument'
+import { sanitizeHTML, hydrateProtectedFileImages } from '@/utils/security'
+import './richDocument.less'
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import {
   getKnowledgeContentVersion,
@@ -138,7 +141,6 @@ import {
   type KnowledgeContentVersionSummary,
 } from '@/api/knowledge-base'
 import { processMarkdown } from '@/utils/markdownPipeline'
-import { hydrateProtectedFileImages } from '@/utils/security'
 import { formatStringDate } from '@/utils/index'
 import {
   buildUnifiedDiff,
@@ -182,6 +184,9 @@ const diffLines = ref<DiffLine[]>([])
 const diffLoading = ref(false)
 // 版本号 → 原文内容缓存：预览请求顺带填充，对比模式零成本复用。
 const rawCache = ref<Record<number, string>>({})
+const structureCache = ref<Record<number, string>>({})
+const formatOnlyChange = computed(() => compareSel.value.base != null && compareSel.value.target != null &&
+  structureCache.value[compareSel.value.base] !== structureCache.value[compareSel.value.target])
 let diffGeneration = 0
 
 const items = computed(() => toVersionListItems(versions.value))
@@ -209,6 +214,7 @@ async function ensureRawContent(version: number, generation: number): Promise<st
   const res = await getKnowledgeContentVersion(props.knowledgeId, version)
   if (generation !== diffGeneration) return ''
   const content = (res as any)?.data?.content || ''
+  structureCache.value[version] = documentFingerprint(readStructuredDocument((res as any)?.data?.document))
   rawCache.value = { ...rawCache.value, [version]: content }
   return content
 }
@@ -273,8 +279,10 @@ async function select(item: VersionListItem) {
     const res = await getKnowledgeContentVersion(props.knowledgeId, item.version.version)
     if (generation !== loadGeneration) return
     const content = (res as any)?.data?.content || ''
+    structureCache.value[item.version.version] = documentFingerprint(readStructuredDocument((res as any)?.data?.document))
     rawCache.value = { ...rawCache.value, [item.version.version]: content }
-    detailHtml.value = processMarkdown(content)
+    const document = readStructuredDocument((res as any)?.data?.document)
+    detailHtml.value = document ? sanitizeHTML(documentHTML(document, processMarkdown)) : processMarkdown(content)
     await nextTick()
     await hydrateProtectedFileImages(
       previewRef.value,
@@ -324,6 +332,7 @@ watch(
       compareSel.value = { base: null, target: null }
       diffLines.value = []
       rawCache.value = {}
+      structureCache.value = {}
       loadList()
     }
   },

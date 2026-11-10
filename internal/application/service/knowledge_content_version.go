@@ -28,7 +28,12 @@ func buildContentVersionSnapshot(ctx context.Context,
 	if types.IsSyntheticUserID(createdBy) {
 		createdBy = ""
 	}
+	var document *types.StructuredDocument
+	if meta, err := k.ManualMetadata(); err == nil && meta != nil {
+		document = meta.Document
+	}
 	return &types.KnowledgeContentVersion{
+		Document:        document,
 		ID:              uuid.NewString(),
 		TenantID:        k.TenantID,
 		KnowledgeBaseID: k.KnowledgeBaseID,
@@ -161,7 +166,9 @@ func (s *knowledgeService) RestoreKnowledgeContentVersion(ctx context.Context,
 		return nil, err
 	}
 	return s.UpdateKnowledgeContent(ctx, knowledgeID, &types.KnowledgeContentPayload{
-		Title:   rev.Title,
-		Content: rev.Content,
+		Title:                    rev.Title,
+		Content:                  rev.Content,
+		Document:                 rev.Document,
+		AllowMarkdownReplacement: true,
 	})
 }

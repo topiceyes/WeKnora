@@ -2505,6 +2505,11 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
             <!-- 标题行右侧的动作锚点：共享、信息与设置。共享带文字标签，
                  避免再次出现"只有图标、看不出能共享"的问题。 -->
             <div class="kb-title-actions">
+              <t-button v-if="!isFAQ" size="small" variant="outline"
+                @click="router.push({ name: 'documentWorkspace', params: { kbId }, query: route.query.doc ? { doc: route.query.doc } : {} })">
+                <template #icon><t-icon name="book-open" /></template>
+                {{ $t('documentWorkspace.title') }}
+              </t-button>
               <t-button v-if="canShareKB" size="small" variant="outline" class="kb-share-button"
                 @click="handleOpenKBShare">
                 <template #icon><t-icon name="share" /></template>

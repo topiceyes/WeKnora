@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.7] - 2026-11-10
+
+### Document workspace
+
+- Add an independent reading and writing workspace with folders, manual ordering, bulk moves, favorites and recent documents.
+- Preserve rich document structure, formatting, merged tables and external clipboard content; add autosave, local draft recovery and version conflict handling.
+- Add document comments and replies, resolved discussions and version-aware text quotes.
+- Search saved document text and insert stable document links; show backlinks within the current knowledge base.
+- Fix saved link validation for Tiptap's `title` attribute and unedited imported-document quote version checks.
+
+### Upgrade
+
+Apply PostgreSQL/SQLite migrations 904–906. Upgrade all app/worker processes and the frontend together. Back up the database, files and configuration before upgrading; reverting migrations removes structured history fields, navigation records and comments. See [release-1.8.7.md](docs/design/release-1.8.7.md).
+
 ## [0.8.3] - 2026-10-14
 
 Changes since v0.8.2, through upstream main `31c605568` (2026-10-13; 282 commits). The plugin-system series was reverted and is not part of this release. [Website release notes](./website-docs/07-releases/v0.8.3.md) · [Full commit comparison](https://github.com/Tencent/WeKnora/compare/v0.8.2...31c6055687d33f9ad7a92cf453a264ce13a1700d).

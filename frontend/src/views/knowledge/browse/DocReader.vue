@@ -1,5 +1,5 @@
 <template>
-  <div class="doc-reader">
+  <div class="doc-reader" :class="{ 'doc-reader--workspace': workspace }" @keydown="onEditorKeydown">
     <div v-if="!doc" class="doc-reader__placeholder">
       <t-icon name="file-paste" size="40px" />
       <p>{{ t('knowledgeBase.browse.pickDocument') }}</p>
@@ -21,9 +21,15 @@
             <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.edit')"
               @click="startEdit">
               <t-icon name="edit" size="16px" />
+              <span v-if="workspace">{{ t('knowledgeBase.browse.edit') }}</span>
             </button>
           </t-tooltip>
           <template v-if="!editing">
+          <t-tooltip v-if="workspace && doc.type !== 'faq'" :content="t('documentComments.title')" placement="bottom">
+            <button type="button" class="doc-reader__action" :aria-label="t('documentComments.title')" @click="commentsOpen = true">
+              <t-icon name="chat" size="16px" />
+            </button>
+          </t-tooltip>
           <t-tooltip v-if="doc.type !== 'faq'" :content="t('knowledgeBase.browse.history.title')" placement="bottom">
             <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.history.title')"
               @click="historyOpen = true">
@@ -36,7 +42,7 @@
               <t-icon name="file-search" size="16px" />
             </button>
           </t-tooltip>
-          <t-tooltip :content="t('knowledgeBase.browse.aiViewTip')" placement="bottom">
+          <t-tooltip v-if="!workspace" :content="t('knowledgeBase.browse.aiViewTip')" placement="bottom">
             <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.aiView')"
               @click="emit('open-source-doc', doc.id)">
               <t-icon name="data-search" size="16px" />
@@ -52,7 +58,10 @@
         </div>
       </header>
 
-      <div v-if="indexStale && !editing" class="doc-reader__stale">
+      <DraftRecovery v-if="workspace && !loading && canEditNow && !editing" :drafts="localDraft.candidates.value"
+        :base-version="contentVersion" @restore="restoreDraft" @discard="localDraft.discard" />
+
+      <div v-if="!workspace && indexStale && !editing" class="doc-reader__stale">
         <t-icon name="notification-filled" size="14px" />
         <span class="doc-reader__stale-text">{{ t('knowledgeBase.browse.staleBanner') }}</span>
         <t-button v-if="canEdit" size="small" theme="warning" variant="outline" :loading="relearning" @click="relearn">
@@ -61,19 +70,25 @@
       </div>
 
       <div v-if="editing" class="doc-reader__edit">
-        <t-input v-model="editTitle" class="doc-reader__edit-title" :maxlength="200" clearable />
-        <RichEditor v-model="editContent" :kb-id="kbId" class="doc-reader__edit-editor" />
+        <div v-if="workspace" class="doc-reader__save-status" role="status" aria-live="polite">
+          <span>{{ saveStatusText }}</span>
+          <t-button v-if="autosave.state.value === 'error' || lastSaveFailed" size="small" variant="text" @click="retryAutosave">{{ t('documentSaving.retrySave') }}</t-button>
+          <t-button v-if="saveConflict" size="small" variant="text" @click="conflictOpen = true">{{ t('documentSaving.resolveConflict') }}</t-button>
+        </div>
+        <t-input v-model="editTitle" class="doc-reader__edit-title" :maxlength="200" :disabled="manualSaving" clearable />
+        <RichEditor ref="richEditorRef" v-model="editContent" :document="editDocument" :kb-id="kbId" :disabled="manualSaving || editorInvalid" class="doc-reader__edit-editor"
+          @content-change="onEditorContent" @content-error="editorInvalid = true" @busy-change="editorBusy = $event" />
         <div class="doc-reader__edit-actions">
-          <t-button variant="outline" :disabled="saving" @click="cancelEdit">
-            {{ t('knowledgeBase.browse.cancel') }}
+          <t-button variant="outline" :disabled="saving || editorBusy" @click="cancelEdit">
+            {{ t(workspace ? 'documentSaving.backToReading' : 'knowledgeBase.browse.cancel') }}
           </t-button>
-          <t-button theme="primary" :loading="saving" @click="saveEdit">
+          <t-button theme="primary" :loading="saving" :disabled="editorBusy || editorInvalid || !editContent.trim() || !editTitle.trim()" @click="saveEdit">
             {{ t('knowledgeBase.browse.save') }}
           </t-button>
         </div>
       </div>
 
-      <div v-else ref="scrollRef" class="doc-reader__scroll" @scroll.passive="onScroll">
+      <div v-else ref="scrollRef" class="doc-reader__scroll" @click="onDocumentLinkClick" @scroll.passive="onScroll">
         <div v-if="loading" class="doc-reader__state">
           <t-skeleton animation="gradient" :row-col="skeletonRows" />
         </div>
@@ -91,8 +106,12 @@
           <p>{{ statusHint }}</p>
         </div>
 
-        <article v-else class="doc-reader__article">
+        <article v-else class="doc-reader__article" @mouseup="captureQuote" @keyup="captureQuote">
+          <t-button v-if="workspace && canEditNow && selectedQuote" class="doc-reader__quote-action" size="small" variant="outline"
+            @mousedown.prevent @click="commentOnSelection">{{ t('documentComments.quoteComment') }}</t-button>
+          <h1 v-if="workspace" class="doc-reader__document-title">{{ displayTitle }}</h1>
           <div ref="contentRef" class="md-content" v-html="renderedHtml"></div>
+          <DocumentBacklinks v-if="workspace && doc && doc.type !== 'faq'" :knowledge-id="doc.id" />
         </article>
       </div>
     </template>
@@ -116,6 +135,10 @@
       </div>
     </t-dialog>
 
+    <DocumentComments v-if="workspace && doc && doc.type !== 'faq'" :key="doc.id" ref="commentsRef" v-model:visible="commentsOpen"
+      :knowledge-id="doc.id" :content-version="contentVersion" :can-edit="canEdit" :user-id="auth.user?.id || ''"
+      :anchor="commentAnchor" @locate="locateQuote" />
+
     <VersionHistory
       v-if="doc"
       v-model:visible="historyOpen"
@@ -124,13 +147,22 @@
       :can-edit="canEdit"
       @restored="onRestored"
     />
+    <t-dialog v-if="conflictOpen" :visible="true" :header="t('knowledgeBase.browse.editor.conflictTitle')"
+      :footer="false" width="560px" @close="conflictOpen = false">
+      <p>{{ t('documentSaving.conflictBody') }}</p>
+      <div class="doc-reader__conflict-actions">
+        <t-button variant="outline" :disabled="saving" @click="conflictOpen = false">{{ t('documentWorkspace.keepEditing') }}</t-button>
+        <t-button variant="outline" :disabled="saving" @click="loadLatestAfterConflict">{{ t('knowledgeBase.browse.editor.conflictLoadLatest') }}</t-button>
+        <t-button theme="danger" :loading="saving" @click="overwriteAfterConflict">{{ t('knowledgeBase.browse.editor.conflictOverwrite') }}</t-button>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
+import { MessagePlugin } from 'tdesign-vue-next'
 import {
   downKnowledgeDetails,
   getKnowledgeDetails,
@@ -141,7 +173,7 @@ import {
 } from '@/api/knowledge-base'
 import { mergeChunks } from '@/utils/mergedContent'
 import { processMarkdown } from '@/utils/markdownPipeline'
-import { hydrateProtectedFileImages } from '@/utils/security'
+import { hydrateProtectedFileImages, sanitizeHTML } from '@/utils/security'
 import { openMermaidFullscreen } from '@/utils/mermaidViewer'
 import { runMermaidOnDivs } from '@/utils/mermaidShared'
 import { resolveFilePreviewExt, isKnownPreviewableExt } from '@/utils/filePreview'
@@ -150,9 +182,22 @@ import { resolveKnowledgeDownloadFileName } from '../knowledgeDownloadFileName'
 import DocumentPreview from '@/components/document-preview.vue'
 import { browseDocIcon } from './docIcon'
 import type { OutlineItem } from './types'
+import { confirmDiscardChanges } from '@/views/documents/unsavedChanges'
+import { useAuthStore } from '@/stores/auth'
+import DraftRecovery from '@/views/documents/DraftRecovery.vue'
+import { useDocumentDraft } from '@/views/documents/useDocumentDraft'
+import { useDocumentAutosave, type AutosaveOutcome } from '@/views/documents/useDocumentAutosave'
+import type { StoredDraft } from '@/views/documents/documentDrafts'
+import { documentFingerprint, documentHTML, readStructuredDocument, sameDocument, type StructuredDocument } from './structuredDocument'
+import './richDocument.less'
+import { linkedDocumentID } from '@/views/documents/documentLinks'
+import { captureCommentQuote, locateCommentQuote, selectCommentQuote } from './commentAnchors'
+import type { DocumentCommentAnchor } from '@/api/knowledge-base'
 
 // 编辑器与版本历史是重依赖（tiptap / diff），首次使用时才拉 chunk，
 // KB 首屏不背这个包。
+const DocumentBacklinks = defineAsyncComponent(() => import('./DocumentBacklinks.vue'))
+const DocumentComments = defineAsyncComponent(() => import('./DocumentComments.vue'))
 const RichEditor = defineAsyncComponent(() => import('./RichEditor.vue'))
 const VersionHistory = defineAsyncComponent(() => import('./VersionHistory.vue'))
 
@@ -162,12 +207,15 @@ const props = withDefaults(defineProps<{
   canDownload?: boolean
   /** 当前用户对该知识库有编辑权限（Editor+），控制编辑/重新学习入口。 */
   canEdit?: boolean
+  workspace?: boolean
 }>(), {
   canDownload: false,
   canEdit: false,
+  workspace: false,
 })
 
 const emit = defineEmits<{
+  'open-linked-document': [knowledgeId: string]
   'open-source-doc': [knowledgeId: string]
   'outline-change': [items: OutlineItem[]]
   'outline-active': [index: number]
@@ -175,15 +223,47 @@ const emit = defineEmits<{
   'doc-updated': []
 }>()
 
+function onDocumentLinkClick(event: MouseEvent) {
+  if (!props.workspace || event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+  const anchor = (event.target as Element | null)?.closest?.('a[href]')
+  const id = anchor && linkedDocumentID(anchor.getAttribute('href') || '')
+  if (!id) return
+  event.preventDefault()
+  emit('open-linked-document', id)
+}
 const { t } = useI18n()
+const auth = useAuthStore()
 
 const detail = ref<any>(null)
 const markdown = ref('')
+const structuredDocument = ref<StructuredDocument | null>(null)
+const documentSchemaVersion = ref(0)
 const loading = ref(false)
 const loadError = ref('')
 const downloading = ref(false)
 const previewOpen = ref(false)
 const historyOpen = ref(false)
+const commentsOpen = ref(false)
+const commentsRef = ref<InstanceType<typeof DocumentComments> | null>(null)
+const selectedQuote = ref<DocumentCommentAnchor | null>(null)
+const commentAnchor = ref<DocumentCommentAnchor | null>(null)
+function captureQuote() {
+  selectedQuote.value = contentRef.value && props.canEdit ? captureCommentQuote(contentRef.value, window.getSelection(), contentVersion.value) : null
+}
+function commentOnSelection() {
+  commentAnchor.value = selectedQuote.value
+  commentsOpen.value = true
+}
+async function locateQuote(anchor: DocumentCommentAnchor) {
+  const root = contentRef.value
+  if (!root || locateCommentQuote(root.textContent || '', anchor, contentVersion.value) === null) {
+    MessagePlugin.warning(t('documentComments.quoteUnavailable')); return
+  }
+  commentsOpen.value = false
+  await nextTick()
+  selectCommentQuote(root, anchor, contentVersion.value)
+}
+
 const scrollRef = ref<HTMLElement | null>(null)
 const contentRef = ref<HTMLElement | null>(null)
 
@@ -239,7 +319,8 @@ const statusIcon = computed(() => {
   return 'file-paste'
 })
 
-const renderedHtml = computed(() => processMarkdown(markdown.value))
+const renderedHtml = computed(() => structuredDocument.value
+  ? sanitizeHTML(documentHTML(structuredDocument.value, processMarkdown)) : processMarkdown(markdown.value))
 
 // manual 文档的全文存在 knowledge.metadata.content 里；file/url 文档被在线
 // 编辑后也会把编辑文本写进同一字段（metadata 可能是对象或 JSON 字符串）。
@@ -269,6 +350,7 @@ const loadContent = async () => {
   loading.value = true
   loadError.value = ''
   markdown.value = ''
+  structuredDocument.value = null
   detail.value = null
   try {
     const result: any = await getKnowledgeDetails(doc.id)
@@ -278,6 +360,9 @@ const loadContent = async () => {
       throw new Error(result?.message || t('knowledgeBase.browse.loadFailed'))
     }
     detail.value = data
+    documentSchemaVersion.value = result.document_schema_version || 0
+    structuredDocument.value = readStructuredDocument(parseMetadataObject(data.metadata)?.document)
+    if (structuredDocument.value) documentHTML(structuredDocument.value, processMarkdown)
     // 编辑内容（metadata.content）优先：manual 文档天然如此，file/url 文档
     // 编辑后也以它为准；未编辑的 file/url 仍回退到分片拼接。
     const edited = parseMetadataObject(data.metadata)?.content || ''
@@ -311,11 +396,74 @@ const loadContent = async () => {
 const editing = ref(false)
 const editTitle = ref('')
 const editContent = ref('')
+const richEditorRef = ref<InstanceType<typeof RichEditor> | null>(null)
+const editDocument = ref<StructuredDocument | null>(null)
+const baselineDocument = ref<StructuredDocument | null>(null)
+const editorInvalid = ref(false)
+function onEditorContent(value: { content: string; document: StructuredDocument }) {
+  editContent.value = value.content
+  editDocument.value = value.document
+}
 const saving = ref(false)
+const automaticSaving = ref(false)
+const lastSaveFailed = ref(false)
+const manualSaving = computed(() => saving.value && !automaticSaving.value)
+const saveConflict = ref(false)
+const conflictOpen = ref(false)
+const editorBusy = ref(false)
 const relearning = ref(false)
 // 进入编辑时快照的 metadata.version（未编辑过的文档为 0），保存时作为
 // base_version 做乐观并发检测；后端不匹配返回 409。
 const editBaseVersion = ref(0)
+const editBaselineTitle = ref('')
+const editBaselineContent = ref('')
+const hasUnsavedChanges = computed(() => editing.value && (
+  editTitle.value !== editBaselineTitle.value || editContent.value !== editBaselineContent.value || !sameDocument(editDocument.value, baselineDocument.value)
+))
+const contentVersion = computed(() => {
+  const meta = parseMetadataObject(detail.value?.metadata)
+  return meta?.content ? Number(meta.version) || 1 : 0
+})
+const localDraft = useDocumentDraft({
+  scope: () => props.workspace && auth.user?.id && auth.effectiveTenantId && props.doc?.id ? {
+    userId: auth.user.id, tenantId: String(auth.effectiveTenantId), kbId: props.kbId, documentId: props.doc.id,
+  } : null,
+  value: () => ({ title: editTitle.value, content: editContent.value, baseVersion: editBaseVersion.value, document: editDocument.value }),
+  active: () => editing.value,
+  dirty: () => hasUnsavedChanges.value,
+})
+const autosave = useDocumentAutosave({
+  enabled: () => props.workspace && editing.value && props.canEdit && !editorInvalid.value && !saveConflict.value && !!editContent.value.trim() && !!editTitle.value.trim(),
+  dirty: () => hasUnsavedChanges.value,
+  busy: () => saving.value || editorBusy.value,
+  revision: () => [editTitle.value, editContent.value, documentFingerprint(editDocument.value)],
+  save: () => saveEditInner(true, true),
+})
+const saveStatusText = computed(() => {
+  if (saveConflict.value) return t('documentSaving.conflict')
+  if (editorInvalid.value) return t('richWriting.unsupportedDocument')
+  if (saving.value) return t('documentSaving.saving')
+  if (localDraft.storageError.value) return t('documentSaving.localFailed')
+  if (autosave.state.value === 'error' || lastSaveFailed.value) return t('documentSaving.saveFailed')
+  if (editorBusy.value) return t('writingTools.uploadingImage')
+  return t(hasUnsavedChanges.value ? 'documentSaving.pending' : 'documentSaving.saved')
+})
+function retryAutosave() { lastSaveFailed.value = false; autosave.resume(); void autosave.save() }
+function restoreDraft(draft: StoredDraft) {
+  if (!canEditNow.value) return
+  startEdit()
+  editTitle.value = draft.title
+  editContent.value = draft.content
+  editDocument.value = draft.document || null
+  // A Markdown-only recovery copy cannot silently flatten a rich server body.
+  editBaseVersion.value = draft.baseVersion
+  localDraft.adopt(draft)
+  if (draft.baseVersion !== contentVersion.value || (!!structuredDocument.value && !draft.document)) {
+    saveConflict.value = true
+    autosave.pause()
+  }
+  localDraft.flush()
+}
 let relearnTimer: ReturnType<typeof setInterval> | null = null
 
 // 编辑入口只对「有权限 + 有正文 + 不在解析中」的文档开放；解析中的文档保存会
@@ -339,84 +487,166 @@ const startEdit = () => {
   if (!canEditNow.value) return
   editTitle.value = detail.value?.title || props.doc?.title || ''
   editContent.value = markdown.value
+  editDocument.value = structuredDocument.value
+  baselineDocument.value = structuredDocument.value
+  editorInvalid.value = false
   syncEditBaseVersion()
+  editBaselineTitle.value = editTitle.value
+  editBaselineContent.value = editContent.value
   editing.value = true
+  saveConflict.value = false
+  lastSaveFailed.value = false
+  autosave.resume()
 }
 
-const cancelEdit = () => {
+const resetEdit = () => {
+  autosave.stop()
+  saveConflict.value = false
+  conflictOpen.value = false
   editing.value = false
   editContent.value = ''
+  editDocument.value = null
+  baselineDocument.value = null
+  editorInvalid.value = false
   editTitle.value = ''
 }
 
-// 保存冲突（409）：让用户选「加载最新」还是「强制覆盖」。tdesign confirm 弹窗
-// 只有双按钮，cancel 槽位复用为破坏性的「强制覆盖」；直接关闭弹窗 = 什么都不
-// 做，继续在旧基线上编辑。
-const showSaveConflictDialog = (error: any) => {
-  const details = error?.error?.details || error?.details
-  const current = typeof details?.current_version === 'number' ? details.current_version : -1
-  const dialog = DialogPlugin.confirm({
-    header: t('knowledgeBase.browse.editor.conflictTitle'),
-    body: t('knowledgeBase.browse.editor.conflictBody', { ver: current >= 0 ? current : '?' }),
-    confirmBtn: t('knowledgeBase.browse.editor.conflictLoadLatest'),
-    cancelBtn: {
-      content: t('knowledgeBase.browse.editor.conflictOverwrite'),
-      theme: 'danger',
-      variant: 'outline',
-    },
-    theme: 'warning',
-    onConfirm: async () => {
-      dialog.destroy()
-      // 用最新内容替换编辑器并留在编辑模式；用户未保存的修改会被覆盖（文案已说明）。
-      await loadContent()
-      editTitle.value = detail.value?.title || props.doc?.title || ''
-      editContent.value = markdown.value
-      syncEditBaseVersion()
-      MessagePlugin.info(t('knowledgeBase.browse.editor.conflictLoaded'))
-    },
-    onCancel: () => {
-      dialog.destroy()
-      // 强制覆盖：不带 base_version 重发，以本地内容为准创建新版本。
-      void saveEditInner(false)
-    },
-  })
+const requestLeave = async (): Promise<boolean> => {
+  if (saving.value || editorBusy.value || commentsRef.value?.busy) return false
+  if ((hasUnsavedChanges.value || commentsRef.value?.hasDraft) && !await confirmDiscardChanges(t)) return false
+  commentsRef.value?.discard()
+  localDraft.clear()
+  resetEdit()
+  return true
 }
+const cancelEdit = () => requestLeave()
 
-const saveEditInner = async (withCas: boolean) => {
-  const doc = props.doc
-  if (!doc || saving.value) return
-  if (!editContent.value.trim()) return
+const onEditorKeydown = (event: KeyboardEvent) => {
+  if (editing.value && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    void saveEdit()
+  }
+}
+const beforeUnload = (event: BeforeUnloadEvent) => {
+  localDraft.flush()
+  if (!hasUnsavedChanges.value && !saving.value && !editorBusy.value && !commentsRef.value?.hasDraft && !commentsRef.value?.busy) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+
+// A conflict always pauses autosave. Closing this dialog never overwrites a newer version.
+async function loadLatestAfterConflict() {
+  const documentId = props.doc?.id
+  if (saving.value || !await confirmDiscardChanges(t)) return
+  if (props.doc?.id !== documentId || !editing.value || !saveConflict.value) return
   saving.value = true
   try {
-    const title = editTitle.value.trim()
+    await loadContent()
+    if (props.doc?.id !== documentId || !editing.value || loadError.value) return
+    editTitle.value = detail.value?.title || props.doc?.title || ''
+    editContent.value = markdown.value
+    editDocument.value = structuredDocument.value
+    baselineDocument.value = structuredDocument.value
+    editorInvalid.value = false
+    syncEditBaseVersion()
+    editBaselineTitle.value = editTitle.value
+    editBaselineContent.value = editContent.value
+    localDraft.clear()
+    saveConflict.value = false
+    conflictOpen.value = false
+    autosave.resume()
+  } finally { saving.value = false }
+}
+async function overwriteAfterConflict() {
+  const outcome = await saveEditInner(false)
+  if (outcome === 'saved') { conflictOpen.value = false; saveConflict.value = false; autosave.resume() }
+}
+
+const saveEditInner = async (withCas: boolean, automatic = false): Promise<AutosaveOutcome> => {
+  const doc = props.doc
+  if (!doc || !props.canEdit || saving.value || editorBusy.value || editorInvalid.value || !editContent.value.trim() || !editTitle.value.trim()) return 'blocked'
+  if (withCas && saveConflict.value) { if (!automatic) conflictOpen.value = true; return 'conflict' }
+  const snapshot = richEditorRef.value?.snapshot()
+  if (snapshot) onEditorContent(snapshot)
+  if (editDocument.value && documentSchemaVersion.value !== 1) {
+    lastSaveFailed.value = true
+    localDraft.flush()
+    autosave.pause()
+    if (!automatic) MessagePlugin.error(t('richWriting.serverUpgradeRequired'))
+    return 'error'
+  }
+  const savedContent = editContent.value
+  const savedTitle = editTitle.value
+  const savedDocument = editDocument.value
+  const generation = loadGeneration
+  localDraft.flush()
+  saving.value = true
+  automaticSaving.value = automatic
+  lastSaveFailed.value = false
+  try {
     const result: any = await updateKnowledgeContent(doc.id, {
-      title: title || undefined,
-      content: editContent.value,
+      title: savedTitle.trim(),
+      content: savedContent,
+      ...(savedDocument ? { document: savedDocument } : {}),
       base_version: withCas ? editBaseVersion.value : undefined,
     })
+    if (generation !== loadGeneration) return 'blocked'
     const data = result?.data
-    if (!result?.success || !data) {
-      throw new Error(result?.message || t('knowledgeBase.browse.saveFailed'))
-    }
+    if (!result?.success || !data) throw new Error(result?.message || t('knowledgeBase.browse.saveFailed'))
+    const canonicalDocument = readStructuredDocument(parseMetadataObject(data.metadata)?.document)
+    if (savedDocument && !canonicalDocument) throw new Error(t('richWriting.serverUpgradeRequired'))
     detail.value = data
     syncEditBaseVersion()
-    markdown.value = parseMetadataObject(data.metadata)?.content || editContent.value
-    editing.value = false
-    MessagePlugin.success(t('knowledgeBase.browse.saveSuccess'))
+    const canonicalContent = parseMetadataObject(data.metadata)?.content || savedContent
+    const canonicalTitle = data.title || savedTitle.trim()
+    markdown.value = canonicalContent
+    // Typing during an automatic request is preserved and saved against the newly returned version.
+    const unchanged = editContent.value === savedContent && editTitle.value === savedTitle && sameDocument(editDocument.value, savedDocument)
+    structuredDocument.value = canonicalDocument
+    baselineDocument.value = canonicalDocument
+    editBaselineTitle.value = canonicalTitle
+    editBaselineContent.value = canonicalContent
+    if (unchanged) {
+      editContent.value = canonicalContent
+      editDocument.value = canonicalDocument
+      editTitle.value = canonicalTitle
+      localDraft.clear()
+    } else localDraft.flush()
+    if (!automatic && unchanged) editing.value = false
+    saveConflict.value = false
+    if (!automatic) MessagePlugin.success(t('knowledgeBase.browse.saveSuccess'))
     emit('doc-updated')
+    return 'saved'
   } catch (error: any) {
-    if (withCas && error?.status === 409) {
-      showSaveConflictDialog(error)
-      return
+    if (generation !== loadGeneration) return 'blocked'
+    localDraft.flush()
+    if (withCas && (error?.status === 409 || error?.response?.status === 409)) {
+      saveConflict.value = true
+      autosave.pause()
+      if (!automatic) conflictOpen.value = true
+      return 'conflict'
     }
-    console.error('[DocReader] save failed', error)
-    MessagePlugin.error(error?.message || t('knowledgeBase.browse.saveFailed'))
+    if (!automatic) MessagePlugin.error(error?.message || t('knowledgeBase.browse.saveFailed'))
+    lastSaveFailed.value = true
+    autosave.pause()
+    return 'error'
   } finally {
     saving.value = false
+    automaticSaving.value = false
   }
 }
 
-const saveEdit = () => saveEditInner(true)
+const saveEdit = async () => {
+  autosave.stop()
+  if (editing.value && !hasUnsavedChanges.value && !saveConflict.value && !saving.value && !editorBusy.value) {
+    localDraft.clear()
+    resetEdit()
+    return
+  }
+  const outcome = await saveEditInner(true)
+  if (outcome === 'saved') autosave.resume()
+}
 
 // 恢复历史版本后：刷新详情与正文渲染，并通知父级刷新文档树（标题/标记可能变化）。
 const onRestored = async () => {
@@ -475,6 +705,9 @@ const relearn = async () => {
 }
 
 onBeforeUnmount(() => {
+  localDraft.flush()
+  loadGeneration++
+  window.removeEventListener('beforeunload', beforeUnload)
   stopRelearnPolling()
 })
 
@@ -482,8 +715,11 @@ onBeforeUnmount(() => {
 // 声明之后——immediate 首次执行时 const 尚在 TDZ，提前注册会抛
 // ReferenceError 并吞掉 loadContent。
 watch(() => props.doc?.id, () => {
+  commentsOpen.value = false
+  selectedQuote.value = null
+  commentAnchor.value = null
   previewOpen.value = false
-  cancelEdit()
+  resetEdit()
   stopRelearnPolling()
   emit('outline-change', [])
   emit('outline-active', -1)
@@ -601,7 +837,7 @@ const scrollToHeading = (index: number) => {
   })
 }
 
-defineExpose({ scrollToHeading })
+defineExpose({ scrollToHeading, requestLeave, hasUnsavedChanges })
 </script>
 
 <style scoped lang="less">
@@ -614,6 +850,8 @@ defineExpose({ scrollToHeading })
   display: flex;
   flex-direction: column;
 }
+
+.doc-reader__quote-action { position: sticky; top: 8px; z-index: 1; margin-bottom: 12px; }
 
 .doc-reader__placeholder {
   flex: 1;
@@ -736,6 +974,8 @@ defineExpose({ scrollToHeading })
   min-height: 0;
 }
 
+.doc-reader__save-status { display: flex; align-items: center; gap: 12px; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); min-height: 24px; }
+.doc-reader__conflict-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .doc-reader__edit-actions {
   flex-shrink: 0;
   display: flex;
@@ -785,5 +1025,24 @@ defineExpose({ scrollToHeading })
 
 .doc-reader__preview-body {
   height: 70vh;
+}
+
+.doc-reader--workspace {
+  .doc-reader__document-title { margin: 0 0 32px; font-size: var(--app-text-4xl); line-height: 1.4; overflow-wrap: anywhere; }
+  .doc-reader__header { padding: 16px 28px; min-height: 44px; }
+  .doc-reader__title { font-size: var(--app-text-md); }
+  .doc-reader__action:has(span) {
+    width: auto; padding: 0 12px; gap: 6px; height: 32px;
+    color: var(--td-brand-color); background: var(--td-brand-color-light);
+  }
+  .doc-reader__scroll { padding: 40px 48px 80px; }
+  .doc-reader__article { max-width: 860px; }
+  .doc-reader__edit { padding: 24px 32px; }
+  .doc-reader__edit-title { max-width: none; }
+  @media (max-width: 900px) {
+    .doc-reader__meta { display: none; }
+    .doc-reader__header { padding: 12px 16px; }
+    .doc-reader__scroll, .doc-reader__edit { padding: 20px 16px; }
+  }
 }
 </style>

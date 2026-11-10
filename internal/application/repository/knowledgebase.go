@@ -8,6 +8,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var ErrKnowledgeBaseNotFound = errors.New("knowledge base not found")
@@ -220,7 +221,21 @@ func (r *knowledgeBaseRepository) UpdateKnowledgeBaseGeneratedProfile(
 
 // DeleteKnowledgeBase deletes a knowledge base
 func (r *knowledgeBaseRepository) DeleteKnowledgeBase(ctx context.Context, id string) error {
-	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&types.KnowledgeBase{}).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var locked []types.Knowledge
+		if err := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").
+			Where("knowledge_base_id = ?", id).Find(&locked).Error; err != nil {
+			return err
+		}
+		docs := tx.Unscoped().Model(&types.Knowledge{}).Select("id").Where("knowledge_base_id = ?", id)
+		if err := tx.Where("knowledge_id IN (?)", docs).Delete(&types.KnowledgeComment{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("id = ?", id).Delete(&types.KnowledgeBase{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("knowledge_base_id = ?", id).Delete(&types.KnowledgeNavigation{}).Error
+	})
 }
 
 // CountByVectorStoreID counts active knowledge bases that are bound to the

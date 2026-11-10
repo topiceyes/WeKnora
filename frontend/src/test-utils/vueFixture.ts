@@ -16,15 +16,19 @@ export async function flush() {
   await vue.nextTick()
 }
 
-export function fixture(t: TestContext) {
+export function fixture(t: TestContext, options: { storage?: Storage } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const window = Object.assign(new EventTarget(), { innerHeight: 900, innerWidth: 1200, setTimeout, clearTimeout })
-  const storage = { getItem: () => null, setItem() {}, removeItem() {} }
+  const storage = options.storage ?? { length: 0, key: () => null, getItem: () => null, setItem() {}, removeItem() {} }
+  const document = Object.assign(new EventTarget(), {
+    documentElement: { clientHeight: 900 }, querySelector: () => null, visibilityState: 'visible',
+  })
   const globals = {
-    window, CustomEvent, setTimeout, clearTimeout, setInterval, clearInterval,
+    window, CustomEvent, setTimeout, clearTimeout, setInterval, clearInterval, crypto: globalThis.crypto,
     localStorage: storage, sessionStorage: storage,
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 16),
-    document: { documentElement: { clientHeight: 900 }, querySelector: () => null },
+    cancelAnimationFrame: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
+    document,
   }
   function evaluate(source: string, dependencies: Record<string, unknown>, fallback?: (name: string) => unknown) {
     const exports: any = {}
@@ -70,5 +74,5 @@ export function fixture(t: TestContext) {
     })
     return mount(compiled.default, props)
   }
-  return { window, evaluate, mount, component, dataChange, emit: dataChange.emitAssistantDataChange }
+  return { window, document, storage, evaluate, mount, component, dataChange, emit: dataChange.emitAssistantDataChange }
 }

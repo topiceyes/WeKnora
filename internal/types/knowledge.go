@@ -320,11 +320,12 @@ func (k *Knowledge) BeforeCreate(tx *gorm.DB) (err error) {
 // file/url documents gain an editable markdown copy on first online edit while
 // the original file stays frozen as the provenance snapshot.
 type ManualKnowledgeMetadata struct {
-	Content   string `json:"content"`
-	Format    string `json:"format"`
-	Status    string `json:"status"`
-	Version   int    `json:"version"`
-	UpdatedAt string `json:"updated_at"`
+	Document  *StructuredDocument `json:"document,omitempty"`
+	Content   string              `json:"content"`
+	Format    string              `json:"format"`
+	Status    string              `json:"status"`
+	Version   int                 `json:"version"`
+	UpdatedAt string              `json:"updated_at"`
 	// IndexStale marks that Content was edited after the last successful index
 	// build: the reader already serves the fresh text while search still
 	// returns the old chunks, until a relearn run rebuilds the index.
@@ -336,6 +337,9 @@ type ManualKnowledgeMetadata struct {
 // ManualKnowledgePayload it carries no status: saving never triggers indexing;
 // POST /knowledge/{id}/relearn is the explicit re-index trigger.
 type KnowledgeContentPayload struct {
+	Document *StructuredDocument `json:"document,omitempty"`
+	// Only internal, deliberate historical restore may replace rich content with Markdown.
+	AllowMarkdownReplacement bool `json:"-"`
 	// Optional new title; empty keeps the current one.
 	Title string `json:"title" extensions:"x-agent"`
 	// Full replacement Markdown content (not a diff).
@@ -359,14 +363,15 @@ const KnowledgeMaxContentVersions = 50
 // file/url documents is never snapshotted — their first online edit produces
 // version 1, and the original file stays the provenance snapshot.
 type KnowledgeContentVersion struct {
-	ID              string `json:"id"               gorm:"type:varchar(36);primaryKey"`
-	TenantID        uint64 `json:"tenant_id"        gorm:"index"`
-	KnowledgeBaseID string `json:"knowledge_base_id" gorm:"type:varchar(36);index"`
-	KnowledgeID     string `json:"knowledge_id"     gorm:"type:varchar(36);uniqueIndex:idx_kcv_knowledge_version"`
-	Version         int    `json:"version"          gorm:"uniqueIndex:idx_kcv_knowledge_version"`
-	Title           string `json:"title"            gorm:"type:varchar(512)"`
-	Content         string `json:"content,omitempty" gorm:"type:text"`
-	CreatedBy       string `json:"created_by"       gorm:"type:varchar(64);default:''"`
+	ID              string              `json:"id"               gorm:"type:varchar(36);primaryKey"`
+	TenantID        uint64              `json:"tenant_id"        gorm:"index"`
+	KnowledgeBaseID string              `json:"knowledge_base_id" gorm:"type:varchar(36);index"`
+	KnowledgeID     string              `json:"knowledge_id"     gorm:"type:varchar(36);uniqueIndex:idx_kcv_knowledge_version"`
+	Version         int                 `json:"version"          gorm:"uniqueIndex:idx_kcv_knowledge_version"`
+	Title           string              `json:"title"            gorm:"type:varchar(512)"`
+	Content         string              `json:"content,omitempty" gorm:"type:text"`
+	Document        *StructuredDocument `json:"document,omitempty" gorm:"serializer:json;type:jsonb"`
+	CreatedBy       string              `json:"created_by"       gorm:"type:varchar(64);default:''"`
 	// CreatorName is resolved from CreatedBy at read time for display; it is
 	// never persisted (gorm:"-"). API-key saves store CreatedBy = "" and stay
 	// nameless — the UI falls back to its "unknown user" label.
@@ -379,6 +384,8 @@ func (KnowledgeContentVersion) TableName() string { return "knowledge_content_ve
 
 // ManualKnowledgePayload represents the payload for manual knowledge operations.
 type ManualKnowledgePayload struct {
+	FolderPath string              `json:"folder_path,omitempty"`
+	Document   *StructuredDocument `json:"document,omitempty"`
 	// Document title.
 	Title string `json:"title" extensions:"x-agent"`
 	// Markdown content. The assistant may send a full document; the API limit
@@ -559,6 +566,29 @@ func (k *Knowledge) SetContentMetadata(content string, version int, indexStale b
 		return err
 	}
 	k.Metadata = JSON(bytes)
+	return nil
+}
+
+// SetStructuredDocument replaces only the editor structure. nil is an explicit
+// downgrade used by historical Markdown restore, never by background processing.
+func (k *Knowledge) SetStructuredDocument(document *StructuredDocument) error {
+	fields, err := k.Metadata.Map()
+	if err != nil {
+		return err
+	}
+	if fields == nil {
+		fields = map[string]any{}
+	}
+	if document == nil {
+		delete(fields, "document")
+	} else {
+		fields["document"] = document
+	}
+	data, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	k.Metadata = JSON(data)
 	return nil
 }
 

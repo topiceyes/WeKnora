@@ -58,6 +58,8 @@ func setupKBTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.Exec(knowledgeBasesTestDDL).Error)
+	require.NoError(t, db.Exec(knowledgesTestDDL).Error)
+	require.NoError(t, db.AutoMigrate(&types.KnowledgeNavigation{}, &types.KnowledgeComment{}))
 	return db
 }
 

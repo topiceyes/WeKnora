@@ -11,6 +11,13 @@ import (
 
 // KnowledgeService defines the interface for knowledge services.
 type KnowledgeService interface {
+	SearchDocuments(context.Context, string, string, int, string) (*types.DocumentSearchPage, error)
+	ListKnowledgeComments(context.Context, string, int, string) (*types.KnowledgeCommentPage, error)
+	CreateKnowledgeComment(
+		context.Context, string, *types.KnowledgeCommentInput, string,
+	) (*types.KnowledgeComment, error)
+	MutateKnowledgeComment(context.Context, string, string, *types.KnowledgeCommentMutation) error
+
 	// CreateKnowledgeFromFile creates knowledge from a file.
 	// channel identifies the ingestion channel (e.g. "web", "api", "wechat"); empty defaults to "web".
 	CreateKnowledgeFromFile(
@@ -91,6 +98,9 @@ type KnowledgeService interface {
 	// ListKnowledgeTree returns the folder hierarchy plus every document as a
 	// flat slim list, powering the browse-mode document tree in one request.
 	ListKnowledgeTree(ctx context.Context, kbID string) (*types.KnowledgeTree, error)
+	UpdateKnowledgeNavigation(
+		ctx context.Context, kbID string, mutation *types.KnowledgeNavigationMutation,
+	) (int64, error)
 	// MoveKnowledgeToFolder re-files knowledge entries under the given folder
 	// path (empty means the knowledge base top level). Folders are derived from
 	// the stored paths, so a path that does not exist yet is created implicitly.
@@ -315,6 +325,11 @@ type KnowledgeContentVersionRepository interface {
 
 // KnowledgeRepository defines the interface for knowledge repositories.
 type KnowledgeRepository interface {
+	SearchDocuments(context.Context, uint64, string, string, int, string) (*types.DocumentSearchPage, error)
+	ListKnowledgeComments(context.Context, string, int, string) (*types.KnowledgeCommentPage, error)
+	CreateKnowledgeComment(context.Context, *types.Knowledge, *types.KnowledgeComment) (*types.KnowledgeComment, error)
+	MutateKnowledgeComment(context.Context, *types.Knowledge, string, string, *types.KnowledgeCommentMutation) error
+
 	CreateKnowledge(ctx context.Context, knowledge *types.Knowledge) error
 	GetKnowledgeByID(ctx context.Context, tenantID uint64, id string) (*types.Knowledge, error)
 	// GetKnowledgeByIDOnly returns knowledge by ID without tenant filter (for permission resolution).
@@ -357,6 +372,10 @@ type KnowledgeRepository interface {
 		tenantID uint64,
 		kbID string,
 	) ([]*types.KnowledgeFolderCount, error)
+	GetKnowledgeNavigation(ctx context.Context, tenantID uint64, kbID string) (*types.KnowledgeNavigation, error)
+	MutateKnowledgeNavigation(
+		ctx context.Context, tenantID uint64, kbID string, mutation *types.KnowledgeNavigationMutation,
+	) (int64, error)
 	// ListKnowledgeTreeDocuments returns every knowledge entry of a knowledge
 	// base as a slim row (no metadata/content columns) for the browse-mode
 	// document tree.
