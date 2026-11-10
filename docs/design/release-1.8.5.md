@@ -8,9 +8,9 @@
 
 ## 升级与回滚
 
-目标服务器为 `192.168.11.141`，Compose 目录 `/opt/WeKnora`。升级前备份数据库、配置、镜像标识及数据卷；先拉取镜像，再停止前端及所有旧版 app/任务进程，完成一致性备份后启动统一版本。数据卷需支持跨实例文件锁，不能删除正在使用的锁文件。
+在目标部署环境执行升级。升级前备份数据库、配置、镜像标识及数据卷；先拉取镜像，再停止前端及所有旧版 app/任务进程，完成一致性备份后启动统一版本。数据卷需支持跨实例文件锁，不能删除正在使用的锁文件。
 
-当前实际 `weknora_data-files` 数据卷已通过隔离容器的共享锁、独占锁及正常退出释放验证。跨主机或更换存储时必须重新验证。相关细节见 [workspace-transfer-coordination.md](workspace-transfer-coordination.md) 和 [combined-release-readiness.md](combined-release-readiness.md)。
+当前部署的数据卷已通过隔离容器的共享锁、独占锁及正常退出释放验证。跨主机或更换存储时必须重新验证。相关细节见 [workspace-transfer-coordination.md](workspace-transfer-coordination.md) 和 [combined-release-readiness.md](combined-release-readiness.md)。
 
 回滚时先停止新版本所有 app/任务进程，再使用备份的配置和固定镜像恢复旧版本。若升级后已发生跨空间迁移，不应只回退镜像：需核对迁移状态，按同一备份时间点恢复数据库与文件，避免归属和路径不一致。
 

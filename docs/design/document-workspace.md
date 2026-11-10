@@ -125,7 +125,7 @@
 
 验收覆盖事务回滚、跨库批量移动拒绝、空目录持久化、路径溢出/自循环防护、重复排序项、有效共享权限、旧客户端操作与慢正文更新、空间迁移和删除清理。真实 Chrome + PostgreSQL 验证工作台操作与刷新持久化；测试使用临时知识库并清理。
 
-开发记录每期归档到 `docs/knowledge-base/`，并同步用户原 Obsidian 知识库 `/Users/iceyes/Documents/obsidian/m-wiki`，详见仓库 `AGENTS.md`。
+开发记录每期归档到 `docs/knowledge-base/`，并同步用户原本地 Obsidian 知识库，详见仓库 `AGENTS.md`。
 
 
 ## 文档评论与讨论（2026-11-10）
