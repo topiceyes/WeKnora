@@ -17,6 +17,7 @@ type StructuredDocument struct {
 	Content       EditorNode `json:"content"`
 }
 
+// EditorNode represents one supported block or text node in the editor tree.
 type EditorNode struct {
 	Type    string         `json:"type"`
 	Attrs   map[string]any `json:"attrs,omitempty"`
@@ -25,11 +26,13 @@ type EditorNode struct {
 	Text    string         `json:"text,omitempty"`
 }
 
+// EditorMark carries inline formatting attributes for an editor node.
 type EditorMark struct {
 	Type  string         `json:"type"`
 	Attrs map[string]any `json:"attrs,omitempty"`
 }
 
+// StructuredDocumentMaxBytes bounds the serialized editor body size.
 const StructuredDocumentMaxBytes = 2 << 20
 
 var editorColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
@@ -243,9 +246,9 @@ func validateEditorMark(m EditorMark) error {
 }
 
 func editorStringValue(v any) string { s, _ := v.(string); return s }
-func editorString(v any, max int) bool {
+func editorString(v any, maxBytes int) bool {
 	s, ok := v.(string)
-	return ok && len(s) <= max && !strings.ContainsRune(s, 0)
+	return ok && len(s) <= maxBytes && !strings.ContainsRune(s, 0)
 }
 func editorNumber(v any, fallback int) int {
 	switch value := v.(type) {
@@ -259,15 +262,15 @@ func editorNumber(v any, fallback int) int {
 	}
 	return fallback
 }
-func editorInt(v any, min, max int) bool {
+func editorInt(v any, lower, upper int) bool {
 	switch value := v.(type) {
 	case float64:
-		return value >= float64(min) && value <= float64(max) && value == float64(int(value))
+		return value >= float64(lower) && value <= float64(upper) && value == float64(int(value))
 	case int:
-		return value >= min && value <= max
+		return value >= lower && value <= upper
 	case json.Number:
 		n, err := strconv.Atoi(string(value))
-		return err == nil && n >= min && n <= max
+		return err == nil && n >= lower && n <= upper
 	}
 	return false
 }
