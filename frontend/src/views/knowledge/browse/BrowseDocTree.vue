@@ -1,5 +1,5 @@
 <template>
-  <aside ref="rootRef" class="browse-doc-tree">
+  <aside ref="rootRef" class="browse-doc-tree" :class="{ 'is-selecting': selectedIds.length > 0, 'has-compact-actions': compactActions }">
     <div class="browse-doc-tree__header">
       <span class="browse-doc-tree__title">{{ t('knowledgeBase.browse.treeTitle') }}</span>
       <span v-if="tree && !loading" class="browse-doc-tree__total">
@@ -38,6 +38,7 @@
             active: row.kind === 'doc' && row.id === selectedDocId,
             'is-selected-folder': row.kind === 'folder' && row.path === selectedFolder,
             'is-drop-target': dropTarget === rowKey(row),
+            'is-checked': row.kind === 'doc' && selectedIds.includes(row.id),
           }"
           :style="{ '--browse-row-depth': row.depth }"
           :title="row.kind === 'folder' ? row.path : row.title"
@@ -128,6 +129,7 @@ const props = withDefaults(defineProps<{
   sortBy?: NavigationSort
   busy?: boolean
   scope?: string
+  compactActions?: boolean
 }>(), {
   selectedDocId: '',
   loading: false,
@@ -276,6 +278,13 @@ defineExpose({ expandAll, collapseAll, locate, revealFolder })
 .browse-tree-row.is-drop-target { outline: 2px solid var(--td-brand-color); }
 .browse-tree-row__menu { border: 0; padding: 4px; background: transparent; color: var(--td-text-color-secondary); cursor: pointer; }
 .browse-tree-row__check { flex: none; accent-color: var(--td-brand-color); }
+// Keep titles wide until an action is requested; keyboard and touch remain usable.
+@media (hover: hover) and (pointer: fine) {
+  .browse-doc-tree.has-compact-actions:not(.is-selecting) .browse-tree-row:not(:hover):not(:focus-within):not(.is-checked) {
+    .browse-tree-row__check, .browse-tree-row__menu { position: absolute; opacity: 0; pointer-events: none; }
+  }
+}
+.browse-tree-row { position: relative; }
 .browse-doc-tree {
   --browse-row-indent: 14px;
   display: flex;

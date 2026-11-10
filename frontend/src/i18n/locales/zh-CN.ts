@@ -113,6 +113,7 @@ export default {
     "imageFileHint": "请选择 10 MB 以内的 PNG、JPEG、GIF、WebP、BMP、SVG 或 AVIF 图片。"
 },
   documentWorkspace: {
+    "resizeNavigation": "调整目录宽度（方向键调整，Home 或双击恢复）",
     "title": "文档工作台",
     "allBooks": "全部知识库",
     "myBooks": "我创建的",

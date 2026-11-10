@@ -1,5 +1,5 @@
 <template>
-  <div class="document-workspace" :class="{ 'is-focused': focused }">
+  <div class="document-workspace" :class="{ 'is-focused': focused, 'is-resizing': layout.resizing.value }" :style="layout.style.value">
     <aside class="document-workspace__sidebar">
       <div class="document-workspace__identity">
         <RouterLink class="document-workspace__brand" :to="{ name: 'documentWorkspace' }">
@@ -34,7 +34,7 @@
             <button type="button" @click="selectedIds = []">{{ t('knowledgeBase.browse.cancel') }}</button>
           </div>
         </div>
-        <BrowseDocTree ref="treeRef" :scope="kbId" :tree="filteredTree" :selected-doc-id="selectedDoc?.id" :loading="loading"
+        <BrowseDocTree ref="treeRef" :scope="kbId" :tree="filteredTree" :selected-doc-id="selectedDoc?.id" :loading="loading" compact-actions
           :manage="canOrganize && treeFilter === 'all'" :selected-folder="currentFolder" :selected-ids="selectedIds" :sort-by="sortBy" :busy="navigationBusy"
           :show-processing-status="false" @select="selectDocument" @refresh="loadBook"
           @folder-select="selectFolder" @toggle-selection="toggleSelection" @action="onTreeAction" @drop="(source, target, position) => navigation?.drop(source, target, position)" />
@@ -54,6 +54,12 @@
         </RouterLink>
       </footer>
     </aside>
+    <div v-if="!focused" class="document-workspace__resize" role="separator" tabindex="0" aria-orientation="vertical"
+      :aria-label="t('documentWorkspace.resizeNavigation')" :title="t('documentWorkspace.resizeNavigation')"
+      :aria-valuenow="layout.sidebarWidth.value" :aria-valuemin="208" :aria-valuemax="layout.maxWidth.value"
+      @pointerdown="layout.start" @pointermove="layout.move" @pointerup="layout.finish($event)"
+      @pointercancel="layout.finish($event, true)" @lostpointercapture="layout.finish($event, true)"
+      @keydown="layout.keydown" @dblclick="layout.reset" />
 
     <main class="document-workspace__main">
       <header class="document-workspace__topbar">
@@ -69,6 +75,7 @@
           <template v-for="crumb in folderCrumbs" :key="crumb.path"><span>/</span><button type="button" @click="selectFolder(crumb.path)">{{ crumb.name }}</button></template>
           <button v-if="selectedDoc && !creating" type="button" :aria-label="t('documentNavigation.favorite')" :title="t('documentNavigation.localPreferences')" @click="visits.toggle(selectedDoc.id)"><t-icon :name="visits.favorites.value.includes(selectedDoc.id) ? 'star-filled' : 'star'" /></button>
         </div>
+        <div ref="readerToolbar" class="document-workspace__reader-toolbar" />
         <span v-if="book && !canEdit" class="document-workspace__readonly">{{ t('documentWorkspace.readonly') }}</span>
         <RouterLink class="document-workspace__platform" to="/platform/knowledge-bases">
           {{ t('documentWorkspace.platform') }}<t-icon name="jump" size="14px" />
@@ -138,10 +145,10 @@
           </div>
         </template>
         <template v-else-if="selectedDoc">
-          <DocReader ref="reader" :doc="selectedDoc" :kb-id="kbId" :can-edit="canEdit" workspace
+          <DocReader ref="reader" :doc="selectedDoc" :kb-id="kbId" :can-edit="canEdit" workspace :toolbar-target="readerToolbar"
             :can-download="canDownload" @doc-updated="refreshTree"
             @open-linked-document="openLinkedDocument" @outline-change="outlineItems = $event" @outline-active="outlineActive = $event" />
-          <DocOutline v-model:collapsed="outlineCollapsed" :items="outlineItems" :active-index="outlineActive"
+          <DocOutline :collapsed="outlineCollapsed" :items="outlineItems" :active-index="outlineActive" @update:collapsed="layout.setOutline"
             @jump="reader?.scrollToHeading($event)" />
         </template>
         <div v-else class="document-workspace__state">
@@ -180,6 +187,7 @@ import DocumentNavigationActions from './DocumentNavigationActions.vue'
 import { directItems, folderOptions, itemKey, type NavigationItem, type NavigationSort } from './navigationModel'
 import { folderBreadcrumbs } from '../knowledge/folderTree'
 import { useDocumentVisits } from './useDocumentVisits'
+import { useWorkspaceLayout } from './useWorkspaceLayout'
 
 const DocumentSearch = defineAsyncComponent(() => import('./DocumentSearch.vue'))
 const RichEditor = defineAsyncComponent(() => import('../knowledge/browse/RichEditor.vue'))
@@ -223,7 +231,10 @@ const editorBusy = ref(false)
 const reader = ref<InstanceType<typeof DocReader> | null>(null)
 const outlineItems = ref<OutlineItem[]>([])
 const outlineActive = ref(-1)
-const outlineCollapsed = ref(false)
+const readerToolbar = ref<HTMLElement | null>(null)
+const layout = useWorkspaceLayout(() => auth.user?.id && auth.effectiveTenantId && kbId.value
+  ? { user: auth.user.id, tenant: auth.effectiveTenantId, kb: kbId.value } : null)
+const outlineCollapsed = computed(() => layout.outline.value ?? outlineItems.value.length <= 2)
 const scopes = computed(() => [
   { key: 'all', icon: 'book-open', label: t('documentWorkspace.allBooks') },
   { key: 'mine', icon: 'user', label: t('documentWorkspace.myBooks') },
@@ -518,7 +529,7 @@ onBeforeUnmount(() => {
   button { font: inherit; }
 }
 .document-workspace__sidebar {
-  width: 272px; flex: 0 0 272px; display: flex; flex-direction: column; min-height: 0;
+  width: var(--workspace-sidebar-width, 272px); flex: 0 0 var(--workspace-sidebar-width, 272px); display: flex; flex-direction: column; min-height: 0;
   background: var(--td-bg-color-page); border-right: 1px solid var(--td-component-stroke);
 }
 .document-workspace__identity { display: flex; align-items: center; gap: 8px; padding: 12px; min-height: 48px; box-sizing: border-box; flex-shrink: 0; }
@@ -546,11 +557,18 @@ onBeforeUnmount(() => {
   a { display: flex; align-items: center; gap: 4px; min-height: 28px; &:hover { color: var(--td-brand-color); } }
 }
 .document-workspace__main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.document-workspace__resize { width: 6px; margin: 0 -3px; flex-shrink: 0; position: relative; z-index: 1; cursor: col-resize; touch-action: none;
+  &:hover, &:focus-visible { background: var(--td-brand-color-light); outline: 1px solid var(--app-focus-border); }
+}
+.document-workspace.is-resizing { cursor: col-resize; user-select: none; }
+.document-workspace__reader-toolbar { display: flex; align-items: center; flex-shrink: 0; }
 .document-workspace__topbar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 24px;
   border-bottom: 1px solid var(--td-component-stroke); font-size: var(--app-text-md); flex-shrink: 0;
 }
-.document-workspace__breadcrumb { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;
+.document-workspace__breadcrumb { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow: hidden;
   a, span { color: var(--td-text-color-secondary); }
+  button:not(.document-workspace__icon-button), a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .document-workspace__icon-button { flex-shrink: 0; }
   strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 }
 .document-workspace__icon-button { border: 0; background: transparent; color: var(--td-text-color-secondary);
@@ -595,7 +613,7 @@ onBeforeUnmount(() => {
 .document-workspace.is-focused { .document-workspace__sidebar, :deep(.doc-outline) { display: none; } }
 @media (max-width: 1200px) { .document-workspace__document > :deep(.doc-outline) { display: none; } }
 @media (max-width: 760px) {
-  .document-workspace__sidebar { width: 208px; flex-basis: 208px; }
+  .document-workspace__sidebar { width: var(--workspace-sidebar-width, 208px); flex-basis: var(--workspace-sidebar-width, 208px); }
   .document-workspace__identity { padding: 10px 8px; }
   .document-workspace__tools { padding-left: 8px; padding-right: 8px; }
   .document-workspace__topbar { padding: 0 12px; }

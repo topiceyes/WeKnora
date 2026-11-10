@@ -113,6 +113,7 @@ export default {
     "imageFileHint": "Выберите изображение PNG, JPEG, GIF, WebP, BMP, SVG или AVIF размером до 10 МБ."
 },
   documentWorkspace: {
+    "resizeNavigation": "Ширина навигации (стрелки — изменить, Home или двойной щелчок — сбросить)",
     "title": "Документы",
     "allBooks": "Все базы знаний",
     "myBooks": "Созданные мной",

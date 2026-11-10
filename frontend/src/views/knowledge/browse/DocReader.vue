@@ -6,17 +6,21 @@
     </div>
 
     <template v-else>
-      <header class="doc-reader__header">
-        <div class="doc-reader__title-row">
+      <Teleport :to="toolbarTarget || 'body'" :disabled="!workspace || !toolbarTarget">
+      <header class="doc-reader__header" :class="{ 'doc-reader__header--toolbar': workspace && toolbarTarget }">
+        <div v-if="!workspace" class="doc-reader__title-row">
           <t-icon :name="browseDocIcon(doc)" size="20px" class="doc-reader__doc-icon" />
           <h1 class="doc-reader__title" :title="displayTitle">{{ displayTitle }}</h1>
         </div>
-        <div class="doc-reader__meta">
+        <div v-if="!workspace" class="doc-reader__meta">
           <span v-if="detail?.updated_at || doc.updated_at">
             {{ t('knowledgeBase.browse.updatedAt', { time: displayTime }) }}
           </span>
         </div>
         <div class="doc-reader__actions">
+          <t-tooltip v-if="workspace && (detail?.updated_at || doc.updated_at)" :content="t('knowledgeBase.browse.updatedAt', { time: displayTime })" placement="bottom">
+            <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.updatedAt', { time: displayTime })"><t-icon name="info-circle" size="16px" /></button>
+          </t-tooltip>
           <t-tooltip v-if="canEditNow && !editing" :content="t('knowledgeBase.browse.edit')" placement="bottom">
             <button type="button" class="doc-reader__action" :aria-label="t('knowledgeBase.browse.edit')"
               @click="startEdit">
@@ -57,6 +61,7 @@
           </template>
         </div>
       </header>
+      </Teleport>
 
       <DraftRecovery v-if="workspace && !loading && canEditNow && !editing" :drafts="localDraft.candidates.value"
         :base-version="contentVersion" @restore="restoreDraft" @discard="localDraft.discard" />
@@ -109,7 +114,7 @@
         <article v-else class="doc-reader__article" @mouseup="captureQuote" @keyup="captureQuote">
           <t-button v-if="workspace && canEditNow && selectedQuote" class="doc-reader__quote-action" size="small" variant="outline"
             @mousedown.prevent @click="commentOnSelection">{{ t('documentComments.quoteComment') }}</t-button>
-          <h1 v-if="workspace" class="doc-reader__document-title">{{ displayTitle }}</h1>
+          <h1 v-if="workspace && !bodyHasTitle" class="doc-reader__document-title">{{ displayTitle }}</h1>
           <div ref="contentRef" class="md-content" v-html="renderedHtml"></div>
           <DocumentBacklinks v-if="workspace && doc && doc.type !== 'faq'" :knowledge-id="doc.id" />
         </article>
@@ -208,10 +213,12 @@ const props = withDefaults(defineProps<{
   /** 当前用户对该知识库有编辑权限（Editor+），控制编辑/重新学习入口。 */
   canEdit?: boolean
   workspace?: boolean
+  toolbarTarget?: HTMLElement | null
 }>(), {
   canDownload: false,
   canEdit: false,
   workspace: false,
+  toolbarTarget: null,
 })
 
 const emit = defineEmits<{
@@ -321,6 +328,7 @@ const statusIcon = computed(() => {
 
 const renderedHtml = computed(() => structuredDocument.value
   ? sanitizeHTML(documentHTML(structuredDocument.value, processMarkdown)) : processMarkdown(markdown.value))
+const bodyHasTitle = ref(false)
 
 // manual 文档的全文存在 knowledge.metadata.content 里；file/url 文档被在线
 // 编辑后也会把编辑文本写进同一字段（metadata 可能是对象或 JSON 字符串）。
@@ -350,6 +358,7 @@ const loadContent = async () => {
   loading.value = true
   loadError.value = ''
   markdown.value = ''
+  bodyHasTitle.value = false
   structuredDocument.value = null
   detail.value = null
   try {
@@ -774,6 +783,9 @@ const runPostRender = async () => {
   await nextTick()
   const root = contentRef.value
   if (!root) return
+  const first = root.firstElementChild
+  const normalize = (value: string) => value.replace(/\s+/g, ' ').trim()
+  bodyHasTitle.value = first?.tagName === 'H1' && normalize(first.textContent || '') === normalize(displayTitle.value)
 
   // 大纲：给标题元素补锚点 id 并收集层级，交给右侧 DocOutline。
   const headings = Array.from(
@@ -805,8 +817,8 @@ const runPostRender = async () => {
   onScroll()
 }
 
-watch(renderedHtml, () => {
-  if (markdown.value) {
+watch([renderedHtml, displayTitle, loading, editing], () => {
+  if (markdown.value && !loading.value && !editing.value) {
     runPostRender()
   }
 }, { flush: 'post' })
@@ -1026,16 +1038,18 @@ defineExpose({ scrollToHeading, requestLeave, hasUnsavedChanges })
 .doc-reader__preview-body {
   height: 70vh;
 }
+.doc-reader__header--toolbar { min-height: 0; padding: 0; border: 0; }
+.doc-reader__header--toolbar .doc-reader__action:has(span) { width: auto; padding: 0 10px; gap: 6px; height: 32px; color: var(--td-brand-color); background: var(--td-brand-color-light); }
 
 .doc-reader--workspace {
-  .doc-reader__document-title { margin: 0 0 32px; font-size: var(--app-text-4xl); line-height: 1.4; overflow-wrap: anywhere; }
-  .doc-reader__header { padding: 16px 28px; min-height: 44px; }
+  .doc-reader__document-title { margin: 0 0 20px; font-size: var(--app-text-4xl); line-height: 1.4; overflow-wrap: anywhere; }
+  .doc-reader__header { padding: 8px 24px; min-height: 32px; }
   .doc-reader__title { font-size: var(--app-text-md); }
   .doc-reader__action:has(span) {
     width: auto; padding: 0 12px; gap: 6px; height: 32px;
     color: var(--td-brand-color); background: var(--td-brand-color-light);
   }
-  .doc-reader__scroll { padding: 40px 48px 80px; }
+  .doc-reader__scroll { padding: 24px 40px 64px; }
   .doc-reader__article { max-width: 860px; }
   .doc-reader__edit { padding: 24px 32px; }
   .doc-reader__edit-title { max-width: none; }

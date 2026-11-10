@@ -113,6 +113,7 @@ export default {
     "imageFileHint": "10 MB 이하의 PNG, JPEG, GIF, WebP, BMP, SVG 또는 AVIF 이미지를 선택하세요."
 },
   documentWorkspace: {
+    "resizeNavigation": "탐색 너비 조절 (방향키로 조절, Home 또는 두 번 클릭하여 초기화)",
     "title": "문서 작업 공간",
     "allBooks": "모든 지식 베이스",
     "myBooks": "내가 만든 항목",

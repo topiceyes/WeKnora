@@ -13,6 +13,7 @@ async function setup(t: TestContext, initialQuery: Record<string, string> = {}) 
     vue, './documentDrafts': draftStore, '../knowledge/browse/structuredDocument': structured,
   })
   const visits = f.evaluate(readFileSync(new URL('./useDocumentVisits.ts', import.meta.url), 'utf8'), { vue })
+  const layout = f.evaluate(readFileSync(new URL('./useWorkspaceLayout.ts', import.meta.url), 'utf8'), { vue })
   const route = vue.reactive<any>({ params: { kbId: 'kb' }, query: initialQuery, fullPath: '/platform/documents/kb' })
   const push = t.mock.fn(async (_location: any) => {})
   const replace = t.mock.fn(async (_location: any) => {})
@@ -38,7 +39,7 @@ async function setup(t: TestContext, initialQuery: Record<string, string> = {}) 
       listKnowledgeBases: async () => ({ data: [{ id: 'kb', type: 'document' }, { id: 'faq', type: 'faq' }] }) },
     './workspaceModel': { canEditDocumentBook },
     './unsavedChanges': { confirmDiscardChanges },
-    './useDocumentDraft': draftHook, './useDocumentVisits': visits,
+    './useDocumentDraft': draftHook, './useDocumentVisits': visits, './useWorkspaceLayout': layout,
     '../knowledge/browse/structuredDocument': structured,
   })
   await flush()

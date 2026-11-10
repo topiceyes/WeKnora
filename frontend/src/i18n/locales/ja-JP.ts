@@ -113,6 +113,7 @@ export default {
     "imageFileHint": "10 MB 以下の PNG、JPEG、GIF、WebP、BMP、SVG、AVIF 画像を選択してください。"
 },
   documentWorkspace: {
+    "resizeNavigation": "ナビゲーション幅を調整（矢印キーで調整、Home またはダブルクリックでリセット）",
     "title": "ドキュメント",
     "allBooks": "すべてのナレッジベース",
     "myBooks": "自分が作成",

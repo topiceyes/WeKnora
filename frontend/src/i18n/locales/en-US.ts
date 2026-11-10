@@ -113,6 +113,7 @@ export default {
     "imageFileHint": "Choose a PNG, JPEG, GIF, WebP, BMP, SVG or AVIF image up to 10 MB."
 },
   documentWorkspace: {
+    "resizeNavigation": "Resize navigation (arrow keys to adjust, Home or double-click to reset)",
     "title": "Documents",
     "allBooks": "All books",
     "myBooks": "Created by me",
