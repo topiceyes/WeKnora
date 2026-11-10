@@ -1,36 +1,34 @@
 <template>
   <div class="document-workspace" :class="{ 'is-focused': focused }">
     <aside class="document-workspace__sidebar">
-      <RouterLink class="document-workspace__brand" :to="{ name: 'documentWorkspace' }">
-        <t-icon name="book-open" size="24px" />
-        <strong>{{ t('documentWorkspace.title') }}</strong>
-      </RouterLink>
-      <div class="document-workspace__space">{{ auth.currentTenantName }}</div>
+      <div class="document-workspace__identity">
+        <RouterLink class="document-workspace__brand" :to="{ name: 'documentWorkspace' }">
+          <t-icon name="book-open" size="20px" />
+          <strong>{{ t('documentWorkspace.title') }}</strong>
+        </RouterLink>
+        <span class="document-workspace__space" :title="auth.currentTenantName">{{ auth.currentTenantName }}</span>
+      </div>
       <template v-if="kbId">
-        <div class="document-workspace__book-picker">
-          <t-select :value="kbId" :options="bookOptions" filterable
-            :placeholder="t('documentWorkspace.pickBook')" @change="switchBook" />
-        </div>
         <div class="document-workspace__tools">
-          <t-button class="document-workspace__search-button" variant="outline" :disabled="loading || navigationBusy" @click="discoveryOpen = true"><t-icon name="search" size="16px" />{{ t('documentDiscovery.search') }} <small>⌘ / Ctrl K</small></t-button>
-          <t-input v-model="documentQuery" clearable :placeholder="t('documentWorkspace.searchDocuments')">
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
-          <t-button v-if="canEdit" theme="primary" variant="outline" :disabled="creating || loading || saving"
-            @click="newDocument">
-            <template #icon><t-icon name="add" /></template>{{ t('documentWorkspace.newDocument') }}
-          </t-button>
-          <div class="document-workspace__tree-tools">
-            <t-button v-if="canOrganize" size="small" variant="text" :disabled="navigationBusy" @click="navigation?.open({ action: 'create', parent: currentFolder })">{{ t('documentNavigation.create') }}</t-button>
-            <button type="button" :title="t('documentNavigation.locate')" @click="treeRef?.locate()"><t-icon name="location" /></button>
-            <button type="button" :title="t('documentNavigation.expand')" @click="treeRef?.expandAll()"><t-icon name="chevron-down" /></button>
-            <button type="button" :title="t('documentNavigation.collapse')" @click="treeRef?.collapseAll()"><t-icon name="chevron-up" /></button>
+          <div class="document-workspace__primary-tools">
+            <t-button class="document-workspace__search-button" variant="outline" :disabled="loading || navigationBusy"
+              :title="`${t('documentDiscovery.search')} · Ctrl / ⌘ K`" @click="discoveryOpen = true">
+              <template #icon><t-icon name="search" size="16px" /></template>{{ t('documentDiscovery.search') }}
+            </t-button>
+            <t-button v-if="canEdit" theme="primary" variant="outline" :disabled="creating || loading || saving || navigationBusy"
+              @click="newDocument">
+              <template #icon><t-icon name="add" /></template>{{ t('documentWorkspace.newDocument') }}
+            </t-button>
           </div>
           <div class="document-workspace__tree-tools">
-            <select v-model="sortBy" :aria-label="t('documentNavigation.sort')"><option value="manual">{{ t('documentNavigation.manual') }}</option><option value="name">{{ t('documentNavigation.byName') }}</option><option value="updated">{{ t('documentNavigation.byUpdated') }}</option></select>
-            <select v-model="treeFilter" :aria-label="t('documentNavigation.filter')"><option value="all">{{ t('documentNavigation.all') }}</option><option value="favorites">{{ t('documentNavigation.favorites') }}</option><option value="recent">{{ t('documentNavigation.recent') }}</option></select>
+            <select v-model="treeFilter" :aria-label="t('documentNavigation.filter')" :title="t('documentNavigation.filter')"><option value="all">{{ t('documentNavigation.all') }}</option><option value="favorites">{{ t('documentNavigation.favorites') }}</option><option value="recent">{{ t('documentNavigation.recent') }}</option></select>
+            <select v-model="sortBy" :aria-label="t('documentNavigation.sort')" :title="t('documentNavigation.sort')"><option value="manual">{{ t('documentNavigation.manual') }}</option><option value="name">{{ t('documentNavigation.byName') }}</option><option value="updated">{{ t('documentNavigation.byUpdated') }}</option></select>
+            <t-dropdown trigger="click" :options="treeTools" @click="onTreeTool">
+              <button type="button" class="document-workspace__tree-menu" :disabled="loading || navigationBusy"
+                :aria-label="t('documentNavigation.actions')" :title="t('documentNavigation.actions')"><t-icon name="more" size="18px" /></button>
+            </t-dropdown>
           </div>
-          <div v-if="selectedIds.length" class="document-workspace__tree-tools">
+          <div v-if="selectedIds.length" class="document-workspace__tree-tools document-workspace__selection-tools">
             <span>{{ selectedIds.length }} {{ t('documentNavigation.selected') }}</span>
             <t-button size="small" :disabled="navigationBusy" @click="navigation?.open({ action: 'move', ids: selectedIds })">{{ t('documentNavigation.move') }}</t-button>
             <button type="button" @click="selectedIds = []">{{ t('knowledgeBase.browse.cancel') }}</button>
@@ -38,7 +36,7 @@
         </div>
         <BrowseDocTree ref="treeRef" :scope="kbId" :tree="filteredTree" :selected-doc-id="selectedDoc?.id" :loading="loading"
           :manage="canOrganize && treeFilter === 'all'" :selected-folder="currentFolder" :selected-ids="selectedIds" :sort-by="sortBy" :busy="navigationBusy"
-          :query="documentQuery" :show-processing-status="false" @select="selectDocument" @refresh="loadBook"
+          :show-processing-status="false" @select="selectDocument" @refresh="loadBook"
           @folder-select="selectFolder" @toggle-selection="toggleSelection" @action="onTreeAction" @drop="(source, target, position) => navigation?.drop(source, target, position)" />
       </template>
       <nav v-else class="document-workspace__navigation" :aria-label="t('documentWorkspace.title')">
@@ -199,7 +197,6 @@ const loading = ref(false)
 const listLoading = ref(false)
 const bookError = ref('')
 const listError = ref('')
-const documentQuery = ref('')
 const discoveryOpen = ref(false)
 const bookQuery = ref('')
 const homeScope = ref('all')
@@ -237,17 +234,21 @@ const filteredBooks = computed(() => books.value.filter(item => {
   if (homeScope.value === 'shared' && item.isMine !== false) return false
   return `${item.name || ''} ${item.description || ''}`.toLocaleLowerCase().includes(bookQuery.value.trim().toLocaleLowerCase())
 }))
-const bookOptions = computed(() => {
-  const items = [...books.value]
-  if (book.value && !items.some(item => item.id === book.value!.id)) items.push(book.value)
-  return items.map(item => ({ label: item.name || item.id, value: item.id }))
-})
 const canEdit = computed(() => canEditDocumentBook(book.value, {
   id: auth.user?.id, tenantId: auth.effectiveTenantId,
   contributor: auth.hasRole('contributor'), admin: auth.hasRole('admin'),
 }, organizations.getKBPermission(kbId.value)))
 const canDownload = computed(() => auth.hasRole('contributor') && canEdit.value)
 const canOrganize = computed(() => canEdit.value && tree.value?.navigation_revision != null)
+const treeTools = computed(() => (canOrganize.value ? ['create', 'locate', 'expand', 'collapse'] : ['locate', 'expand', 'collapse'])
+  .map(value => ({ value, content: t(`documentNavigation.${value}`) })))
+function onTreeTool(option: { value?: string | number }) {
+  if (loading.value || navigationBusy.value) return
+  if (option.value === 'create' && canOrganize.value) navigation.value?.open({ action: 'create', parent: currentFolder.value })
+  else if (option.value === 'locate') treeRef.value?.locate()
+  else if (option.value === 'expand') treeRef.value?.expandAll()
+  else if (option.value === 'collapse') treeRef.value?.collapseAll()
+}
 const selectedDoc = computed(() => {
   const docs = tree.value?.documents ?? []
   if (folderView.value) return null
@@ -372,11 +373,6 @@ function onNavigationChanged(change: { action: string; from?: string; to?: strin
     selectFolder(path)
   }
 }
-function switchBook(value: unknown) {
-  if (typeof value === 'string' && value !== kbId.value) {
-    void router.push({ name: 'documentWorkspace', params: { kbId: value } })
-  }
-}
 function newDocument(folder?: unknown) {
   if (navigationBusy.value) return
   const target = typeof folder === 'string' ? folder : currentFolder.value
@@ -457,7 +453,6 @@ watch(kbId, () => {
   bookError.value = ''
   loading.value = false
   focused.value = false
-  documentQuery.value = ''
   discoveryOpen.value = false
   selectedIds.value = []
   treeFilter.value = 'all'
@@ -497,12 +492,20 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped lang="less">
-.document-workspace__search-button :deep(.t-button__text) { display: flex; align-items: center; gap: 8px; width: 100%; }
-.document-workspace__search-button small { margin-left: auto; font-size: var(--app-text-xs); color: var(--td-text-color-secondary); }
-
-.document-workspace__tree-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-  button, select { color: var(--td-text-color-primary); background: var(--td-bg-color-container); border: 1px solid var(--td-component-stroke); border-radius: var(--app-radius-sm); padding: 4px; cursor: pointer; min-width: 0; }
-  select { flex: 1; }
+.document-workspace__primary-tools { display: flex; gap: 6px;
+  > :deep(.t-button) { flex: 1; min-width: 0; padding: 0 8px; }
+  :deep(.t-button__text) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.document-workspace__tree-tools { display: flex; gap: 4px; align-items: center; min-width: 0;
+  button, select { color: var(--td-text-color-secondary); background: transparent; border: 0; border-radius: var(--app-radius-sm); padding: 4px; cursor: pointer; min-width: 0; height: 28px;
+    &:hover { background: var(--td-bg-color-container-hover); }
+    &:focus-visible { outline: 2px solid var(--app-focus-border); outline-offset: 1px; }
+  }
+  select { flex: 1; width: 0; font: inherit; font-size: var(--app-text-sm); text-overflow: ellipsis; }
+  .document-workspace__tree-menu { display: grid; place-items: center; width: 28px; flex-shrink: 0; }
+}
+.document-workspace__selection-tools { flex-wrap: wrap; font-size: var(--app-text-sm);
+  > span { margin-right: auto; }
 }
 .document-workspace__breadcrumb button { color: inherit; border: 0; background: transparent; cursor: pointer; white-space: nowrap; }
 .document-workspace__folder-view { padding: 32px; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; overflow: auto; width: 100%;
@@ -518,15 +521,19 @@ onBeforeUnmount(() => {
   width: 272px; flex: 0 0 272px; display: flex; flex-direction: column; min-height: 0;
   background: var(--td-bg-color-page); border-right: 1px solid var(--td-component-stroke);
 }
-.document-workspace__brand { display: flex; align-items: center; gap: 10px; padding: 24px 20px 8px; font-size: var(--app-text-2xl);
-  .t-icon { color: var(--td-brand-color); }
+.document-workspace__identity { display: flex; align-items: center; gap: 8px; padding: 12px; min-height: 48px; box-sizing: border-box; flex-shrink: 0; }
+.document-workspace__brand { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--app-text-lg);
+  .t-icon { color: var(--td-brand-color); flex-shrink: 0; }
+  strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
-.document-workspace__space { padding: 0 20px 24px; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
-.document-workspace__book-picker { padding: 0 16px 16px; }
-.document-workspace__tools { display: flex; flex-direction: column; gap: 10px; padding: 0 16px 16px; }
+.document-workspace__space { flex: 1; min-width: 0; max-width: 45%; text-align: right; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--td-text-color-placeholder); font-size: var(--app-text-xs); }
+.document-workspace__tools { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 4px; flex-shrink: 0; }
 .document-workspace__sidebar :deep(.browse-doc-tree) {
-  flex: 1; width: 100%; min-height: 0; margin: 0; padding: 0 12px; border: 0;
+  flex: 1; width: 100%; min-height: 0; margin: 0; padding: 0 8px; border: 0;
 }
+.document-workspace__sidebar :deep(.browse-doc-tree__header) { height: 28px; padding: 0 4px; }
+.document-workspace__sidebar :deep(.browse-doc-tree__body) { padding-top: 4px; }
+.document-workspace__sidebar :deep(.browse-tree-row) { height: 30px; margin-bottom: 0; }
 .document-workspace__navigation { display: grid; gap: 4px; padding: 0 12px;
   button { display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;
     border: 0; border-radius: var(--app-radius-sm); padding: 12px; background: transparent; color: var(--td-text-color-secondary);
@@ -534,9 +541,9 @@ onBeforeUnmount(() => {
     &.active { background: var(--td-brand-color-light); color: var(--td-brand-color); }
   }
 }
-.document-workspace__footer { margin-top: auto; padding: 16px; display: grid; gap: 14px;
+.document-workspace__footer { margin-top: auto; padding: 6px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; flex-shrink: 0;
   border-top: 1px solid var(--td-component-stroke); font-size: var(--app-text-sm); color: var(--td-text-color-secondary);
-  a { display: flex; align-items: center; gap: 8px; &:hover { color: var(--td-brand-color); } }
+  a { display: flex; align-items: center; gap: 4px; min-height: 28px; &:hover { color: var(--td-brand-color); } }
 }
 .document-workspace__main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .document-workspace__topbar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 24px;
@@ -589,7 +596,8 @@ onBeforeUnmount(() => {
 @media (max-width: 1200px) { .document-workspace__document > :deep(.doc-outline) { display: none; } }
 @media (max-width: 760px) {
   .document-workspace__sidebar { width: 208px; flex-basis: 208px; }
-  .document-workspace__brand { padding: 20px 12px 8px; font-size: var(--app-text-lg); }
+  .document-workspace__identity { padding: 10px 8px; }
+  .document-workspace__tools { padding-left: 8px; padding-right: 8px; }
   .document-workspace__topbar { padding: 0 12px; }
   .document-workspace__platform { font-size: var(--app-text-sm); }
   .document-workspace__home { padding: 24px 16px; }
