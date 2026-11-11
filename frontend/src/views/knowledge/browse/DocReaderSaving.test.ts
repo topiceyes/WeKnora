@@ -84,6 +84,23 @@ test('outline jumps delegate to the active editor without making the document di
   assert.equal(jump.mock.callCount(), 1)
 })
 
+test('section moves route only to an editable idle editor, never to the reading view or a busy document', async t => {
+  const f = await setup(t)
+  const move = t.mock.fn(), request = { index: 1, direction: 'up', token: 2 }
+  f.vm.richEditorRef = { moveSection: move }
+  f.vm.moveSection(request)
+  assert.equal(move.mock.callCount(), 0)
+  f.vm.startEdit()
+  f.vm.moveSection(request)
+  assert.deepEqual(structuredClone(move.mock.calls[0].arguments), [request])
+  f.vm.editorBusy = true; f.vm.moveSection(request)
+  f.vm.editorBusy = false; f.vm.saving = true; f.vm.moveSection(request)
+  f.vm.saving = false; f.vm.editorInvalid = true; f.vm.moveSection(request)
+  f.vm.editorInvalid = false; f.vm.$.props.canEdit = false; f.vm.moveSection(request)
+  assert.equal(move.mock.callCount(), 1)
+  assert.equal(f.updateKnowledgeContent.mock.callCount(), 0)
+})
+
 test('typing during a save survives the response and gets backed up with the new baseline version', async t => {
   const f = await setup(t)
   let settle!: (value: any) => void

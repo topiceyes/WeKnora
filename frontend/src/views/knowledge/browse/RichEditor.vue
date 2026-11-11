@@ -287,10 +287,10 @@ import { MermaidCodeBlock } from './MermaidCodeBlock'
 import { buildBlockMathExtension, buildInlineMathExtension } from './editorMathExtensions'
 import { createEditorToolkit, editorToolkitKey, slashQuery } from './editorToolkit'
 import { createEditorImage } from './editorImage'
-import { createEditorOutline, jumpToEditorHeading } from './editorOutline'
+import { createEditorOutline, jumpToEditorHeading, moveEditorSection } from './editorOutline'
 import { canBlockAction, convertedBlock, createEditorBlocks, runBlockAction, selectedBlockRange, selectedTopLevelBlock, resolveBlockRange, type BlockAction, type BlockKind, type BlockRange } from './editorBlocks'
 import type { Node as PMNode } from '@tiptap/pm/model'
-import type { OutlineItem } from './types'
+import type { OutlineItem, OutlineSectionMove } from './types'
 import { imageAlignment, imageDimension, type ImageAlignment } from './imageLayout'
 import { Callout, Highlight, RichTable, RichTaskItem, TextColor } from './richDocumentExtensions'
 import { RichClipboard } from './editorClipboard'
@@ -675,7 +675,7 @@ const editor = useEditor({
   extensions: [
     createEditorBlocks({ label: t('blockTools.handle'), blocked: () => props.disabled || imageUploading.value,
       open: openBlockMenu, close: () => closeBlockMenu(), limit: () => MessagePlugin.warning(t('blockTools.limit')) }),
-    createEditorOutline(items => emit('outline-change', items), index => emit('outline-active', index)),
+    createEditorOutline(items => emit('outline-change', items), index => emit('outline-active', index), () => props.disabled || imageUploading.value),
     RichClipboard.configure({
       imageLabel: t('knowledgeBase.browse.editor.image'),
       onUnsupportedImage: () => MessagePlugin.warning(t('richWriting.pasteImageNeedsUpload')),
@@ -835,7 +835,11 @@ const confirmLink = () => {
 const imageInputRef = ref<HTMLInputElement | null>(null)
 const pendingUploads = ref(0)
 const imageUploading = computed(() => pendingUploads.value > 0)
-watch(imageUploading, busy => emit('busy-change', busy))
+watch(imageUploading, busy => {
+  emit('busy-change', busy)
+  const e = editor.value
+  if (e && !e.isDestroyed) e.view.dispatch(e.state.tr.setMeta('addToHistory', false))
+})
 let uploadSequence = 0
 let pickerPosition: number | null = null
 const pickImage = () => {
@@ -883,7 +887,11 @@ function snapshot() {
   return { document, content: documentMarkdown(document) }
 }
 function scrollToHeading(index: number) { jumpToEditorHeading(editor.value, index) }
-defineExpose({ snapshot, scrollToHeading })
+function moveSection(request: OutlineSectionMove) {
+  if (props.disabled || imageUploading.value) return
+  moveEditorSection(editor.value, request, () => MessagePlugin.warning(t('blockTools.limit')))
+}
+defineExpose({ snapshot, scrollToHeading, moveSection })
 </script>
 
 <style lang="less">

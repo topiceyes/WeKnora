@@ -1,4 +1,8 @@
 export default {
+  sectionTools: {
+    "up": "하위 제목과 본문을 포함하여 섹션 위로 이동",
+    "down": "하위 제목과 본문을 포함하여 섹션 아래로 이동"
+},
   blockTools: {
     "selected": "선택 영역에 블록 {count}개가 포함됩니다. 작업은 각 블록 전체에 적용됩니다.",
     "actions": "블록 작업",

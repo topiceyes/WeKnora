@@ -1,4 +1,8 @@
 export default {
+  sectionTools: {
+    "up": "章全体を上へ移動（小見出しと本文を含む）",
+    "down": "章全体を下へ移動（小見出しと本文を含む）"
+},
   blockTools: {
     "selected": "選択範囲には {count} 個のブロックが含まれます。操作は各ブロック全体に適用されます。",
     "actions": "ブロック操作",

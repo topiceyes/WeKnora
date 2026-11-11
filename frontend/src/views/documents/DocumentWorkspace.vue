@@ -138,7 +138,7 @@
             @outline-change="newOutlineItems = $event" @outline-active="newOutlineActive = $event" />
         </div>
         <DocOutline :collapsed="newOutlineCollapsed" :items="newOutlineItems" :active-index="newOutlineActive"
-          @update:collapsed="layout.setOutline" @jump="newEditorRef?.scrollToHeading($event)" />
+          @update:collapsed="layout.setOutline" @jump="newEditorRef?.scrollToHeading($event)" @move-section="newEditorRef?.moveSection($event)" />
       </section>
       <section v-else class="document-workspace__document">
         <template v-if="folderView">
@@ -154,7 +154,7 @@
             :can-download="canDownload" @doc-updated="refreshTree"
             @open-linked-document="openLinkedDocument" @outline-change="outlineItems = $event" @outline-active="outlineActive = $event" />
           <DocOutline :collapsed="outlineCollapsed" :items="outlineItems" :active-index="outlineActive" @update:collapsed="layout.setOutline"
-            @jump="reader?.scrollToHeading($event)" />
+            @jump="reader?.scrollToHeading($event)" @move-section="reader?.moveSection($event)" />
         </template>
         <div v-else class="document-workspace__state">
           <t-icon name="file-paste" size="40px" />

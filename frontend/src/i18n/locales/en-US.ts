@@ -1,4 +1,8 @@
 export default {
+  sectionTools: {
+    "up": "Move section up, including subheadings and content",
+    "down": "Move section down, including subheadings and content"
+},
   blockTools: {
     "selected": "The selection covers {count} whole blocks. Actions include all their content.",
     "actions": "Block actions",

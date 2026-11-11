@@ -1,4 +1,8 @@
 export default {
+  sectionTools: {
+    "up": "整章上移（含下級標題與內文）",
+    "down": "整章下移（含下級標題與內文）"
+},
   blockTools: {
     "selected": "選取範圍涉及 {count} 個完整區塊，操作將包含這些區塊的全部內容。",
     "actions": "區塊操作",

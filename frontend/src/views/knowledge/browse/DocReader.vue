@@ -188,7 +188,7 @@ import { formatStringDate } from '@/utils/index'
 import { resolveKnowledgeDownloadFileName } from '../knowledgeDownloadFileName'
 import DocumentPreview from '@/components/document-preview.vue'
 import { browseDocIcon } from './docIcon'
-import type { OutlineItem } from './types'
+import type { OutlineItem, OutlineSectionMove } from './types'
 import { confirmDiscardChanges } from '@/views/documents/unsavedChanges'
 import { useAuthStore } from '@/stores/auth'
 import DraftRecovery from '@/views/documents/DraftRecovery.vue'
@@ -855,7 +855,11 @@ const scrollToHeading = (index: number) => {
   })
 }
 
-defineExpose({ scrollToHeading, requestLeave, hasUnsavedChanges })
+function moveSection(request: OutlineSectionMove) {
+  if (!editing.value || !props.canEdit || manualSaving.value || editorBusy.value || editorInvalid.value) return
+  richEditorRef.value?.moveSection(request)
+}
+defineExpose({ scrollToHeading, moveSection, requestLeave, hasUnsavedChanges })
 </script>
 
 <style scoped lang="less">

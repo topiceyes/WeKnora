@@ -30,21 +30,28 @@
       <div v-if="!items.length" class="doc-outline__empty">
         {{ t('knowledgeBase.browse.emptyOutline') }}
       </div>
-      <div
-        v-for="(item, index) in items"
-        :key="index"
-        class="doc-outline__item"
-        :class="{ active: index === activeIndex }"
-        :style="{ '--outline-level': Math.min(item.level - 1, 5) }"
-        :title="item.text || t('writingTools.emptyHeading')"
-        :aria-current="index === activeIndex ? 'location' : undefined"
-        role="button"
-        tabindex="0"
-        @click="emit('jump', index)"
-        @keydown.enter.self="emit('jump', index)"
-        @keydown.space.prevent.self="emit('jump', index)"
-      >
-        {{ item.text || t('writingTools.emptyHeading') }}
+      <div v-for="(item, index) in items" :key="index" class="doc-outline__row">
+        <div
+          class="doc-outline__item"
+          :class="{ active: index === activeIndex }"
+          :style="{ '--outline-level': Math.min(item.level - 1, 5) }"
+          :title="item.text || t('writingTools.emptyHeading')"
+          :aria-current="index === activeIndex ? 'location' : undefined"
+          role="button"
+          tabindex="0"
+          @click="emit('jump', index)"
+          @keydown.enter.self="emit('jump', index)"
+          @keydown.space.prevent.self="emit('jump', index)"
+        >
+          {{ item.text || t('writingTools.emptyHeading') }}
+        </div>
+        <div v-if="item.section && (item.section.up || item.section.down)" class="doc-outline__actions">
+          <button v-for="direction in sectionDirections" :key="direction" type="button" class="doc-outline__icon-btn"
+            :disabled="!item.section[direction]" :title="t(`sectionTools.${direction}`)" :aria-label="t(`sectionTools.${direction}`)"
+            @mousedown.prevent @click.stop="emit('move-section', { index, direction, token: item.section.token })">
+            <t-icon :name="direction === 'up' ? 'chevron-up' : 'chevron-down'" size="14px" />
+          </button>
+        </div>
       </div>
     </div>
   </aside>
@@ -52,7 +59,9 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import type { OutlineItem } from './types'
+import type { OutlineItem, OutlineSectionMove } from './types'
+
+const sectionDirections = ['up', 'down'] as const
 
 withDefaults(defineProps<{
   items: OutlineItem[]
@@ -65,6 +74,7 @@ withDefaults(defineProps<{
 
 const emit = defineEmits<{
   jump: [index: number]
+  'move-section': [request: OutlineSectionMove]
   'update:collapsed': [collapsed: boolean]
 }>()
 
@@ -153,6 +163,17 @@ const { t } = useI18n()
   color: var(--td-text-color-placeholder);
   text-align: center;
 }
+
+.doc-outline__row { display: flex; align-items: center;
+  .doc-outline__item { flex: 1; min-width: 0; }
+  &:hover .doc-outline__actions, &:focus-within .doc-outline__actions { display: flex; }
+}
+.doc-outline__actions { display: none; flex-shrink: 0;
+  button { width: 22px; height: 24px; }
+  button:disabled { color: var(--td-text-color-disabled); cursor: default; background: transparent; }
+}
+@media (hover: none) { .doc-outline__actions { display: flex; } }
+.doc-outline__icon-btn:focus-visible { outline: 2px solid var(--app-focus-border); outline-offset: -2px; }
 
 .doc-outline__item {
   box-sizing: border-box;
