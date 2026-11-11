@@ -62,6 +62,7 @@ import { useI18n } from 'vue-i18n'
 import { DialogPlugin } from 'tdesign-vue-next'
 import { listDocumentComments, createDocumentComment, mutateDocumentComment, type DocumentComment, type DocumentCommentAnchor } from '@/api/knowledge-base'
 import { formatStringDate } from '@/utils/index'
+import { randomUUID } from '@/utils/randomUUID'
 
 const props = defineProps<{ visible: boolean; knowledgeId: string; contentVersion: number; canEdit: boolean; userId: string; anchor: DocumentCommentAnchor | null }>()
 const emit = defineEmits<{ 'update:visible': [value: boolean]; locate: [anchor: DocumentCommentAnchor] }>()
@@ -109,7 +110,7 @@ async function submit() {
   const id = props.knowledgeId
   const payload = { body: body.value.trim(), parent_id: replyTo.value?.id || '', ...(draftAnchor.value || {}) }
   const fingerprint = JSON.stringify(payload)
-  if (!pending || pending.fingerprint !== fingerprint) pending = { fingerprint, id: crypto.randomUUID() }
+  if (!pending || pending.fingerprint !== fingerprint) pending = { fingerprint, id: randomUUID() }
   busy.value = true
   error.value = ''
   try {

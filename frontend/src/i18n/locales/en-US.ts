@@ -1,4 +1,23 @@
 export default {
+  blockTools: {
+    "selected": "The selection covers {count} whole blocks. Actions include all their content.",
+    "actions": "Block actions",
+    "handle": "Drag to reorder or open block actions",
+    "duplicate": "Duplicate below",
+    "delete": "Delete block",
+    "up": "Move up",
+    "down": "Move down",
+    "convert": "Turn into",
+    "paragraph": "Paragraph",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "heading4": "Heading 4",
+    "bulletList": "Bullet list",
+    "orderedList": "Numbered list",
+    "blockquote": "Quote",
+    "limit": "This action would exceed document limits. Reduce the content and try again. Existing content is unchanged."
+},
   documentNavigation: {
     "root": "Knowledge base root",
     "create": "New folder",

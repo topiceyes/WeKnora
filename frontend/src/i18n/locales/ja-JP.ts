@@ -1,4 +1,23 @@
 export default {
+  blockTools: {
+    "selected": "選択範囲には {count} 個のブロックが含まれます。操作は各ブロック全体に適用されます。",
+    "actions": "ブロック操作",
+    "handle": "ドラッグで並べ替え、クリックで操作",
+    "duplicate": "下に複製",
+    "delete": "ブロックを削除",
+    "up": "上へ移動",
+    "down": "下へ移動",
+    "convert": "変換",
+    "paragraph": "本文",
+    "heading1": "見出し1",
+    "heading2": "見出し2",
+    "heading3": "見出し3",
+    "heading4": "見出し4",
+    "bulletList": "箇条書き",
+    "orderedList": "番号付きリスト",
+    "blockquote": "引用",
+    "limit": "文書の上限を超えるため操作できません。内容を減らしてください。元の内容は変更されていません。"
+},
   documentNavigation: {
     "root": "ナレッジベース直下",
     "create": "フォルダーを作成",

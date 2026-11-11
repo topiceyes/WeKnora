@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import { fixture, flush } from '../../../test-utils/vueFixture.ts'
+import * as uuid from '../../../utils/randomUUID.ts'
 
 async function setup(t: TestContext, overrides: Record<string, unknown> = {}) {
   const f = fixture(t)
@@ -9,7 +10,7 @@ async function setup(t: TestContext, overrides: Record<string, unknown> = {}) {
   const mutate = t.mock.fn(async (..._args: any[]) => ({ success: true }))
   const page = f.component(new URL('./DocumentComments.vue', import.meta.url), {
     'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
-    'tdesign-vue-next': { DialogPlugin: {} }, '@/utils/index': {},
+    'tdesign-vue-next': { DialogPlugin: {} }, '@/utils/index': {}, '@/utils/randomUUID': uuid,
     '@/api/knowledge-base': { listDocumentComments: list, createDocumentComment: create, mutateDocumentComment: mutate, ...overrides },
   }, { visible: true, knowledgeId: 'doc', userId: 'me', canEdit: true, contentVersion: 2, anchor: null })
   await flush()
@@ -90,4 +91,19 @@ test('comment actions do not race an ongoing list refresh', async t => {
   f.vm.loading = true
   await f.vm.mutate({ id: 'root', revision: 1 }, 'resolve')
   assert.equal(f.mutate.mock.callCount(), 0)
+})
+
+test('HTTP origins without crypto.randomUUID can send comments and keep the same UUID for retries', async t => {
+  const getRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto)
+  t.mock.getter(globalThis, 'crypto', () => ({ getRandomValues }) as Crypto)
+  assert.equal(typeof crypto.randomUUID, 'undefined')
+  const calls: any[][] = []
+  const f = await setup(t, { createDocumentComment: async (...args: any[]) => { calls.push(args); throw new Error('offline') } })
+  f.vm.body = 'HTTP comment'
+  await f.vm.submit()
+  await f.vm.submit()
+  assert.equal(calls.length, 2)
+  assert.match(calls[0][1].client_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  assert.equal(calls[0][1].client_id, calls[1][1].client_id)
+  assert.equal(f.vm.error, 'offline')
 })

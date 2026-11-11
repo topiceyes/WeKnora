@@ -1,4 +1,23 @@
 export default {
+  blockTools: {
+    "selected": "선택 영역에 블록 {count}개가 포함됩니다. 작업은 각 블록 전체에 적용됩니다.",
+    "actions": "블록 작업",
+    "handle": "드래그하여 이동하거나 블록 작업 열기",
+    "duplicate": "아래에 복제",
+    "delete": "블록 삭제",
+    "up": "위로 이동",
+    "down": "아래로 이동",
+    "convert": "변환",
+    "paragraph": "본문",
+    "heading1": "제목 1",
+    "heading2": "제목 2",
+    "heading3": "제목 3",
+    "heading4": "제목 4",
+    "bulletList": "글머리 기호 목록",
+    "orderedList": "번호 목록",
+    "blockquote": "인용",
+    "limit": "이 작업은 문서 용량 제한을 초과합니다. 내용을 줄인 후 다시 시도하세요. 기존 내용은 변경되지 않았습니다."
+},
   documentNavigation: {
     "root": "지식베이스 루트",
     "create": "새 폴더",

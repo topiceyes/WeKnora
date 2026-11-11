@@ -152,6 +152,9 @@
       <t-tooltip :content="t('writingTools.findReplace')" placement="bottom">
         <button type="button" class="rich-editor__btn" :class="{ 'is-active': searchOpen }" :aria-label="t('writingTools.findReplace')" @click="openSearch"><t-icon name="search" size="16px" /></button>
       </t-tooltip>
+      <t-tooltip :content="t('blockTools.actions')" placement="bottom">
+        <button type="button" class="rich-editor__btn rich-editor__block-trigger" :aria-label="t('blockTools.actions')" @click="openCurrentBlockMenu"><t-icon name="more" size="16px" /></button>
+      </t-tooltip>
     </div>
 
     <div v-if="isActive('table')" class="rich-editor__context" @mousedown="preserveSelection">
@@ -201,6 +204,16 @@
       <span>{{ t('writingTools.characterCount', { count: characterCount }) }}</span>
     </footer>
     <Teleport to="body">
+      <div v-if="blockMenu && !disabled" ref="blockMenuRef" class="writing-menu writing-menu--blocks" role="dialog" :aria-label="t('blockTools.actions')"
+        :style="{ left: `${blockMenu.left}px`, top: `${blockMenu.top}px` }" @mousedown.prevent @keydown.esc.stop.prevent="closeBlockMenu(true)">
+        <div class="writing-menu__title">{{ t('blockTools.actions') }}<button type="button" :aria-label="t('common.close')" @click="closeBlockMenu(true)">×</button></div>
+        <p v-if="blockCount > 1" class="writing-menu__selection" role="status">{{ t('blockTools.selected', { count: blockCount }) }}</p>
+        <button v-for="action in blockActions" :key="action" type="button" :disabled="!canRunBlock(action)" :class="{ 'is-danger': action === 'delete' }" @click="actOnBlock(action)">{{ t(`blockTools.${action}`) }}</button>
+        <template v-if="blockCount === 1">
+          <div class="writing-menu__title">{{ t('blockTools.convert') }}</div>
+          <button v-for="kind in blockKinds" :key="kind" type="button" :disabled="!canConvertBlock(kind)" @click="actOnBlock(kind)">{{ t(`blockTools.${kind}`) }}</button>
+        </template>
+      </div>
       <div v-if="slashOpen && !disabled" class="writing-menu writing-menu--slash" :style="slashStyle" role="listbox" :aria-label="t('writingTools.insertBlock')" @mousedown.prevent>
         <div class="writing-menu__title">{{ t('writingTools.insertBlock') }} <small>↑ ↓ · Enter · Esc</small></div>
         <button v-for="(item, index) in filteredCommands" :key="item.id" type="button" role="option" :aria-selected="index === slashIndex"
@@ -257,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { computed, defineAsyncComponent, nextTick, reactive, ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
@@ -275,6 +288,8 @@ import { buildBlockMathExtension, buildInlineMathExtension } from './editorMathE
 import { createEditorToolkit, editorToolkitKey, slashQuery } from './editorToolkit'
 import { createEditorImage } from './editorImage'
 import { createEditorOutline, jumpToEditorHeading } from './editorOutline'
+import { canBlockAction, convertedBlock, createEditorBlocks, runBlockAction, selectedBlockRange, selectedTopLevelBlock, resolveBlockRange, type BlockAction, type BlockKind, type BlockRange } from './editorBlocks'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { OutlineItem } from './types'
 import { imageAlignment, imageDimension, type ImageAlignment } from './imageLayout'
 import { Callout, Highlight, RichTable, RichTaskItem, TextColor } from './richDocumentExtensions'
@@ -329,6 +344,53 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const blockMenu = shallowRef<{ range: BlockRange; doc: PMNode; left: number; top: number } | null>(null)
+const blockCount = computed(() => blockMenu.value ? resolveBlockRange(blockMenu.value.doc, blockMenu.value.range)?.blocks.length || 0 : 0)
+const blockMenuRef = ref<HTMLElement | null>(null)
+const blockActions: BlockAction[] = ['duplicate', 'up', 'down', 'delete']
+const blockKinds: BlockKind[] = ['paragraph', 'heading1', 'heading2', 'heading3', 'heading4', 'bulletList', 'orderedList', 'blockquote']
+function openBlockMenu(pos: number, rect: DOMRect) {
+  const e = editor.value
+  if (!e || props.disabled || imageUploading.value || e.view.composing) return
+  blockMenu.value = { range: selectedBlockRange(e.state, pos), doc: e.state.doc,
+    left: Math.max(8, Math.min(rect.right + 6, window.innerWidth - 232)), top: Math.max(8, Math.min(rect.top, window.innerHeight - 430)) }
+  void nextTick(() => {
+    const menu = blockMenu.value, element = blockMenuRef.value
+    if (!menu || !element) return
+    const bounds = element.getBoundingClientRect()
+    blockMenu.value = { ...menu, left: Math.max(8, Math.min(menu.left, window.innerWidth - bounds.width - 8)),
+      top: Math.max(8, Math.min(menu.top, window.innerHeight - bounds.height - 8)) }
+    element.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true })
+  })
+}
+function openCurrentBlockMenu(event: MouseEvent) {
+  if (editor.value) openBlockMenu(selectedTopLevelBlock(editor.value.state), (event.currentTarget as HTMLElement).getBoundingClientRect())
+}
+function closeBlockMenu(focus = false) { blockMenu.value = null; if (focus) editor.value?.view.focus() }
+function blockContext() {
+  const e = editor.value, menu = blockMenu.value
+  return e && menu && !props.disabled && !imageUploading.value && !e.view.composing && e.state.doc === menu.doc ? { e, menu } : null
+}
+function canRunBlock(action: BlockAction) {
+  const value = blockContext()
+  return !!value && canBlockAction(value.e.state, value.menu.range, action)
+}
+function canConvertBlock(kind: BlockKind) {
+  const value = blockContext(), node = value?.e.state.doc.nodeAt(value.menu.range.from)
+  return !!(blockCount.value === 1 && value && node && convertedBlock(node, kind, value.e.schema))
+}
+function actOnBlock(action: BlockAction | BlockKind) {
+  const value = blockContext()
+  if (value) runBlockAction(value.e.view, value.menu.range, action, () => MessagePlugin.warning(t('blockTools.limit')))
+  closeBlockMenu()
+}
+const dismissBlockMenu = (event: PointerEvent) => {
+  if (!(event.target as HTMLElement)?.closest?.('.writing-menu--blocks, .editor-block-handle, .rich-editor__block-trigger')) closeBlockMenu()
+}
+const hideBlockMenu = (event: Event) => {
+  if (event.type === 'scroll' && event.target instanceof Node && blockMenuRef.value?.contains(event.target)) return
+  closeBlockMenu()
+}
 
 // ---------- 公式 / 图表 ----------
 
@@ -589,10 +651,16 @@ function replaceAll() {
   if (tr.docChanged) e.view.dispatch(tr)
 }
 onMounted(() => {
+  window.addEventListener('pointerdown', dismissBlockMenu)
+  window.addEventListener('resize', hideBlockMenu)
+  window.addEventListener('scroll', hideBlockMenu, true)
   window.addEventListener('resize', scheduleMenus)
   window.addEventListener('scroll', scheduleMenus, true)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', dismissBlockMenu)
+  window.removeEventListener('resize', hideBlockMenu)
+  window.removeEventListener('scroll', hideBlockMenu, true)
   disposed = true
   if (menuFrame) cancelAnimationFrame(menuFrame)
   window.removeEventListener('resize', scheduleMenus)
@@ -605,6 +673,8 @@ const editor = useEditor({
   enableContentCheck: true,
   onContentError: () => { emit('content-error'); MessagePlugin.error(t('richWriting.unsupportedDocument')) },
   extensions: [
+    createEditorBlocks({ label: t('blockTools.handle'), blocked: () => props.disabled || imageUploading.value,
+      open: openBlockMenu, close: () => closeBlockMenu(), limit: () => MessagePlugin.warning(t('blockTools.limit')) }),
     createEditorOutline(items => emit('outline-change', items), index => emit('outline-active', index)),
     RichClipboard.configure({
       imageLabel: t('knowledgeBase.browse.editor.image'),
@@ -833,6 +903,13 @@ defineExpose({ snapshot, scrollToHeading })
 }
 .writing-menu__title { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; font-size: var(--app-text-sm); color: var(--td-text-color-secondary); }
 .writing-menu--bubble { display: flex; gap: 3px; button { display: grid; place-items: center; height: 30px; width: 32px; } }
+.writing-menu--blocks { box-sizing: border-box; width: 220px; max-width: calc(100vw - 16px); max-height: min(420px, 70vh); overflow-y: auto;
+  .writing-menu__selection { margin: 0; padding: 4px 10px 8px; color: var(--td-text-color-secondary); font-size: var(--app-text-sm); }
+  > button { display: block; width: 100%; padding: 7px 12px; text-align: left; }
+  button:disabled { color: var(--td-text-color-disabled); cursor: default; }
+  button.is-danger { color: var(--td-error-color); }
+  button:focus-visible { outline: 2px solid var(--app-focus-border); outline-offset: -2px; }
+}
 </style>
 
 <style scoped lang="less">
@@ -863,6 +940,20 @@ defineExpose({ snapshot, scrollToHeading })
   border-top: 1px solid var(--td-component-stroke); color: var(--td-text-color-placeholder); font-size: var(--app-text-xs);
 }
 .rich-editor__content :deep(.ProseMirror) {
+  position: relative;
+  .editor-block-anchor { display: block; height: 0; position: relative; line-height: 0; user-select: none; }
+  .editor-block-range { outline: 1px solid var(--td-brand-color); outline-offset: 2px; }
+  .editor-block-handle { position: absolute; left: -26px; top: 3px; width: 20px; height: 24px; padding: 0; border: 0;
+    background: var(--td-bg-color-container); color: var(--td-text-color-secondary); border-radius: var(--app-radius-xs); opacity: 0; cursor: grab; font-size: var(--app-text-2xl);
+    &:focus-visible { outline: 2px solid var(--app-focus-border); opacity: 1; }
+  }
+  .editor-block-anchor:hover .editor-block-handle, .editor-block-anchor:focus-within .editor-block-handle,
+  .editor-block-anchor:has(+ :hover) .editor-block-handle, .editor-block-anchor:has(+ .ProseMirror-selectednode) .editor-block-handle { opacity: 1; }
+  .editor-block-drop { display: block; position: relative; height: 0; pointer-events: none;
+    &::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 2px solid var(--td-brand-color); z-index: 1; }
+  }
+  &[contenteditable='false'] .editor-block-anchor { display: none; }
+  @media (hover: none) { .editor-block-handle { opacity: 1; } }
   p.is-editor-empty::before { content: attr(data-placeholder); float: left; height: 0; color: var(--td-text-color-placeholder); pointer-events: none; }
   .editor-search-match { background: var(--td-warning-color-light); &.is-current { outline: 2px solid var(--td-warning-color); } }
   .editor-image-uploading { display: inline-block; padding: 12px; border: 1px dashed var(--td-component-stroke); color: var(--td-text-color-secondary); }
@@ -976,7 +1067,7 @@ defineExpose({ snapshot, scrollToHeading })
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 20px 40px;
+  padding: 16px 20px 40px 32px;
 
   :deep(.ProseMirror) {
     outline: none;

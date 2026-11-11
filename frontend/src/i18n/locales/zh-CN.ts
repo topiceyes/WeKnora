@@ -1,4 +1,23 @@
 export default {
+  blockTools: {
+    "selected": "选区涉及 {count} 个完整块，操作将包含这些块的全部内容。",
+    "actions": "块操作",
+    "handle": "拖动排序或打开块操作",
+    "duplicate": "复制到下方",
+    "delete": "删除块",
+    "up": "上移一块",
+    "down": "下移一块",
+    "convert": "转换为",
+    "paragraph": "正文",
+    "heading1": "一级标题",
+    "heading2": "二级标题",
+    "heading3": "三级标题",
+    "heading4": "四级标题",
+    "bulletList": "无序列表",
+    "orderedList": "有序列表",
+    "blockquote": "引用",
+    "limit": "操作会超出文档容量限制，请减少内容后重试。原内容未改动。"
+},
   documentNavigation: {
     "root": "知识库根目录",
     "create": "新建文件夹",

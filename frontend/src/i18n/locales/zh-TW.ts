@@ -1,4 +1,23 @@
 export default {
+  blockTools: {
+    "selected": "選取範圍涉及 {count} 個完整區塊，操作將包含這些區塊的全部內容。",
+    "actions": "區塊操作",
+    "handle": "拖曳排序或開啟區塊操作",
+    "duplicate": "複製到下方",
+    "delete": "刪除區塊",
+    "up": "上移一個區塊",
+    "down": "下移一個區塊",
+    "convert": "轉換為",
+    "paragraph": "內文",
+    "heading1": "一級標題",
+    "heading2": "二級標題",
+    "heading3": "三級標題",
+    "heading4": "四級標題",
+    "bulletList": "無序清單",
+    "orderedList": "有序清單",
+    "blockquote": "引用",
+    "limit": "操作將超出文件容量限制，請減少內容後重試。原內容未變更。"
+},
   documentNavigation: {
     "root": "知識庫根目錄",
     "create": "新增資料夾",

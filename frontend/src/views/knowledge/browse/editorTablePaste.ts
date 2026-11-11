@@ -3,6 +3,7 @@ import { TextSelection, type Transaction } from '@tiptap/pm/state'
 import { closeHistory } from '@tiptap/pm/history'
 import { CellSelection, TableMap, cellAround, handlePaste, isInTable, selectedRect } from '@tiptap/pm/tables'
 import type { EditorView } from '@tiptap/pm/view'
+import { withinDocumentLimits } from './editorDocumentLimits'
 
 export type TablePasteProblem = 'selection' | 'merged' | 'limit'
 
@@ -22,29 +23,6 @@ function tableSize(slice: Slice, schema: EditorView['state']['schema']) {
   else return null
   const map = TableMap.get(table)
   return { width: map.width, height: map.height }
-}
-
-function withinLimits(doc: PMNode) {
-  let count = 0, valid = true
-  const visit = (node: PMNode, depth: number) => {
-    if (!valid) return
-    if (++count > 20_000 || depth > 64) { valid = false; return }
-    if (['cell', 'header_cell'].includes(node.type.spec.tableRole) && (node.attrs.colspan > 100 || node.attrs.rowspan > 100)) {
-      valid = false; return
-    }
-    if (node.type.spec.tableRole === 'table') {
-      const map = TableMap.get(node)
-      // The table plugin reconciles column widths in its appended transaction.
-      if (map.width > 100 || map.height > 500 || map.problems?.some(problem => problem.type !== 'colwidth mismatch')) { valid = false; return }
-    }
-    node.forEach(child => visit(child, depth + 1))
-  }
-  visit(doc, 0)
-  if (!valid) return false
-  // Go's JSON encoder also escapes HTML-significant characters.
-  const json = JSON.stringify({ schema_version: 1, content: doc.toJSON() })
-    .replace(/[<>&\u2028\u2029]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'))
-  return new TextEncoder().encode(json).length <= (2 << 20)
 }
 
 /** Use the table editor's atomic paste, guarded against clipping and unsavable results. */
@@ -107,7 +85,7 @@ export function pasteTableCells(view: EditorView, event: ClipboardEvent, slice: 
       })
     }
   }
-  if (!withinLimits(tr.doc)) { reject('limit'); return true }
+  if (!withinDocumentLimits(tr.doc, true)) { reject('limit'); return true }
   view.dispatch(closeHistory(tr).setMeta('paste', true).setMeta('uiEvent', 'paste').scrollIntoView())
   // A subsequent keystroke must not become part of the paste's undo group.
   view.dispatch(closeHistory(view.state.tr))
