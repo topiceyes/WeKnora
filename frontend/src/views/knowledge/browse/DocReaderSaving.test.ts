@@ -7,6 +7,7 @@ import * as anchors from './commentAnchors.ts'
 import * as documentLinks from '../../documents/documentLinks.ts'
 import { fixture, flush } from '../../../test-utils/vueFixture.ts'
 import * as drafts from '../../documents/documentDrafts.ts'
+import * as readCache from './documentReadCache.ts'
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>()
@@ -24,6 +25,8 @@ async function setup(t: TestContext, storage = memoryStorage()) {
   const source = { id: 'doc', title: 'Title', type: 'manual', parse_status: 'draft',
     metadata: { content: '# Original', version: 2 } }
   const getKnowledgeDetails = t.mock.fn(async (_id: string): Promise<any> => ({ success: true, document_schema_version: 1, data: structuredClone(source) }))
+  const listAllKnowledgeChunks = t.mock.fn(async (_id: string): Promise<any> => ({ data: [], total: 0 }))
+  const documentHTML = t.mock.fn(structured.documentHTML)
   const updateKnowledgeContent = t.mock.fn(async (_id: string, payload: any): Promise<any> => ({ success: true, data: {
     ...source, title: payload.title, metadata: { content: payload.content, version: payload.base_version + 1, ...(payload.document ? { document: payload.document } : {}) },
   } }))
@@ -37,16 +40,17 @@ async function setup(t: TestContext, storage = memoryStorage()) {
     '@/views/documents/useDocumentDraft': draftHook,
     '@/views/documents/useDocumentAutosave': autosaveHook,
     '@/views/documents/unsavedChanges': { confirmDiscardChanges },
-    '@/api/knowledge-base': { getKnowledgeDetails, updateKnowledgeContent },
-    '@/utils/mergedContent': { mergeChunks: () => '' },
+    '@/api/knowledge-base': { getKnowledgeDetails, listAllKnowledgeChunks, updateKnowledgeContent },
+    './documentReadCache': readCache,
+    '@/utils/mergedContent': { mergeChunks: (chunks: any[]) => chunks.map(chunk => chunk.content).join('\n') },
     '@/utils/markdownPipeline': { processMarkdown: (content: string) => content },
-    '@/utils/security': { sanitizeHTML: (html: string) => html }, './structuredDocument': structured, '@/utils/mermaidViewer': {}, '@/utils/mermaidShared': {},
+    '@/utils/security': { sanitizeHTML: (html: string) => html }, './structuredDocument': { ...structured, documentHTML }, '@/utils/mermaidViewer': {}, '@/utils/mermaidShared': {},
     '@/utils/filePreview': {}, '@/utils/index': { formatStringDate: () => '' },
     '../knowledgeDownloadFileName': {}, './docIcon': {}, './richDocument.less': {}, './commentAnchors': anchors, '@/views/documents/documentLinks': documentLinks,
   }, { doc: { ...source, file_type: 'md', file_name: 'Title.md', folder_path: '', updated_at: '' },
     kbId: 'kb', workspace: true, canEdit: true, onOpenLinkedDocument: openLinkedDocument })
   await flush()
-  return { ...f, ...page, source, getKnowledgeDetails, updateKnowledgeContent, confirmDiscardChanges, error, openLinkedDocument }
+  return { ...f, ...page, source, getKnowledgeDetails, listAllKnowledgeChunks, documentHTML, updateKnowledgeContent, confirmDiscardChanges, error, openLinkedDocument }
 }
 
 test('automatic persistence stays in edit mode and saves against the current version', async t => {
@@ -67,6 +71,100 @@ test('automatic persistence stays in edit mode and saves against the current ver
   await f.vm.saveEdit()
   assert.equal(f.updateKnowledgeContent.mock.callCount(), 1)
   assert.equal(f.vm.editing, false)
+})
+
+test('hover prefetch and click share one request; revisiting a recent document is synchronous', async t => {
+  const f = await setup(t)
+  const original = { ...f.vm.$.props.doc }
+  const next = { ...original, id: 'next', title: 'Next' }
+  let resolve!: (result: any) => void
+  f.getKnowledgeDetails.mock.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  f.vm.prefetchDocument(next)
+  t.mock.timers.tick(80); await flush()
+  assert.equal(f.getKnowledgeDetails.mock.callCount(), 2)
+  f.vm.$.props.doc = next; await flush()
+  assert.equal(f.vm.loading, true)
+  assert.equal(f.getKnowledgeDetails.mock.callCount(), 2)
+  resolve({ success: true, document_schema_version: 1, data: { ...f.source, id: 'next', metadata: { content: '# Next' } } })
+  await flush()
+  assert.equal(f.vm.markdown, '# Next')
+  f.vm.$.props.doc = original
+  await vue.nextTick()
+  assert.equal(f.vm.loading, false)
+  assert.equal(f.vm.markdown, '# Original')
+  assert.equal(f.getKnowledgeDetails.mock.callCount(), 2)
+})
+
+test('save and history restore invalidate cached content and restoration fetches only once', async t => {
+  const f = await setup(t)
+  const original = { ...f.vm.$.props.doc }
+  f.vm.startEdit(); f.vm.editContent = '# Saved'; await f.vm.saveEdit()
+  f.getKnowledgeDetails.mock.mockImplementation(async id => ({ success: true, data: {
+    ...f.source, id, metadata: { content: id === 'doc' ? '# Server latest' : '# Other' },
+  } }))
+  f.vm.$.props.doc = { ...original, id: 'other' }; await flush()
+  f.vm.$.props.doc = original; await flush()
+  assert.equal(f.vm.markdown, '# Server latest')
+  const before = f.getKnowledgeDetails.mock.callCount()
+  await f.vm.onRestored()
+  assert.equal(f.getKnowledgeDetails.mock.callCount(), before + 1)
+})
+
+test('late reads cannot overwrite the selected document or repopulate a switched knowledge base', async t => {
+  const f = await setup(t)
+  const original = { ...f.vm.$.props.doc }
+  let resolve!: (result: any) => void
+  f.getKnowledgeDetails.mock.mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  f.vm.$.props.doc = { ...original, id: 'slow' }; await flush()
+  f.vm.$.props.doc = original; await flush()
+  resolve({ success: true, data: { ...f.source, id: 'slow', metadata: { content: '# Stale' } } })
+  await flush(); assert.equal(f.vm.markdown, '# Original')
+  const before = f.getKnowledgeDetails.mock.callCount()
+  f.vm.$.props.kbId = 'another'; await flush()
+  assert.equal(f.getKnowledgeDetails.mock.callCount(), before + 1)
+})
+
+test('failed prefetch is retried by foreground selection without hiding the error', async t => {
+  const f = await setup(t)
+  const next = { ...f.vm.$.props.doc, id: 'denied' }
+  f.getKnowledgeDetails.mock.mockImplementationOnce(async () => { throw new Error('forbidden') })
+  f.vm.prefetchDocument(next); t.mock.timers.tick(80); await flush()
+  assert.equal(f.vm.loadError, '')
+  f.getKnowledgeDetails.mock.mockImplementationOnce(async () => { throw new Error('forbidden') })
+  f.vm.$.props.doc = next; await flush()
+  assert.equal(f.vm.markdown, '')
+  assert.equal(f.vm.loadError, 'forbidden')
+  await f.vm.loadContent()
+  assert.equal(f.vm.loadError, '')
+})
+
+test('structured rendering is evaluated once and the template reuses the validated HTML', async t => {
+  const f = await setup(t)
+  f.getKnowledgeDetails.mock.mockImplementationOnce(async () => ({ success: true, data: { ...f.source,
+    metadata: { content: 'Structured text', document: { schema_version: 1, content: { type: 'doc', content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Structured text' }] },
+    ] } } },
+  } }))
+  await f.vm.loadContent()
+  assert.equal(f.vm.renderedHtml, '<p>Structured text</p>')
+  assert.equal(f.vm.renderedHtml, '<p>Structured text</p>')
+  assert.equal(f.documentHTML.mock.callCount(), 1)
+})
+
+test('file prefetch includes the full chunk body but edited files use their canonical metadata', async t => {
+  const f = await setup(t)
+  const original = { ...f.vm.$.props.doc }
+  const file = { ...original, id: 'file', type: 'file', parse_status: 'completed' }
+  f.getKnowledgeDetails.mock.mockImplementationOnce(async () => ({ success: true, data: { ...file, metadata: {} } }))
+  f.listAllKnowledgeChunks.mock.mockImplementationOnce(async () => ({ data: [{ content: 'chunk 1' }, { content: 'chunk 2' }] }))
+  f.vm.prefetchDocument(file); t.mock.timers.tick(80); await flush()
+  f.vm.$.props.doc = file; await flush()
+  assert.equal(f.vm.markdown, 'chunk 1\nchunk 2')
+  assert.equal(f.listAllKnowledgeChunks.mock.callCount(), 1)
+  f.getKnowledgeDetails.mock.mockImplementationOnce(async () => ({ success: true, data: { ...file, metadata: { content: 'Edited file' } } }))
+  await f.vm.loadContent()
+  assert.equal(f.vm.markdown, 'Edited file')
+  assert.equal(f.listAllKnowledgeChunks.mock.callCount(), 1)
 })
 
 test('outline jumps delegate to the active editor without making the document dirty or triggering saves', async t => {

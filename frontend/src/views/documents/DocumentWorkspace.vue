@@ -36,7 +36,7 @@
         </div>
         <BrowseDocTree ref="treeRef" :scope="kbId" :tree="filteredTree" :selected-doc-id="selectedDoc?.id" :loading="loading" compact-actions
           :manage="canOrganize && treeFilter === 'all'" :selected-folder="currentFolder" :selected-ids="selectedIds" :sort-by="sortBy" :busy="navigationBusy"
-          :show-processing-status="false" @select="selectDocument" @refresh="loadBook"
+          :show-processing-status="false" @select="selectDocument" @prefetch="prefetchDocument" @refresh="loadBook"
           @folder-select="selectFolder" @toggle-selection="toggleSelection" @action="onTreeAction" @drop="(source, target, position) => navigation?.drop(source, target, position)" />
       </template>
       <nav v-else class="document-workspace__navigation" :aria-label="t('documentWorkspace.title')">
@@ -366,6 +366,10 @@ function openLinkedDocument(id: string) {
 function selectDocument(id: string) {
   if (navigationBusy.value) return
   void router.push({ name: 'documentWorkspace', params: { kbId: kbId.value }, query: { doc: id } })
+}
+function prefetchDocument(id: string) {
+  const doc = tree.value?.documents.find(doc => doc.id === id)
+  if (doc && !navigationBusy.value && !creating.value) reader.value?.prefetchDocument(doc)
 }
 function selectFolder(path: string) {
   if (navigationBusy.value) return

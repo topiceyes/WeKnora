@@ -200,6 +200,7 @@ import './richDocument.less'
 import { linkedDocumentID } from '@/views/documents/documentLinks'
 import { captureCommentQuote, locateCommentQuote, selectCommentQuote } from './commentAnchors'
 import type { DocumentCommentAnchor } from '@/api/knowledge-base'
+import { createDocumentReadCache } from './documentReadCache'
 
 // 编辑器与版本历史是重依赖（tiptap / diff），首次使用时才拉 chunk，
 // KB 首屏不背这个包。
@@ -353,9 +354,44 @@ const isInFlightStatus = (status?: string) =>
 
 let loadGeneration = 0
 
-const loadContent = async () => {
+const readCache = createDocumentReadCache(async (key: string) => {
+  const [, , id, type, parseStatus] = JSON.parse(key)
+  const result: any = await getKnowledgeDetails(id)
+  if (!result?.success || !result.data) throw new Error(result?.message || t('knowledgeBase.browse.loadFailed'))
+  const data = result.data
+  const metadata = parseMetadataObject(data.metadata)
+  let content = metadata?.content || ''
+  const status = data.parse_status || parseStatus
+  if (!content && (data.type || type) !== 'manual' && !isInFlightStatus(status) && status !== 'failed') {
+    content = mergeChunks((await listAllKnowledgeChunks(id)).data)
+  }
+  return { data, content, schema: result.document_schema_version || 0 }
+})
+const readKey = (doc: KnowledgeTreeDocument) => JSON.stringify([props.kbId, doc.updated_at || '', doc.id, doc.type, doc.parse_status])
+let prefetchTimer: ReturnType<typeof setTimeout> | undefined
+function prefetchDocument(doc: KnowledgeTreeDocument) {
+  clearTimeout(prefetchTimer)
+  if (doc.id === props.doc?.id || editing.value || !props.kbId) return
+  const key = readKey(doc)
+  prefetchTimer = setTimeout(() => {
+    // Rejections belong to the foreground load/retry UI, never to speculative navigation.
+    void readCache.load(key, true)?.catch(() => {})
+  }, 80)
+}
+watch(() => [props.kbId, auth.user?.id, auth.effectiveTenantId], () => {
+  clearTimeout(prefetchTimer)
+  readCache.clear()
+  ++loadGeneration
+  markdown.value = ''
+  structuredDocument.value = null
+  detail.value = null
+  if (props.doc) void loadContent()
+}, { flush: 'sync' })
+
+const loadContent = async (useCache = false) => {
   const doc = props.doc
   if (!doc) return
+  if (useCache !== true) readCache.clear()
   const generation = ++loadGeneration
   loading.value = true
   loadError.value = ''
@@ -364,36 +400,20 @@ const loadContent = async () => {
   structuredDocument.value = null
   detail.value = null
   try {
-    const result: any = await getKnowledgeDetails(doc.id)
+    const key = readKey(doc)
+    const result = readCache.peek(key) ?? await readCache.load(key)!
     if (generation !== loadGeneration) return
-    const data = result?.data
-    if (!result?.success || !data) {
-      throw new Error(result?.message || t('knowledgeBase.browse.loadFailed'))
-    }
+    const data = result.data
     detail.value = data
-    documentSchemaVersion.value = result.document_schema_version || 0
+    documentSchemaVersion.value = result.schema
     structuredDocument.value = readStructuredDocument(parseMetadataObject(data.metadata)?.document)
-    if (structuredDocument.value) documentHTML(structuredDocument.value, processMarkdown)
-    // 编辑内容（metadata.content）优先：manual 文档天然如此，file/url 文档
-    // 编辑后也以它为准；未编辑的 file/url 仍回退到分片拼接。
-    const edited = parseMetadataObject(data.metadata)?.content || ''
-    if (edited) {
-      markdown.value = edited
-    } else if ((data.type || doc.type) === 'manual') {
-      markdown.value = ''
-    } else {
-      const status = data.parse_status || doc.parse_status
-      if (isInFlightStatus(status) || status === 'failed') {
-        markdown.value = ''
-      } else {
-        const chunks = await listAllKnowledgeChunks(doc.id)
-        if (generation !== loadGeneration) return
-        markdown.value = mergeChunks(chunks.data)
-      }
-    }
+    markdown.value = result.content
+    // Validate once through the computed renderer; the template reuses its result.
+    if (structuredDocument.value) void renderedHtml.value
   } catch (error: any) {
     if (generation !== loadGeneration) return
     console.error('[DocReader] load failed', error)
+    readCache.clear()
     loadError.value = error?.message || t('knowledgeBase.browse.loadFailed')
   } finally {
     if (generation === loadGeneration) {
@@ -607,6 +627,7 @@ const saveEditInner = async (withCas: boolean, automatic = false): Promise<Autos
     if (generation !== loadGeneration) return 'blocked'
     const data = result?.data
     if (!result?.success || !data) throw new Error(result?.message || t('knowledgeBase.browse.saveFailed'))
+    readCache.clear()
     const canonicalDocument = readStructuredDocument(parseMetadataObject(data.metadata)?.document)
     if (savedDocument && !canonicalDocument) throw new Error(t('richWriting.serverUpgradeRequired'))
     detail.value = data
@@ -663,14 +684,7 @@ const saveEdit = async () => {
 
 // 恢复历史版本后：刷新详情与正文渲染，并通知父级刷新文档树（标题/标记可能变化）。
 const onRestored = async () => {
-  const doc = props.doc
-  if (!doc) return
-  try {
-    const resp: any = await getKnowledgeDetails(doc.id)
-    if (resp?.success && resp.data) detail.value = resp.data
-  } catch {
-    // loadContent 仍能按现有 detail 渲染
-  }
+  if (!props.doc) return
   await loadContent()
   emit('doc-updated')
 }
@@ -687,6 +701,7 @@ const relearn = async () => {
   const doc = props.doc
   if (!doc || relearning.value) return
   relearning.value = true
+  readCache.clear()
   try {
     const result: any = await relearnKnowledge(doc.id)
     if (!result?.success) {
@@ -718,6 +733,8 @@ const relearn = async () => {
 }
 
 onBeforeUnmount(() => {
+  clearTimeout(prefetchTimer)
+  readCache.clear()
   localDraft.flush()
   loadGeneration++
   window.removeEventListener('beforeunload', beforeUnload)
@@ -728,6 +745,8 @@ onBeforeUnmount(() => {
 // 声明之后——immediate 首次执行时 const 尚在 TDZ，提前注册会抛
 // ReferenceError 并吞掉 loadContent。
 watch(() => props.doc?.id, () => {
+  ++loadGeneration
+  clearTimeout(prefetchTimer)
   commentsOpen.value = false
   selectedQuote.value = null
   commentAnchor.value = null
@@ -737,7 +756,7 @@ watch(() => props.doc?.id, () => {
   emit('outline-change', [])
   emit('outline-active', -1)
   if (scrollRef.value) scrollRef.value.scrollTop = 0
-  loadContent()
+  void loadContent(true)
 }, { immediate: true })
 
 const downloadFile = () => {
@@ -859,7 +878,7 @@ function moveSection(request: OutlineSectionMove) {
   if (!editing.value || !props.canEdit || manualSaving.value || editorBusy.value || editorInvalid.value) return
   richEditorRef.value?.moveSection(request)
 }
-defineExpose({ scrollToHeading, moveSection, requestLeave, hasUnsavedChanges })
+defineExpose({ scrollToHeading, moveSection, requestLeave, hasUnsavedChanges, prefetchDocument })
 </script>
 
 <style scoped lang="less">

@@ -49,6 +49,8 @@
           @dragstart="dragStart($event, row)" @dragend="dropTarget = ''"
           @dragover="dragOver($event, row)" @dragleave="dropTarget = ''" @drop.prevent="dropAt($event, row)"
           @click="onRowClick(row)"
+          @pointerenter="row.kind === 'doc' && emit('prefetch', row.id)"
+          @focus="row.kind === 'doc' && emit('prefetch', row.id)"
           @keydown.enter.self="onRowClick(row)"
           @keydown.space.prevent.self="onRowClick(row)"
         >
@@ -140,6 +142,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   select: [docId: string]
+  prefetch: [docId: string]
   refresh: []
   'folder-select': [path: string]
   'toggle-selection': [id: string]

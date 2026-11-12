@@ -5,6 +5,7 @@
       :selected-doc-id="selectedDocId"
       :loading="loading"
       @select="selectDoc"
+      @prefetch="prefetchDocument"
       @refresh="loadTree"
     />
     <DocReader
@@ -70,6 +71,10 @@ const selectedDoc = computed<KnowledgeTreeDocument | null>(() =>
 const selectDoc = (docId: string) => {
   if (docId === selectedDocId.value) return
   selectedDocId.value = docId
+}
+function prefetchDocument(id: string) {
+  const doc = tree.value?.documents.find(doc => doc.id === id)
+  if (doc) readerRef.value?.prefetchDocument(doc)
 }
 
 watch(selectedDocId, (docId) => {
