@@ -341,6 +341,7 @@ watch(
 </script>
 
 <style scoped lang="less">
+@import './documentReading.less';
 .version-history {
   display: flex;
   flex-direction: column;
@@ -436,10 +437,6 @@ watch(
   min-height: 0;
   overflow-y: auto;
   padding-top: 12px;
-}
-
-.version-history__preview-body {
-  font-size: var(--app-text-sm);
 }
 
 .version-history__diff {

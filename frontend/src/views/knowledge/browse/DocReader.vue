@@ -863,7 +863,7 @@ defineExpose({ scrollToHeading, moveSection, requestLeave, hasUnsavedChanges })
 </script>
 
 <style scoped lang="less">
-@import '@/components/css/markdown.less';
+@import './documentReading.less';
 
 .doc-reader {
   flex: 1;
